@@ -447,12 +447,8 @@ export function Add({ world, hidden }) {
           .add-orphans-head {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-end;
             gap: 0.75rem;
-          }
-          .add-orphans-title {
-            font-weight: 500;
-            font-size: 0.9rem;
           }
           .add-orphans-clean {
             border-radius: ${theme.radiusSmall};
@@ -735,14 +731,13 @@ export function Add({ world, hidden }) {
             className={cls('add-tab', { active: activeTab === ADD_TAB_RECYCLE })}
             onClick={() => setActiveTab(ADD_TAB_RECYCLE)}
           >
-            Trash
+            {`Trash${orphans.length ? ` (${orphans.length})` : ''}`}
           </button>
         </div>
         <div className='add-content noscrollbar'>
           {activeTab === ADD_TAB_RECYCLE ? (
             <div className='add-orphans'>
               <div className='add-orphans-head'>
-                <div className='add-orphans-title'>Trash ({orphans.length})</div>
                 <button
                   type='button'
                   className='add-orphans-clean'
