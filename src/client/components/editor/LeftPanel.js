@@ -57,7 +57,7 @@ export function LeftPanel({ world }) {
             <WorldInline world={world} />
           </div>
         </CollapsibleSection>
-        <CollapsibleSection label='Add' defaultOpen>
+        <CollapsibleSection label='Library' defaultOpen>
           <div className='left-panel-add noscrollbar'>
             <AddInline world={world} />
           </div>

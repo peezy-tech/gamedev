@@ -183,7 +183,7 @@ export function Sidebar({ world, ui, onOpenMenu }) {
                     })}
                     onClick={() => selectPane('add')}
                   >
-                    Add
+                    Library
                   </div>
                   {ui.app && (
                     <>

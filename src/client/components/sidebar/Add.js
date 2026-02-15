@@ -1,6 +1,6 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CirclePlusIcon, SearchIcon, Trash2Icon } from 'lucide-react'
+import { CirclePlusIcon, SearchIcon, SquareCheckBigIcon, SquareIcon, Trash2Icon } from 'lucide-react'
 import { cls } from '../cls'
 import { theme } from '../theme'
 import { sortBy } from 'lodash-es'
@@ -19,6 +19,13 @@ const CLIENT_BUILTIN_TEMPLATES = BUILTIN_APP_TEMPLATES.map(template => ({
   scene: false,
 }))
 const LEGACY_BUILTIN_TEMPLATE_IDS = new Set(CLIENT_BUILTIN_TEMPLATES.map(template => template.id))
+const ADD_TAB_BUILTINS = 'builtins'
+const ADD_TAB_BLUEPRINTS = 'blueprints'
+const ADD_TAB_RECYCLE = 'recycle'
+
+function getScriptKey(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
 
 function normalizeBlueprintName(value) {
   if (typeof value !== 'string') return ''
@@ -29,6 +36,7 @@ export function Add({ world, hidden }) {
   const span = 2
   const gap = '0.5rem'
   const [search, setSearch] = useState('')
+  const [activeTab, setActiveTab] = useState(ADD_TAB_BUILTINS)
   const [trashMode, setTrashMode] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
@@ -36,9 +44,22 @@ export function Add({ world, hidden }) {
   const [creating, setCreating] = useState(false)
   const createNameRef = useRef(null)
   const isBuiltinTemplate = blueprint => blueprint?.__builtinTemplate === true
-  const buildTemplates = () => {
+  const buildTemplateSets = () => {
+    const builtinScriptKeys = new Set(
+      CLIENT_BUILTIN_TEMPLATES.map(template => getScriptKey(template?.script)).filter(Boolean)
+    )
+    const used = new Set()
+    for (const entity of world.entities.items.values()) {
+      if (entity?.isApp) {
+        used.add(entity.data.blueprint)
+      }
+    }
     const items = Array.from(world.blueprints.items.values()).filter(
-      bp => !bp.scene && !LEGACY_BUILTIN_TEMPLATE_IDS.has(bp.id)
+      bp =>
+        !bp.scene &&
+        !LEGACY_BUILTIN_TEMPLATE_IDS.has(bp.id) &&
+        !builtinScriptKeys.has(getScriptKey(bp?.script)) &&
+        (used.has(bp.id) || bp.keep === true)
     )
     const groups = buildScriptGroups(world.blueprints.items)
     const mainIds = new Set()
@@ -46,34 +67,61 @@ export function Add({ world, hidden }) {
       if (group?.main?.id) mainIds.add(group.main.id)
     }
     const mainsOnly = items.filter(bp => {
-      const scriptKey = typeof bp.script === 'string' ? bp.script.trim() : ''
+      const scriptKey = getScriptKey(bp?.script)
       if (!scriptKey) return true
       return mainIds.has(bp.id)
     })
-    return sortBy([...CLIENT_BUILTIN_TEMPLATES, ...mainsOnly], bp => (bp.name || bp.id || '').toLowerCase())
+    return {
+      [ADD_TAB_BUILTINS]: sortBy(CLIENT_BUILTIN_TEMPLATES, bp => (bp.name || bp.id || '').toLowerCase()),
+      [ADD_TAB_BLUEPRINTS]: sortBy(mainsOnly, bp => (bp.name || bp.id || '').toLowerCase()),
+    }
   }
-  const [templates, setTemplates] = useState(() => buildTemplates())
+  const buildOrphans = () => {
+    const used = new Set()
+    for (const entity of world.entities.items.values()) {
+      if (entity?.isApp) {
+        used.add(entity.data.blueprint)
+      }
+    }
+    const items = Array.from(world.blueprints.items.values()).filter(
+      bp => !bp.scene && !used.has(bp.id) && bp.keep !== true
+    )
+    return sortBy(items, bp => (bp.name || bp.id || '').toLowerCase())
+  }
+  const [templateSets, setTemplateSets] = useState(() => buildTemplateSets())
+  const [orphans, setOrphans] = useState(() => buildOrphans())
+  const [cleaning, setCleaning] = useState(false)
+  const templates = templateSets[activeTab] || []
   const filteredTemplates = search.trim()
     ? templates.filter(bp => (bp.name || bp.id || '').toLowerCase().includes(search.trim().toLowerCase()))
     : templates
+  const filteredOrphans = search.trim()
+    ? orphans.filter(bp => (bp.name || bp.id || '').toLowerCase().includes(search.trim().toLowerCase()))
+    : orphans
 
   useEffect(() => {
     const refresh = () => {
-      setTemplates(buildTemplates())
+      setTemplateSets(buildTemplateSets())
+      setOrphans(buildOrphans())
     }
     world.blueprints.on('add', refresh)
     world.blueprints.on('modify', refresh)
     world.blueprints.on('remove', refresh)
+    world.entities.on('added', refresh)
+    world.entities.on('removed', refresh)
     return () => {
       world.blueprints.off('add', refresh)
       world.blueprints.off('modify', refresh)
       world.blueprints.off('remove', refresh)
+      world.entities.off('added', refresh)
+      world.entities.off('removed', refresh)
     }
   }, [])
 
   useEffect(() => {
     if (hidden) {
       setSearch('')
+      setActiveTab(ADD_TAB_BUILTINS)
       setCreateOpen(false)
       setCreating(false)
       setCreateError(null)
@@ -88,6 +136,12 @@ export function Add({ world, hidden }) {
     }, 0)
     return () => clearTimeout(handle)
   }, [createOpen])
+
+  useEffect(() => {
+    if (activeTab !== ADD_TAB_BLUEPRINTS && trashMode) {
+      setTrashMode(false)
+    }
+  }, [activeTab, trashMode])
 
   useEffect(() => {
     if (createOpen) return
@@ -208,6 +262,32 @@ export function Add({ world, hidden }) {
       })
   }
 
+  const toggleKeep = blueprint => {
+    const nextKeep = !blueprint.keep
+    const version = blueprint.version + 1
+    world.blueprints.modify({ id: blueprint.id, version, keep: nextKeep })
+    world.admin.blueprintModify({ id: blueprint.id, version, keep: nextKeep }, { ignoreNetworkId: world.network.id })
+  }
+
+  const runClean = async () => {
+    if (cleaning) return
+    if (world.builder?.ensureAdminReady && !world.builder.ensureAdminReady('Clean now')) return
+    if (!world.admin?.runClean) {
+      world.emit('toast', 'Clean endpoint unavailable')
+      return
+    }
+    setCleaning(true)
+    try {
+      await world.admin.runClean()
+      world.emit('toast', 'Cleanup complete')
+    } catch (err) {
+      console.error(err)
+      world.emit('toast', 'Cleanup failed')
+    } finally {
+      setCleaning(false)
+    }
+  }
+
   const handleClick = blueprint => {
     if (trashMode && !isBuiltinTemplate(blueprint)) {
       remove(blueprint)
@@ -296,6 +376,33 @@ export function Add({ world, hidden }) {
               }
             }
           }
+          .add-tabs {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.75rem 0;
+            border-bottom: 1px solid ${theme.borderLight};
+          }
+          .add-tab {
+            height: 1.9rem;
+            border: 0;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            color: #5d6077;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            padding: 0 0.5rem;
+            text-transform: uppercase;
+            &:hover {
+              cursor: pointer;
+              color: white;
+            }
+            &.active {
+              color: white;
+              border-bottom-color: #4ce0a1;
+            }
+          }
           .add-content {
             flex: 1;
             overflow-y: auto;
@@ -331,6 +438,86 @@ export function Add({ world, hidden }) {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+          }
+          .add-orphans {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+          }
+          .add-orphans-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+          }
+          .add-orphans-title {
+            font-weight: 500;
+            font-size: 0.9rem;
+          }
+          .add-orphans-clean {
+            border-radius: ${theme.radiusSmall};
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 0.35rem 0.85rem;
+            font-size: 0.75rem;
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.75);
+            &:hover:not(:disabled) {
+              cursor: pointer;
+              color: white;
+              border-color: rgba(255, 255, 255, 0.35);
+            }
+            &:disabled {
+              opacity: 0.5;
+              cursor: default;
+            }
+          }
+          .add-orphans-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+          }
+          .add-orphan-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: ${theme.radius};
+            background: rgba(255, 255, 255, 0.03);
+          }
+          .add-orphan-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.85rem;
+          }
+          .add-orphan-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: transparent;
+            color: rgba(255, 255, 255, 0.65);
+            padding: 0.25rem 0.5rem;
+            border-radius: ${theme.radiusSmall};
+            font-size: 0.75rem;
+            &:hover {
+              cursor: pointer;
+              color: white;
+              border-color: rgba(255, 255, 255, 0.35);
+            }
+            &.active {
+              color: white;
+              border-color: rgba(76, 224, 161, 0.65);
+              background: rgba(76, 224, 161, 0.12);
+            }
+          }
+          .add-orphans-empty {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.5);
+            padding: 0.5rem 0.25rem;
           }
           .add-create-overlay {
             position: absolute;
@@ -515,42 +702,100 @@ export function Add({ world, hidden }) {
             <input type='text' placeholder='Search' value={search} onChange={e => setSearch(e.target.value)} />
           </label>
           <div
-            className={cls('add-action', { active: createOpen })}
+            className={cls('add-action', { active: createOpen, hidden: activeTab === ADD_TAB_RECYCLE })}
             onClick={openCreate}
             title='Create'
           >
             <CirclePlusIcon size='1.125rem' />
           </div>
           <div
-            className={cls('add-toggle', { active: trashMode })}
+            className={cls('add-toggle', { active: trashMode, hidden: activeTab !== ADD_TAB_BLUEPRINTS })}
             onClick={() => setTrashMode(!trashMode)}
           >
             <Trash2Icon size='1.125rem' />
           </div>
         </div>
+        <div className='add-tabs'>
+          <button
+            type='button'
+            className={cls('add-tab', { active: activeTab === ADD_TAB_BUILTINS })}
+            onClick={() => setActiveTab(ADD_TAB_BUILTINS)}
+          >
+            Default
+          </button>
+          <button
+            type='button'
+            className={cls('add-tab', { active: activeTab === ADD_TAB_BLUEPRINTS })}
+            onClick={() => setActiveTab(ADD_TAB_BLUEPRINTS)}
+          >
+            Custom
+          </button>
+          <button
+            type='button'
+            className={cls('add-tab', { active: activeTab === ADD_TAB_RECYCLE })}
+            onClick={() => setActiveTab(ADD_TAB_RECYCLE)}
+          >
+            Trash
+          </button>
+        </div>
         <div className='add-content noscrollbar'>
-          <div className='add-items'>
-            {filteredTemplates.map(blueprint => {
-              const imageUrl = blueprint.image?.url || (typeof blueprint.image === 'string' ? blueprint.image : null)
-              return (
-                <div
-                  className={cls('add-item', { trash: trashMode && !isBuiltinTemplate(blueprint) })}
-                  key={blueprint.__templateKey || blueprint.id}
-                  onClick={() => handleClick(blueprint)}
+          {activeTab === ADD_TAB_RECYCLE ? (
+            <div className='add-orphans'>
+              <div className='add-orphans-head'>
+                <div className='add-orphans-title'>Trash ({orphans.length})</div>
+                <button
+                  type='button'
+                  className='add-orphans-clean'
+                  onClick={runClean}
+                  disabled={!orphans.length || cleaning}
                 >
-                  <div
-                    className='add-item-image'
-                    css={css`
-                      ${imageUrl ? `background-image: url(${world.resolveURL(imageUrl)});` : ''}
-                    `}
-                  ></div>
-                  <div className='add-item-name' title={blueprint.name || blueprint.id}>
-                    {blueprint.name || blueprint.id}
-                  </div>
+                  {cleaning ? 'Cleaning...' : 'Clean now'}
+                </button>
+              </div>
+              {filteredOrphans.length ? (
+                <div className='add-orphans-list'>
+                  {filteredOrphans.map(blueprint => (
+                    <div className='add-orphan-row' key={blueprint.id}>
+                      <div className='add-orphan-name'>{blueprint.name || blueprint.id}</div>
+                      <button
+                        type='button'
+                        className={cls('add-orphan-toggle', { active: blueprint.keep })}
+                        onClick={() => toggleKeep(blueprint)}
+                      >
+                        {blueprint.keep ? <SquareCheckBigIcon size='0.85rem' /> : <SquareIcon size='0.85rem' />}
+                        <span>Keep</span>
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              )
-            })}
-          </div>
+              ) : (
+                <div className='add-orphans-empty'>Recycle bin is empty.</div>
+              )}
+            </div>
+          ) : (
+            <div className='add-items'>
+              {filteredTemplates.map(blueprint => {
+                const imageUrl = blueprint.image?.url || (typeof blueprint.image === 'string' ? blueprint.image : null)
+                return (
+                  <div
+                    className={cls('add-item', { trash: trashMode && !isBuiltinTemplate(blueprint) })}
+                    key={blueprint.__templateKey || blueprint.id}
+                    onClick={() => handleClick(blueprint)}
+                  >
+                    <div
+                      className='add-item-image'
+                      css={css`
+                        ${imageUrl ? `background-image: url(${world.resolveURL(imageUrl)});` : ''}
+                      `}
+                    ></div>
+                    <div className='add-item-name' title={blueprint.name || blueprint.id}>
+                      {blueprint.name || blueprint.id}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
         {createOpen && (
           <div className='add-create-overlay' onMouseDown={e => e.stopPropagation()}>

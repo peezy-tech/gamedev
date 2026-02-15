@@ -80,7 +80,9 @@ test('ClientBuilder fork increments numeric suffix without nesting', async () =>
   }
 
   const source = store.get('skyscraper_2')
-  const forked = await ClientBuilder.prototype.forkTemplateFromBlueprint.call(builder, source, 'Template fork')
+  const forked = await ClientBuilder.prototype.forkTemplateFromBlueprint.call(builder, source, 'Template fork', null, {
+    skipNamePrompt: true,
+  })
 
   assert.ok(forked)
   assert.equal(forked.id, 'skyscraper_3')
