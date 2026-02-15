@@ -239,26 +239,17 @@ export function Add({ world, hidden }) {
   }
 
   const remove = blueprint => {
-    world.ui
-      .confirm({
-        title: 'Delete blueprint',
-        message: `Delete blueprint \"${blueprint.name || blueprint.id}\"? This cannot be undone.`,
-        confirmText: 'Delete',
-        cancelText: 'Cancel',
+    if (!blueprint) return
+    const version = blueprint.version + 1
+    world.blueprints.modify({ id: blueprint.id, version, keep: false })
+    world.admin
+      .blueprintModify({ id: blueprint.id, version, keep: false }, { ignoreNetworkId: world.network.id })
+      .then(() => {
+        world.emit('toast', 'Moved to trash')
       })
-      .then(async ok => {
-        if (!ok) return
-        try {
-          await world.admin.blueprintRemove(blueprint.id)
-          world.emit('toast', 'Blueprint deleted')
-        } catch (err) {
-          const code = err?.message || ''
-          if (code === 'in_use') {
-            world.emit('toast', 'Cannot delete blueprint: there are spawned entities using it.')
-          } else {
-            world.emit('toast', 'Blueprint delete failed')
-          }
-        }
+      .catch(err => {
+        console.error(err)
+        world.emit('toast', 'Move to trash failed')
       })
   }
 
