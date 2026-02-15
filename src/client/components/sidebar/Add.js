@@ -48,18 +48,12 @@ export function Add({ world, hidden }) {
     const builtinScriptKeys = new Set(
       CLIENT_BUILTIN_TEMPLATES.map(template => getScriptKey(template?.script)).filter(Boolean)
     )
-    const used = new Set()
-    for (const entity of world.entities.items.values()) {
-      if (entity?.isApp) {
-        used.add(entity.data.blueprint)
-      }
-    }
     const items = Array.from(world.blueprints.items.values()).filter(
       bp =>
         !bp.scene &&
         !LEGACY_BUILTIN_TEMPLATE_IDS.has(bp.id) &&
         !builtinScriptKeys.has(getScriptKey(bp?.script)) &&
-        (used.has(bp.id) || bp.keep === true)
+        bp.keep === true
     )
     const groups = buildScriptGroups(world.blueprints.items)
     const mainIds = new Set()
