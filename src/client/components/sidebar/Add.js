@@ -309,8 +309,8 @@ export function Add({ world, hidden }) {
           border-radius: ${theme.radius};
           display: flex;
           flex-direction: column;
-          min-height: 17rem;
-          max-height: 17rem;
+          min-height: 0;
+          max-height: calc(100dvh - 10rem);
           position: relative;
           .add-head {
             padding: 0.6rem 1rem;

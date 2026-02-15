@@ -31,20 +31,12 @@ export function LeftPanel({ world }) {
         }
         .left-panel-world {
           overflow-y: auto;
-          max-height: 20rem;
         }
         .left-panel-add {
           overflow-y: auto;
-          max-height: 22rem;
         }
         .left-panel-apps {
-          flex: 1;
           overflow-y: auto;
-          min-height: 8rem;
-        }
-        .left-panel-actions {
-          border-top: 1px solid ${theme.panelBorder};
-          flex-shrink: 0;
         }
         .sidebarpane {
           width: 100%;
@@ -67,9 +59,7 @@ export function LeftPanel({ world }) {
             <AppsInline world={world} />
           </div>
         </CollapsibleSection>
-      </div>
-      <div className='left-panel-actions'>
-        <ActionsPanel world={world} />
+        <KeybindsSection world={world} />
       </div>
     </div>
   )
@@ -87,7 +77,7 @@ function AppsInline({ world }) {
   return <Apps world={world} hidden={false} />
 }
 
-function ActionsPanel({ world }) {
+function KeybindsSection({ world }) {
   const [showActions, setShowActions] = useState(() => world.prefs.actions)
   useEffect(() => {
     const onPrefsChange = changes => {
@@ -101,20 +91,22 @@ function ActionsPanel({ world }) {
   if (isTouch) return null
   if (!showActions) return null
   return (
-    <div
-      className='editor-actions'
-      css={css`
-        padding: 0.5rem 0.75rem;
-        .editor-actions-inner {
-          transform: scale(0.8);
-          pointer-events: none;
-        }
-      `}
-    >
-      <div className='editor-actions-inner'>
-        <Actions world={world} />
+    <CollapsibleSection label='Keybinds' defaultOpen>
+      <div
+        className='editor-actions'
+        css={css`
+          padding: 0.5rem 0.75rem;
+          .editor-actions-inner {
+            transform: scale(0.8);
+            pointer-events: none;
+          }
+        `}
+      >
+        <div className='editor-actions-inner'>
+          <Actions world={world} />
+        </div>
       </div>
-    </div>
+    </CollapsibleSection>
   )
 }
 
