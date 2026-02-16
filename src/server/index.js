@@ -146,6 +146,11 @@ const tlsConfig =
 const directWssPort = process.env.DIRECT_WSS_PORT
 const useDualPort = !!(tlsConfig && directWssPort)
 const mainServerTls = tlsConfig && !directWssPort ? tlsConfig : undefined
+const multipartOptions = {
+  limits: {
+    fileSize: 200 * 1024 * 1024, // 200MB
+  },
+}
 
 const fastify = Fastify({
   logger: { level: 'error' },
@@ -254,11 +259,7 @@ if (world.assetsDir) {
     },
   })
 }
-fastify.register(multipart, {
-  limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB
-  },
-})
+fastify.register(multipart, multipartOptions)
 fastify.register(ws)
 fastify.register(worldNetwork)
 const adminHtmlPath = path.join(__dirname, 'public', 'admin.html')
@@ -453,6 +454,7 @@ if (useDualPort) {
     })
   })
   wssServer.post('/api/auth/exchange', handleAuthExchange)
+  wssServer.register(multipart, multipartOptions)
   wssServer.register(ws)
   const adminHtmlPathDirect = path.join(__dirname, 'public', 'admin.html')
   wssServer.register(admin, { world, assets, adminHtmlPath: adminHtmlPathDirect })
