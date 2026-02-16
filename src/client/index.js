@@ -263,6 +263,29 @@ async function logoutAuthSession(authBaseUrl) {
   return true
 }
 
+async function updateAuthProfile(authBaseUrl, patch) {
+  const endpoint = resolveAuthEndpoint(authBaseUrl, 'profile')
+  const payload = {}
+  if (typeof patch?.name === 'string') payload.name = patch.name
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'avatar')) {
+    payload.avatar = patch.avatar
+  }
+  const res = await fetch(endpoint, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Unable to update profile' }))
+    throw createAuthError(error.message || error.error || 'Unable to update profile', res.status)
+  }
+  return res.json().catch(() => null)
+}
+
 function clearRuntimeAuthState() {
   storage.remove('authToken')
 }
@@ -345,6 +368,12 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
     async getSessionUser() {
       if (!authBaseUrl) return null
       return fetchAuthMe(authBaseUrl).catch(() => null)
+    },
+    async updateProfile(patch) {
+      if (!authBaseUrl) {
+        throw createAuthError('Wallet auth is unavailable', 404, { skipAuth: true })
+      }
+      return updateAuthProfile(authBaseUrl, patch)
     },
     async logoutAndClearSession() {
       if (authBaseUrl) {
@@ -478,6 +507,12 @@ function createPrivyRuntimeAuthBridge(state) {
     async getSessionUser() {
       if (!state.authBaseUrl) return null
       return fetchAuthMe(state.authBaseUrl).catch(() => null)
+    },
+    async updateProfile(patch) {
+      if (!state.authBaseUrl) {
+        throw createAuthError('Wallet auth is unavailable', 404, { skipAuth: true })
+      }
+      return updateAuthProfile(state.authBaseUrl, patch)
     },
     async logoutAndClearSession() {
       if (state.authBaseUrl) {

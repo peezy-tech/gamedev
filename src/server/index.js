@@ -311,23 +311,28 @@ async function handleAuthExchange(req, reply) {
   if (!userId) {
     return reply.code(401).send({ error: 'invalid_exchange_token' })
   }
+  const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
+  const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
 
   await db('users')
     .insert({
       id: userId,
-      name: 'Anonymous',
-      avatar: null,
+      name: claimName,
+      avatar,
       rank: 0,
       createdAt: new Date().toISOString(),
     })
     .onConflict('id')
-    .ignore()
+    .merge({
+      name: claimName,
+      avatar,
+    })
 
   const runtimeToken = await createJWT({ userId, worldId: process.env.WORLD_ID })
   return reply.code(200).send({
     token: runtimeToken,
     token_type: 'runtime_session',
-    user: { id: userId },
+    user: { id: userId, name: claimName, avatar },
   })
 }
 
