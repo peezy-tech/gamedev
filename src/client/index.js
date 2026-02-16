@@ -1,14 +1,11 @@
 import 'ses'
 import '../core/lockdown'
 import { getAddress } from 'ethers'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   PrivyProvider,
-  getEmbeddedConnectedWallet,
-  useCreateWallet,
   usePrivy,
-  useWallets,
 } from '@privy-io/react-auth'
 
 import { storage } from '../core/storage'
@@ -250,6 +247,23 @@ async function fetchAuthMe(authBaseUrl) {
   return res.json()
 }
 
+async function createPrivyAuthSession(authBaseUrl, accessToken) {
+  const endpoint = resolveAuthEndpoint(authBaseUrl, 'privy/session')
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      accept: 'application/json',
+    },
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Unable to authorize Privy session' }))
+    throw createAuthError(error.message || error.error || 'Unable to authorize Privy session', res.status)
+  }
+  return res.json().catch(() => null)
+}
+
 async function logoutAuthSession(authBaseUrl) {
   const endpoint = resolveAuthEndpoint(authBaseUrl, 'logout')
   const res = await fetch(endpoint, {
@@ -327,14 +341,31 @@ async function getConnectionUrl(onStatus) {
   if (usesLobbyIdentity) {
     const authBaseUrl = env.PUBLIC_AUTH_URL
     onStatus?.('auth', 'Authorizing...')
+    let hasSession = false
     try {
       await fetchAuthMe(authBaseUrl)
+      hasSession = true
     } catch (err) {
       if (err?.status === 401) {
-        onStatus?.('connecting', 'Continuing as guest...')
-        return buildWsUrl(baseWsUrl)
+        const authBridge = globalThis.__runtimeAuth
+        if (authBridge?.mode === 'privy' && typeof authBridge.ensureSession === 'function') {
+          onStatus?.('auth', 'Restoring Privy session...')
+          const restored = await authBridge.ensureSession({ onStatus }).catch(() => false)
+          if (restored) {
+            await fetchAuthMe(authBaseUrl)
+              .then(() => {
+                hasSession = true
+              })
+              .catch(() => {})
+          }
+        }
+        if (!hasSession) {
+          onStatus?.('connecting', 'Continuing as guest...')
+          return buildWsUrl(baseWsUrl)
+        }
+      } else {
+        throw err
       }
-      throw err
     }
 
     const identityToken = await fetchIdentityExchangeToken(authBaseUrl)
@@ -364,6 +395,9 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
       }
       await performSiweLoginWithProvider(provider, authBaseUrl, onStatus)
       return fetchAuthMe(authBaseUrl).catch(() => null)
+    },
+    async ensureSession() {
+      return false
     },
     async getSessionUser() {
       if (!authBaseUrl) return null
@@ -418,31 +452,64 @@ function createPrivyBridgeState(authBaseUrl) {
     authenticated: false,
     login: null,
     logout: null,
-    createWallet: null,
-    walletsRef: null,
-    embeddedAddress: '',
-    listeners: new Set(),
+    getAccessToken: null,
   }
 }
 
-async function waitForPrivyEmbeddedWallet(state, timeoutMs = PRIVY_WALLET_WAIT_MS) {
+async function waitForPrivyReady(state, timeoutMs = PRIVY_WALLET_WAIT_MS) {
   const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const wallet = getEmbeddedConnectedWallet(state.walletsRef?.current || [])
-    if (wallet) return wallet
-    await sleep(150)
+  while (!state.ready && Date.now() < deadline) {
+    await sleep(100)
   }
-  return null
+  return !!state.ready
 }
 
-function notifyPrivyAddressChange(state, address) {
-  for (const listener of state.listeners) {
+async function waitForPrivyAuthenticated(state, timeoutMs = PRIVY_WALLET_WAIT_MS) {
+  const deadline = Date.now() + timeoutMs
+  while (!state.authenticated && Date.now() < deadline) {
+    await sleep(100)
+  }
+  return !!state.authenticated
+}
+
+async function ensurePrivySession(state, { onStatus, allowLogin = false } = {}) {
+  if (!state.authBaseUrl) {
+    throw createAuthError('Wallet auth is unavailable', 404, { skipAuth: true })
+  }
+
+  const isReady = await waitForPrivyReady(state)
+  if (!isReady) {
+    if (allowLogin) {
+      throw createAuthError('Privy is still loading', 503, { skipAuth: true })
+    }
+    return false
+  }
+
+  if (!state.authenticated) {
+    if (!allowLogin) return false
+    onStatus?.('auth', 'Opening wallet login...')
     try {
-      listener(address)
-    } catch {
-      // ignore listener errors
+      await state.login?.()
+    } catch (err) {
+      throw createAuthError(err?.message || 'Wallet login was rejected', 401, { skipAuth: true })
+    }
+    const isAuthenticated = await waitForPrivyAuthenticated(state)
+    if (!isAuthenticated) {
+      throw createAuthError('Wallet login did not complete', 401, { skipAuth: true })
     }
   }
+
+  const accessToken = await state.getAccessToken?.().catch(() => '')
+  const normalizedAccessToken = typeof accessToken === 'string' ? accessToken.trim() : ''
+  if (!normalizedAccessToken) {
+    if (allowLogin) {
+      throw createAuthError('Privy access token unavailable', 401, { skipAuth: true })
+    }
+    return false
+  }
+
+  await createPrivyAuthSession(state.authBaseUrl, normalizedAccessToken)
+  return true
 }
 
 function createPrivyRuntimeAuthBridge(state) {
@@ -457,52 +524,11 @@ function createPrivyRuntimeAuthBridge(state) {
     },
     normalizeSiweAddress,
     async connectWalletSession({ onStatus } = {}) {
-      if (!state.authBaseUrl) {
-        throw createAuthError('Wallet auth is unavailable', 404, { skipAuth: true })
-      }
-      if (!state.ready) {
-        throw createAuthError('Privy is still loading', 503, { skipAuth: true })
-      }
-      if (!state.authenticated) {
-        onStatus?.('auth', 'Opening wallet login...')
-        try {
-          await state.login?.()
-        } catch (err) {
-          throw createAuthError(err?.message || 'Wallet login was rejected', 401, { skipAuth: true })
-        }
-        const authDeadline = Date.now() + PRIVY_WALLET_WAIT_MS
-        while (!state.authenticated && Date.now() < authDeadline) {
-          await sleep(100)
-        }
-      }
-      if (!state.authenticated) {
-        throw createAuthError('Wallet login did not complete', 401, { skipAuth: true })
-      }
-
-      let wallet = getEmbeddedConnectedWallet(state.walletsRef?.current || [])
-      if (!wallet) {
-        onStatus?.('auth', 'Creating embedded wallet...')
-        try {
-          const created = await state.createWallet?.()
-          if (created) wallet = created
-        } catch (err) {
-          throw createAuthError(err?.message || 'Unable to create embedded wallet', 500)
-        }
-      }
-      if (!wallet) {
-        wallet = await waitForPrivyEmbeddedWallet(state)
-      }
-      if (!wallet) {
-        throw createAuthError('No embedded wallet available', 401, { skipAuth: true })
-      }
-
-      const provider = await wallet.getEthereumProvider?.().catch(() => null)
-      if (!provider || typeof provider.request !== 'function') {
-        throw createAuthError('Privy wallet provider unavailable', 401, { skipAuth: true })
-      }
-
-      await performSiweLoginWithProvider(provider, state.authBaseUrl, onStatus)
+      await ensurePrivySession(state, { onStatus, allowLogin: true })
       return fetchAuthMe(state.authBaseUrl).catch(() => null)
+    },
+    async ensureSession({ onStatus } = {}) {
+      return ensurePrivySession(state, { onStatus, allowLogin: false }).catch(() => false)
     },
     async getSessionUser() {
       if (!state.authBaseUrl) return null
@@ -523,44 +549,24 @@ function createPrivyRuntimeAuthBridge(state) {
     },
     clearRuntimeAuthState,
     async getActiveWalletAddress() {
-      return normalizeSiweAddress(state.embeddedAddress || '')
+      return ''
     },
-    subscribeAccountChanges(listener) {
-      if (typeof listener !== 'function') return () => {}
-      state.listeners.add(listener)
-      return () => {
-        state.listeners.delete(listener)
-      }
+    subscribeAccountChanges() {
+      return () => {}
     },
   }
 }
 
 function PrivyRuntimeAuthSync({ state, children }) {
-  const { ready, authenticated, login, logout } = usePrivy()
-  const { wallets } = useWallets()
-  const { createWallet } = useCreateWallet()
-  const walletsRef = useRef(wallets)
-  walletsRef.current = wallets
-
-  const embeddedAddress = useMemo(() => {
-    const wallet = getEmbeddedConnectedWallet(wallets)
-    return normalizeSiweAddress(wallet?.address || '')
-  }, [wallets])
+  const { ready, authenticated, login, logout, getAccessToken } = usePrivy()
 
   useEffect(() => {
     state.ready = ready
     state.authenticated = authenticated
     state.login = login
     state.logout = logout
-    state.createWallet = createWallet
-    state.walletsRef = walletsRef
-  }, [state, ready, authenticated, login, logout, createWallet])
-
-  useEffect(() => {
-    if (state.embeddedAddress === embeddedAddress) return
-    state.embeddedAddress = embeddedAddress
-    notifyPrivyAddressChange(state, embeddedAddress)
-  }, [state, embeddedAddress])
+    state.getAccessToken = getAccessToken
+  }, [state, ready, authenticated, login, logout, getAccessToken])
 
   return children
 }

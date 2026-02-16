@@ -414,15 +414,17 @@ function WalletBtn({ auth, onClick }) {
   const providerUnavailable = !auth.providerAvailable
   const providerLoading = auth.mode === 'privy' && providerUnavailable
   const disabled = auth.pending || auth.connected || providerUnavailable
+  const actionLabel = auth.mode === 'privy' ? 'Sign In' : 'Connect Wallet'
+  const unavailableLabel = auth.mode === 'privy' ? 'Auth Unavailable' : 'No Wallet'
   const label = auth.pending
     ? 'Connecting...'
     : auth.connected
-      ? formatWalletAddress(auth.address)
+      ? (auth.address ? formatWalletAddress(auth.address) : 'Signed In')
       : providerLoading
         ? 'Loading Auth...'
         : providerUnavailable
-        ? 'No Wallet'
-        : 'Connect Wallet'
+          ? unavailableLabel
+          : actionLabel
   return (
     <div
       className={cls('sidebar-wallet', { disabled })}

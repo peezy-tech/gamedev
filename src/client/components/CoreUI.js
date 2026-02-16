@@ -216,14 +216,15 @@ export function CoreUI({ world, connectionStatus }) {
       })
 
       const session = await auth.getSessionUser?.().catch(() => null)
+      const sessionUserId = typeof session?.user?.id === 'string' ? session.user.id.trim() : ''
       const sessionAddress = auth.normalizeSiweAddress?.(session?.user?.wallet_address || '') || ''
       sessionWalletRef.current = sessionAddress
       setAuthState({
-        connected: !!sessionAddress,
+        connected: !!sessionUserId,
         address: sessionAddress || null,
       })
 
-      const shouldResumePrivySiwe = auth.mode === 'privy' && !sessionAddress && hasPrivySiweResumeIntent()
+      const shouldResumePrivySiwe = auth.mode === 'privy' && !sessionUserId && hasPrivySiweResumeIntent()
       if (shouldResumePrivySiwe) {
         setAuthState({ pending: true })
         try {
@@ -251,7 +252,7 @@ export function CoreUI({ world, connectionStatus }) {
         } finally {
           setAuthState({ pending: false })
         }
-      } else if (sessionAddress || auth.mode !== 'privy') {
+      } else if (sessionUserId || auth.mode !== 'privy') {
         clearPrivySiweResumeIntent()
       }
 
@@ -387,15 +388,17 @@ function WalletBtn({ auth, onClick }) {
   const providerUnavailable = !auth.providerAvailable
   const providerLoading = auth.mode === 'privy' && providerUnavailable
   const disabled = auth.pending || auth.connected || providerUnavailable
+  const actionLabel = auth.mode === 'privy' ? 'Sign In' : 'Connect Wallet'
+  const unavailableLabel = auth.mode === 'privy' ? 'Auth Unavailable' : 'No Wallet'
   const label = auth.pending
     ? 'Connecting...'
     : auth.connected
-      ? formatWalletAddress(auth.address)
+      ? (auth.address ? formatWalletAddress(auth.address) : 'Signed In')
       : providerLoading
         ? 'Loading Auth...'
         : providerUnavailable
-          ? 'No Wallet'
-          : 'Connect Wallet'
+          ? unavailableLabel
+          : actionLabel
   return (
     <div
       className={cls('coreui-wallet', { disabled })}
