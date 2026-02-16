@@ -12,9 +12,22 @@ const voiceChatOptions = [
   { label: 'Global', value: 'global' },
 ]
 
+function parsePositiveInt(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function getWorldPlayerLimitCap() {
+  const fromProcess = parsePositiveInt(globalThis?.process?.env?.PUBLIC_WORLD_MAX_PLAYERS)
+  if (fromProcess > 0) return fromProcess
+  return parsePositiveInt(globalThis?.env?.PUBLIC_WORLD_MAX_PLAYERS)
+}
+
 export function World({ world, hidden }) {
   const player = world.entities.player
   const { isAdmin } = useRank(world, player)
+  const worldPlayerLimitCap = getWorldPlayerLimitCap()
+  const hasPlayerLimitCap = worldPlayerLimitCap > 0
   const [title, setTitle] = useState(world.settings.title)
   const [desc, setDesc] = useState(world.settings.desc)
   const [image, setImage] = useState(world.settings.image)
@@ -123,7 +136,13 @@ export function World({ world, hidden }) {
           />
           <FieldNumber
             label='Player Limit'
-            hint='Set a maximum number of players that can be in the world at one time. Zero means unlimited.'
+            hint={
+              hasPlayerLimitCap
+                ? `Set a maximum number of players that can be in the world at one time (1 to ${worldPlayerLimitCap} for this world).`
+                : 'Set a maximum number of players that can be in the world at one time. Zero means unlimited.'
+            }
+            min={hasPlayerLimitCap ? 1 : 0}
+            max={hasPlayerLimitCap ? worldPlayerLimitCap : Infinity}
             value={playerLimit}
             onChange={value => world.settings.set('playerLimit', value, true)}
           />

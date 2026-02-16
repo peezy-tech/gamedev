@@ -178,6 +178,9 @@ export function Add({ world, hidden }) {
       } else if (code === 'locked' || code === 'deploy_locked' || code === 'deploy_lock_required') {
         const owner = err?.lock?.owner
         setCreateError(owner ? `Deploy locked by ${owner}.` : 'Deploy locked by another session.')
+      } else if (code === 'upload_too_large') {
+        const max = Number.parseInt(String(err?.maxUploadSize ?? ''), 10)
+        setCreateError(Number.isFinite(max) && max > 0 ? `Upload exceeds ${max} MB limit.` : 'Upload is too large.')
       } else if (code === 'upload_failed') {
         setCreateError('Upload failed.')
       } else {

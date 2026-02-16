@@ -228,7 +228,21 @@ export class AdminClient extends System {
     form.append('file', file)
     const uploadUrl = joinUrl(this.adminUrl, '/admin/upload')
     const uploadResp = await fetch(uploadUrl, { method: 'POST', body: form, headers })
-    if (!uploadResp.ok) throw new Error('upload_failed')
+    if (!uploadResp.ok) {
+      let error = null
+      try {
+        error = await uploadResp.json()
+      } catch {}
+      if (error?.error) {
+        const err = new Error(error.error)
+        err.code = error.error
+        if (error.maxUploadSize !== undefined) {
+          err.maxUploadSize = error.maxUploadSize
+        }
+        throw err
+      }
+      throw new Error('upload_failed')
+    }
   }
 
   getDeployHeaders() {

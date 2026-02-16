@@ -273,6 +273,16 @@ export class ClientBuilder extends System {
       this.world.emit('toast', 'Upload failed.')
       return
     }
+    if (code === 'upload_too_large') {
+      const max = Number.parseInt(String(err?.maxUploadSize ?? ''), 10)
+      this.world.emit('toast', Number.isFinite(max) && max > 0 ? `Upload exceeds ${max} MB limit.` : 'Upload is too large.')
+      return
+    }
+    if (code === 'player_limit_max') {
+      const max = Number.parseInt(String(err?.max ?? ''), 10)
+      this.world.emit('toast', Number.isFinite(max) && max > 0 ? `Player limit max is ${max}.` : 'Player limit exceeds world maximum.')
+      return
+    }
     if (fallbackMessage) {
       this.world.emit('toast', fallbackMessage)
       return
