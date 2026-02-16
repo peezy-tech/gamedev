@@ -287,7 +287,7 @@ fastify.get('/api/upload-check', async (req, reply) => {
   return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload-check' })
 })
 
-fastify.post('/api/auth/exchange', async (req, reply) => {
+async function handleAuthExchange(req, reply) {
   if (!authConfig.usesLobbyIdentity) {
     return reply.code(404).send({ error: 'not_found' })
   }
@@ -328,7 +328,9 @@ fastify.post('/api/auth/exchange', async (req, reply) => {
     token_type: 'runtime_session',
     user: { id: userId },
   })
-})
+}
+
+fastify.post('/api/auth/exchange', handleAuthExchange)
 
 fastify.get('/health', async (request, reply) => {
   try {
@@ -450,6 +452,7 @@ if (useDualPort) {
       updatedAt: new Date().toISOString(),
     })
   })
+  wssServer.post('/api/auth/exchange', handleAuthExchange)
   wssServer.register(ws)
   const adminHtmlPathDirect = path.join(__dirname, 'public', 'admin.html')
   wssServer.register(admin, { world, assets, adminHtmlPath: adminHtmlPathDirect })

@@ -81,6 +81,13 @@ function deriveAdminUrlFromEnv() {
   )
 }
 
+function deriveApiUrlFromAdminUrl(adminUrl) {
+  const normalized = typeof adminUrl === 'string' ? adminUrl.trim().replace(/\/+$/, '') : ''
+  if (!normalized) return null
+  if (/\/api$/i.test(normalized)) return normalized
+  return `${normalized}/api`
+}
+
 function isNumberArray(value, length) {
   return (
     Array.isArray(value) &&
@@ -580,11 +587,12 @@ export class ServerNetwork extends System {
 
       // send snapshot
       const adminUrl = deriveAdminUrlFromRequest(req) || PUBLIC_ADMIN_URL || deriveAdminUrlFromEnv()
+      const apiUrl = deriveApiUrlFromAdminUrl(adminUrl) || process.env.PUBLIC_API_URL
       socket.send('snapshot', {
         id: socket.id,
         serverTime: performance.now(),
         assetsUrl: process.env.ASSETS_BASE_URL,
-        apiUrl: process.env.PUBLIC_API_URL,
+        apiUrl,
         adminUrl,
         maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
         settings: this.world.settings.serialize(),
