@@ -9,6 +9,7 @@ import { cls, isTouch } from '../utils'
 import { theme } from './theme'
 import { uuid } from '../../core/utils'
 import { ControlPriorities } from '../../core/extras/ControlPriorities'
+import { storage } from '../../core/storage'
 // import { AppsPane } from './AppsPane'
 // import { MenuMain } from './MenuMain'
 // import { MenuApp } from './MenuApp'
@@ -22,6 +23,41 @@ const defaultWalletAuthState = {
   connected: false,
   pending: false,
   address: null,
+}
+
+const PRIVY_SIWE_RESUME_KEY = 'privySiweResume'
+const PRIVY_SIWE_RESUME_TTL_MS = 10 * 60 * 1000
+const PRIVY_PROVIDER_WAIT_MS = 10000
+
+function setPrivySiweResumeIntent() {
+  try {
+    storage.set(PRIVY_SIWE_RESUME_KEY, { ts: Date.now() })
+  } catch {
+    // ignore storage access failures
+  }
+}
+
+function clearPrivySiweResumeIntent() {
+  try {
+    storage.remove(PRIVY_SIWE_RESUME_KEY)
+  } catch {
+    // ignore storage access failures
+  }
+}
+
+function hasPrivySiweResumeIntent() {
+  try {
+    const value = storage.get(PRIVY_SIWE_RESUME_KEY)
+    if (!value || typeof value !== 'object') return false
+    const ts = Number(value.ts)
+    if (!Number.isFinite(ts) || ts <= 0 || Date.now() - ts > PRIVY_SIWE_RESUME_TTL_MS) {
+      storage.remove(PRIVY_SIWE_RESUME_KEY)
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function CoreUI({ world, connectionStatus }) {
@@ -187,6 +223,38 @@ export function CoreUI({ world, connectionStatus }) {
         address: sessionAddress || null,
       })
 
+      const shouldResumePrivySiwe = auth.mode === 'privy' && !sessionAddress && hasPrivySiweResumeIntent()
+      if (shouldResumePrivySiwe) {
+        setAuthState({ pending: true })
+        try {
+          const deadline = Date.now() + PRIVY_PROVIDER_WAIT_MS
+          while (!cancelled && Date.now() < deadline) {
+            if (auth.hasWalletProvider?.()) break
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+          if (cancelled) return
+          if (auth.hasWalletProvider?.()) {
+            await auth.connectWalletSession?.()
+            clearPrivySiweResumeIntent()
+            if (!cancelled) {
+              window.location.reload()
+              return
+            }
+          } else {
+            clearPrivySiweResumeIntent()
+          }
+        } catch (err) {
+          clearPrivySiweResumeIntent()
+          if (!err?.skipAuth) {
+            world.emit('toast', err?.message || 'Wallet login failed')
+          }
+        } finally {
+          setAuthState({ pending: false })
+        }
+      } else if (sessionAddress || auth.mode !== 'privy') {
+        clearPrivySiweResumeIntent()
+      }
+
       removeAccountSubscription = auth.subscribeAccountChanges?.(handleWalletAddressChange) || null
       await verifyActiveWallet()
       verifyTimerId = setInterval(() => {
@@ -209,11 +277,21 @@ export function CoreUI({ world, connectionStatus }) {
     const auth = globalThis.__runtimeAuth
     if (!auth?.enabled) return
     if (walletAuth.pending || walletAuth.connected) return
+    const shouldResumePrivySiwe = auth.mode === 'privy'
+    if (shouldResumePrivySiwe) {
+      setPrivySiweResumeIntent()
+    }
     setWalletAuth(prev => ({ ...prev, pending: true }))
     try {
       await auth.connectWalletSession?.()
+      if (shouldResumePrivySiwe) {
+        clearPrivySiweResumeIntent()
+      }
       window.location.reload()
     } catch (err) {
+      if (shouldResumePrivySiwe) {
+        clearPrivySiweResumeIntent()
+      }
       if (!err?.skipAuth) {
         world.emit('toast', err?.message || 'Wallet login failed')
       }
@@ -226,6 +304,7 @@ export function CoreUI({ world, connectionStatus }) {
     const auth = globalThis.__runtimeAuth
     if (!auth?.enabled) return
     if (walletAuth.pending) return
+    clearPrivySiweResumeIntent()
     setWalletAuth(prev => ({ ...prev, pending: true }))
     try {
       await auth.logoutAndClearSession?.()
