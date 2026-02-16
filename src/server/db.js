@@ -4,8 +4,10 @@ import path from 'path'
 import { uuid } from '../core/utils'
 import { defaults } from 'lodash-es'
 import { Ranks } from '../core/extras/ranks'
+import { getWorldMaxPlayers } from './worldLimits.js'
 
 let db
+const WORLD_MAX_PLAYERS = getWorldMaxPlayers()
 
 export async function getDB({ worldDir }) {
   if (!db) {
@@ -398,6 +400,7 @@ const migrations = [
   async db => {
     const row = await db('config').where('key', 'settings').first()
     const settings = row ? JSON.parse(row.value) : {}
+    const defaultPlayerLimit = WORLD_MAX_PLAYERS > 0 ? WORLD_MAX_PLAYERS : 0
     defaults(settings, {
       title: null,
       desc: null,
@@ -405,9 +408,13 @@ const migrations = [
       avatar: null,
       voice: 'spatial',
       public: false,
-      playerLimit: 0,
+      playerLimit: defaultPlayerLimit,
       ao: true,
     })
+    if (WORLD_MAX_PLAYERS > 0) {
+      const nextPlayerLimit = Number.isInteger(settings.playerLimit) ? settings.playerLimit : defaultPlayerLimit
+      settings.playerLimit = Math.max(1, Math.min(nextPlayerLimit, WORLD_MAX_PLAYERS))
+    }
     const value = JSON.stringify(settings)
     if (row) {
       await db('config').where('key', 'settings').update({ value })

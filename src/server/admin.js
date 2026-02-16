@@ -3,6 +3,7 @@ import fs from 'fs'
 
 import { readPacket, writePacket } from '../core/packets.js'
 import { cleaner } from './cleaner'
+import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
 const SCRIPT_BLUEPRINT_FIELDS = new Set([
   'script',
@@ -14,6 +15,14 @@ const SCRIPT_BLUEPRINT_FIELDS = new Set([
 const CHANGEFEED_TABLE = 'sync_changes'
 const CHANGEFEED_DEFAULT_LIMIT = 200
 const CHANGEFEED_MAX_LIMIT = 1000
+
+function isUploadTooLargeError(error) {
+  if (!error || typeof error !== 'object') return false
+  const code = typeof error.code === 'string' ? error.code : ''
+  if (code === 'FST_REQ_FILE_TOO_LARGE') return true
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : ''
+  return message.includes('too large')
+}
 
 function normalizeHeader(value) {
   if (Array.isArray(value)) return value[0]
@@ -1309,13 +1318,40 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
 
   fastify.post('/admin/upload', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    const mp = await req.file()
+    const maxUploadSizeBytes = getMaxUploadSizeBytes()
+    const maxUploadSizeMb = getMaxUploadSizeMb()
+    let mp
+    try {
+      mp = await req.file()
+    } catch (error) {
+      if (isUploadTooLargeError(error)) {
+        return reply.code(413).send({ error: 'upload_too_large', maxUploadSize: maxUploadSizeMb })
+      }
+      throw error
+    }
+    if (!mp) {
+      return reply.code(400).send({ error: 'missing_file' })
+    }
+
     // collect into buffer
     const chunks = []
-    for await (const chunk of mp.file) {
-      chunks.push(chunk)
+    try {
+      for await (const chunk of mp.file) {
+        chunks.push(chunk)
+      }
+    } catch (error) {
+      if (isUploadTooLargeError(error)) {
+        return reply.code(413).send({ error: 'upload_too_large', maxUploadSize: maxUploadSizeMb })
+      }
+      throw error
+    }
+    if (mp.file.truncated) {
+      return reply.code(413).send({ error: 'upload_too_large', maxUploadSize: maxUploadSizeMb })
     }
     const buffer = Buffer.concat(chunks)
+    if (buffer.length > maxUploadSizeBytes) {
+      return reply.code(413).send({ error: 'upload_too_large', maxUploadSize: maxUploadSizeMb })
+    }
     // convert to file
     const file = new File([buffer], mp.filename, {
       type: mp.mimetype || 'application/octet-stream',

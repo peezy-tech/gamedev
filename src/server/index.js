@@ -19,6 +19,7 @@ import { cleaner } from './cleaner'
 import { admin } from './admin'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
+import { getMaxUploadSizeBytes } from './worldLimits.js'
 import { createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
 
 const rootDir = path.join(__dirname, '../')
@@ -148,7 +149,7 @@ const useDualPort = !!(tlsConfig && directWssPort)
 const mainServerTls = tlsConfig && !directWssPort ? tlsConfig : undefined
 const multipartOptions = {
   limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB
+    fileSize: getMaxUploadSizeBytes(),
   },
 }
 

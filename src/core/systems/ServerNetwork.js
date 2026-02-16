@@ -9,6 +9,7 @@ import * as THREE from '../extras/three'
 import { Ranks } from '../extras/ranks'
 import { validateBlueprintScriptFields } from '../blueprintValidation'
 import { ensureBlueprintSyncMetadata, ensureEntitySyncMetadata } from '../../server/syncMetadata.js'
+import { getWorldMaxPlayers } from '../../server/worldLimits.js'
 
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
 const PING_RATE = 10 // seconds
@@ -23,6 +24,7 @@ const SCRIPT_BLUEPRINT_FIELDS = new Set([
 
 const HEALTH_MAX = 100
 const PUBLIC_ADMIN_URL = process.env.PUBLIC_ADMIN_URL || ''
+const WORLD_MAX_PLAYERS = getWorldMaxPlayers()
 
 function normalizeUserName(value) {
   if (typeof value !== 'string') return 'Anonymous'
@@ -1016,6 +1018,15 @@ export class ServerNetwork extends System {
   }
 
   applySettingsModified(data, { ignoreNetworkId, actor, source, lastOpId } = {}) {
+    if (data.key === 'playerLimit') {
+      if (!isNumber(data.value) || !Number.isInteger(data.value)) {
+        return { ok: false, error: 'invalid_payload' }
+      }
+      if (WORLD_MAX_PLAYERS > 0 && (data.value < 1 || data.value > WORLD_MAX_PLAYERS)) {
+        return { ok: false, error: 'player_limit_max', max: WORLD_MAX_PLAYERS }
+      }
+    }
+
     this.world.settings.set(data.key, data.value)
     this.send('settingsModified', data, ignoreNetworkId)
     this.emit('settingsModified', data)
