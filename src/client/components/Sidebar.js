@@ -185,7 +185,7 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
                     })}
                     onClick={() => selectPane('add')}
                   >
-                    Add
+                    Library
                   </div>
                   {ui.app && (
                     <>

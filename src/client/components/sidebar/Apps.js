@@ -25,7 +25,7 @@ export function Apps({ world, hidden }) {
     appsState.perf = perf
   }, [query, perf])
   return (
-    <Pane width={perf ? '40rem' : '20rem'} hidden={hidden}>
+    <Pane width='20rem' hidden={hidden}>
       <div
         className='apps'
         css={css`
@@ -35,27 +35,26 @@ export function Apps({ world, hidden }) {
           flex: 1;
           display: flex;
           flex-direction: column;
-          min-height: 17rem;
+          min-height: 22rem;
           position: relative;
           .apps-head {
-            height: 3.125rem;
-            padding: 0 0.6rem 0 1rem;
+            padding: 0.6rem 1rem;
             border-bottom: 1px solid ${theme.borderLight};
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+          }
+          .apps-head-row {
             display: flex;
             align-items: center;
           }
-          .apps-title {
-            flex: 1;
-            font-weight: 500;
-            font-size: 1rem;
-            line-height: 1;
-          }
           .apps-search {
+            flex: 1;
             display: flex;
             align-items: center;
             input {
               margin-left: 0.5rem;
-              width: 5rem;
+              flex: 1;
               font-size: 0.9375rem;
               &::placeholder {
                 color: #5d6077;
@@ -88,13 +87,14 @@ export function Apps({ world, hidden }) {
         `}
       >
         <div className='apps-head'>
-          <div className='apps-title'>Objects</div>
-          <label className='apps-search'>
-            <SearchIcon size='1.125rem' />
-            <input type='text' placeholder='Search' value={query} onChange={e => setQuery(e.target.value)} />
-          </label>
-          <div className={cls('apps-toggle', { active: perf })} onClick={() => setPerf(!perf)}>
-            <RocketIcon size='1.125rem' />
+          <div className='apps-head-row'>
+            <label className='apps-search'>
+              <SearchIcon size='1.125rem' />
+              <input type='text' placeholder='Search' value={query} onChange={e => setQuery(e.target.value)} />
+            </label>
+            <div className={cls('apps-toggle', { active: perf })} onClick={() => setPerf(!perf)}>
+              <RocketIcon size='1.125rem' />
+            </div>
           </div>
         </div>
         <div

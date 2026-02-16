@@ -151,6 +151,7 @@ test('drag-drop .glb creates app with blank module script files', async () => {
   const addedBlueprints = []
   const insertedAssets = []
   const uploadedFiles = []
+  const scriptSource = 'export default (world, app, fetch, props, setTimeout) => {\n}'
 
   const stubWorld = {
     network: { id: 'test', maxUploadSize: null },
@@ -158,7 +159,18 @@ test('drag-drop .glb creates app with blank module script files', async () => {
       insert: (type, url, file) => insertedAssets.push({ type, url, file }),
     },
     blueprints: {
-      add: blueprint => addedBlueprints.push(blueprint),
+      get: () => null,
+      add: blueprint => {
+        addedBlueprints.push(blueprint)
+        const scriptUrl = typeof blueprint?.script === 'string' && blueprint.script ? blueprint.script : null
+        if (scriptUrl) {
+          insertedAssets.push({
+            type: 'script',
+            url: scriptUrl,
+            file: new File([scriptSource], 'index.js', { type: 'text/javascript' }),
+          })
+        }
+      },
       remove: () => {},
     },
     entities: {
@@ -177,12 +189,16 @@ test('drag-drop .glb creates app with blank module script files', async () => {
       releaseDeployLock: async () => {},
       blueprintRemove: async () => {},
     },
+    ui: {
+      prompt: async () => 'MyModel',
+    },
     emit: () => {},
   }
 
   const builder = {
     world: stubWorld,
     ensureAdminReady: () => true,
+    forkTemplateFromBlueprint: ClientBuilder.prototype.forkTemplateFromBlueprint,
     handleAdminError: err => {
       throw err
     },
@@ -210,7 +226,7 @@ test('drag-drop .glb creates app with blank module script files', async () => {
   const insertedScriptText = await insertedScript.file.text()
   assert.match(insertedScriptText, /export default/)
 
-  assert.equal(uploadedFiles.length, 2)
+  assert.equal(uploadedFiles.length, 1)
 })
 
 test('drag-drop .hyp import rewrites single hashed entry path to index.js', async () => {

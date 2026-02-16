@@ -393,6 +393,7 @@ export class HyperfyCLI {
       locked: false,
       frozen: false,
       unique: false,
+      keep: true,
       scene: false,
       disabled: false,
     }

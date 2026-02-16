@@ -1,6 +1,6 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CirclePlusIcon, SquareCheckBigIcon, SquareIcon, Trash2Icon } from 'lucide-react'
+import { CirclePlusIcon, SearchIcon, SquareCheckBigIcon, SquareIcon, Trash2Icon } from 'lucide-react'
 import { cls } from '../cls'
 import { theme } from '../theme'
 import { sortBy } from 'lodash-es'
@@ -19,6 +19,13 @@ const CLIENT_BUILTIN_TEMPLATES = BUILTIN_APP_TEMPLATES.map(template => ({
   scene: false,
 }))
 const LEGACY_BUILTIN_TEMPLATE_IDS = new Set(CLIENT_BUILTIN_TEMPLATES.map(template => template.id))
+const ADD_TAB_BUILTINS = 'builtins'
+const ADD_TAB_BLUEPRINTS = 'blueprints'
+const ADD_TAB_RECYCLE = 'recycle'
+
+function getScriptKey(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
 
 function normalizeBlueprintName(value) {
   if (typeof value !== 'string') return ''
@@ -26,19 +33,27 @@ function normalizeBlueprintName(value) {
 }
 
 export function Add({ world, hidden }) {
-  const span = 4
+  const span = 2
   const gap = '0.5rem'
+  const [search, setSearch] = useState('')
+  const [activeTab, setActiveTab] = useState(ADD_TAB_BUILTINS)
   const [trashMode, setTrashMode] = useState(false)
-  const [tab, setTab] = useState('templates')
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
   const [createError, setCreateError] = useState(null)
   const [creating, setCreating] = useState(false)
   const createNameRef = useRef(null)
   const isBuiltinTemplate = blueprint => blueprint?.__builtinTemplate === true
-  const buildTemplates = () => {
+  const buildTemplateSets = () => {
+    const builtinScriptKeys = new Set(
+      CLIENT_BUILTIN_TEMPLATES.map(template => getScriptKey(template?.script)).filter(Boolean)
+    )
     const items = Array.from(world.blueprints.items.values()).filter(
-      bp => !bp.scene && !LEGACY_BUILTIN_TEMPLATE_IDS.has(bp.id)
+      bp =>
+        !bp.scene &&
+        !LEGACY_BUILTIN_TEMPLATE_IDS.has(bp.id) &&
+        !builtinScriptKeys.has(getScriptKey(bp?.script)) &&
+        bp.keep === true
     )
     const groups = buildScriptGroups(world.blueprints.items)
     const mainIds = new Set()
@@ -46,11 +61,14 @@ export function Add({ world, hidden }) {
       if (group?.main?.id) mainIds.add(group.main.id)
     }
     const mainsOnly = items.filter(bp => {
-      const scriptKey = typeof bp.script === 'string' ? bp.script.trim() : ''
+      const scriptKey = getScriptKey(bp?.script)
       if (!scriptKey) return true
       return mainIds.has(bp.id)
     })
-    return sortBy([...CLIENT_BUILTIN_TEMPLATES, ...mainsOnly], bp => (bp.name || bp.id || '').toLowerCase())
+    return {
+      [ADD_TAB_BUILTINS]: sortBy(CLIENT_BUILTIN_TEMPLATES, bp => (bp.name || bp.id || '').toLowerCase()),
+      [ADD_TAB_BLUEPRINTS]: sortBy(mainsOnly, bp => (bp.name || bp.id || '').toLowerCase()),
+    }
   }
   const buildOrphans = () => {
     const used = new Set()
@@ -64,13 +82,20 @@ export function Add({ world, hidden }) {
     )
     return sortBy(items, bp => (bp.name || bp.id || '').toLowerCase())
   }
-  const [templates, setTemplates] = useState(() => buildTemplates())
+  const [templateSets, setTemplateSets] = useState(() => buildTemplateSets())
   const [orphans, setOrphans] = useState(() => buildOrphans())
   const [cleaning, setCleaning] = useState(false)
+  const templates = templateSets[activeTab] || []
+  const filteredTemplates = search.trim()
+    ? templates.filter(bp => (bp.name || bp.id || '').toLowerCase().includes(search.trim().toLowerCase()))
+    : templates
+  const filteredOrphans = search.trim()
+    ? orphans.filter(bp => (bp.name || bp.id || '').toLowerCase().includes(search.trim().toLowerCase()))
+    : orphans
 
   useEffect(() => {
     const refresh = () => {
-      setTemplates(buildTemplates())
+      setTemplateSets(buildTemplateSets())
       setOrphans(buildOrphans())
     }
     world.blueprints.on('add', refresh)
@@ -89,6 +114,8 @@ export function Add({ world, hidden }) {
 
   useEffect(() => {
     if (hidden) {
+      setSearch('')
+      setActiveTab(ADD_TAB_BUILTINS)
       setCreateOpen(false)
       setCreating(false)
       setCreateError(null)
@@ -103,6 +130,12 @@ export function Add({ world, hidden }) {
     }, 0)
     return () => clearTimeout(handle)
   }, [createOpen])
+
+  useEffect(() => {
+    if (activeTab !== ADD_TAB_BLUEPRINTS && trashMode) {
+      setTrashMode(false)
+    }
+  }, [activeTab, trashMode])
 
   useEffect(() => {
     if (createOpen) return
@@ -174,11 +207,9 @@ export function Add({ world, hidden }) {
     world.builder.toggle(true)
     world.builder.control.pointer.lock()
     let spawnBlueprint = blueprint
-    if (isBuiltinTemplate(blueprint)) {
-      spawnBlueprint = await world.builder.forkTemplateFromBlueprint(blueprint, 'Add', null, { unique: false })
-      if (!spawnBlueprint) return
-    } else if (blueprint.unique) {
-      spawnBlueprint = await world.builder.forkTemplateFromBlueprint(blueprint, 'Add')
+    if (isBuiltinTemplate(blueprint) || blueprint.unique) {
+      const overrides = isBuiltinTemplate(blueprint) ? { unique: false } : {}
+      spawnBlueprint = await world.builder.forkTemplateFromBlueprint(blueprint, 'Add', null, overrides)
       if (!spawnBlueprint) return
     }
     setTimeout(() => {
@@ -202,35 +233,18 @@ export function Add({ world, hidden }) {
   }
 
   const remove = blueprint => {
-    world.ui
-      .confirm({
-        title: 'Delete blueprint',
-        message: `Delete blueprint \"${blueprint.name || blueprint.id}\"? This cannot be undone.`,
-        confirmText: 'Delete',
-        cancelText: 'Cancel',
+    if (!blueprint) return
+    const version = blueprint.version + 1
+    world.blueprints.modify({ id: blueprint.id, version, keep: false })
+    world.admin
+      .blueprintModify({ id: blueprint.id, version, keep: false }, { ignoreNetworkId: world.network.id })
+      .then(() => {
+        world.emit('toast', 'Moved to trash')
       })
-      .then(async ok => {
-        if (!ok) return
-        try {
-          await world.admin.blueprintRemove(blueprint.id)
-          world.emit('toast', 'Blueprint deleted')
-        } catch (err) {
-          const code = err?.message || ''
-          if (code === 'in_use') {
-            world.emit('toast', 'Cannot delete blueprint: there are spawned entities using it.')
-          } else {
-            world.emit('toast', 'Blueprint delete failed')
-          }
-        }
+      .catch(err => {
+        console.error(err)
+        world.emit('toast', 'Move to trash failed')
       })
-  }
-
-  const handleClick = blueprint => {
-    if (trashMode && !isBuiltinTemplate(blueprint)) {
-      remove(blueprint)
-    } else {
-      void add(blueprint)
-    }
   }
 
   const toggleKeep = blueprint => {
@@ -259,8 +273,15 @@ export function Add({ world, hidden }) {
     }
   }
 
+  const handleClick = blueprint => {
+    if (trashMode && !isBuiltinTemplate(blueprint)) {
+      remove(blueprint)
+    } else {
+      void add(blueprint)
+    }
+  }
+
   const openCreate = () => {
-    if (tab !== 'templates') return
     if (creating) return
     if (createOpen) {
       setCreateOpen(false)
@@ -271,15 +292,6 @@ export function Add({ world, hidden }) {
     setCreateOpen(true)
   }
 
-  const switchTab = next => {
-    setTab(next)
-    if (next !== 'templates') {
-      setTrashMode(false)
-      setCreateOpen(false)
-      setCreateError(null)
-      setCreateName('')
-    }
-  }
 
   return (
     <Pane hidden={hidden}>
@@ -291,15 +303,15 @@ export function Add({ world, hidden }) {
           border-radius: ${theme.radius};
           display: flex;
           flex-direction: column;
-          min-height: 22rem;
-          max-height: 22rem;
+          min-height: 0;
+          max-height: calc(100dvh - 10rem);
           position: relative;
           .add-head {
-            height: 3.125rem;
-            padding: 0 1rem;
+            padding: 0.6rem 1rem;
             border-bottom: 1px solid ${theme.borderLight};
             display: flex;
             align-items: center;
+            gap: 0.5rem;
           }
           .add-title {
             flex: 1;
@@ -307,33 +319,10 @@ export function Add({ world, hidden }) {
             font-size: 1rem;
             line-height: 1;
           }
-          .add-tabs {
-            display: inline-flex;
-            gap: 0.35rem;
-            margin-right: 0.5rem;
-          }
-          .add-tab {
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: transparent;
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 0.75rem;
-            padding: 0.25rem 0.65rem;
-            border-radius: ${theme.radiusSmall};
-            &:hover {
-              cursor: pointer;
-              color: white;
-              border-color: rgba(255, 255, 255, 0.35);
-            }
-            &.active {
-              color: white;
-              border-color: rgba(76, 224, 161, 0.65);
-              background: rgba(76, 224, 161, 0.12);
-            }
-          }
           .add-action,
           .add-toggle {
-            width: 2rem;
-            height: 2rem;
+            width: 1.5rem;
+            height: 1.5rem;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -342,6 +331,10 @@ export function Add({ world, hidden }) {
               cursor: pointer;
               color: white;
             }
+            &.hidden {
+              visibility: hidden;
+              pointer-events: none;
+            }
           }
           .add-action.active {
             color: #4ce0a1;
@@ -349,6 +342,50 @@ export function Add({ world, hidden }) {
           .add-toggle {
             &.active {
               color: #ff6b6b;
+            }
+          }
+          .add-search {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            input {
+              margin-left: 0.5rem;
+              flex: 1;
+              font-size: 0.9375rem;
+              &::placeholder {
+                color: #5d6077;
+              }
+              &::selection {
+                background-color: white;
+                color: rgba(0, 0, 0, 0.8);
+              }
+            }
+          }
+          .add-tabs {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.75rem 0;
+            border-bottom: 1px solid ${theme.borderLight};
+          }
+          .add-tab {
+            height: 1.9rem;
+            border: 0;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            color: #5d6077;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            padding: 0 0.5rem;
+            text-transform: uppercase;
+            &:hover {
+              cursor: pointer;
+              color: white;
+            }
+            &.active {
+              color: white;
+              border-bottom-color: #4ce0a1;
             }
           }
           .add-content {
@@ -371,9 +408,11 @@ export function Add({ world, hidden }) {
           }
           .add-item-image {
             width: 100%;
-            aspect-ratio: 1;
+            aspect-ratio: 16 / 10;
             background-color: #1c1d22;
-            background-size: cover;
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
             border: 1px solid ${theme.borderLight};
             border-radius: ${theme.radius};
             margin: 0 0 0.4rem;
@@ -393,12 +432,8 @@ export function Add({ world, hidden }) {
           .add-orphans-head {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-end;
             gap: 0.75rem;
-          }
-          .add-orphans-title {
-            font-weight: 500;
-            font-size: 0.9rem;
           }
           .add-orphans-clean {
             border-radius: ${theme.radiusSmall};
@@ -643,38 +678,83 @@ export function Add({ world, hidden }) {
         `}
       >
         <div className='add-head'>
-          <div className='add-title'>Add</div>
-          <div className='add-tabs'>
-            <button
-              type='button'
-              className={cls('add-tab', { active: tab === 'templates' })}
-              onClick={() => switchTab('templates')}
-            >
-              Templates
-            </button>
-            <button
-              type='button'
-              className={cls('add-tab', { active: tab === 'orphans' })}
-              onClick={() => switchTab('orphans')}
-            >
-              Recycle Bin
-            </button>
+          <label className='add-search'>
+            <SearchIcon size='1.125rem' />
+            <input type='text' placeholder='Search' value={search} onChange={e => setSearch(e.target.value)} />
+          </label>
+          <div
+            className={cls('add-action', { active: createOpen, hidden: activeTab === ADD_TAB_RECYCLE })}
+            onClick={openCreate}
+            title='Create'
+          >
+            <CirclePlusIcon size='1.125rem' />
           </div>
-          {tab === 'templates' && (
-            <>
-              <div className={cls('add-action', { active: createOpen })} onClick={openCreate} title='Create'>
-                <CirclePlusIcon size='1.125rem' />
-              </div>
-              <div className={cls('add-toggle', { active: trashMode })} onClick={() => setTrashMode(!trashMode)}>
-                <Trash2Icon size='1.125rem' />
-              </div>
-            </>
-          )}
+          <div
+            className={cls('add-toggle', { active: trashMode, hidden: activeTab !== ADD_TAB_BLUEPRINTS })}
+            onClick={() => setTrashMode(!trashMode)}
+          >
+            <Trash2Icon size='1.125rem' />
+          </div>
+        </div>
+        <div className='add-tabs'>
+          <button
+            type='button'
+            className={cls('add-tab', { active: activeTab === ADD_TAB_BUILTINS })}
+            onClick={() => setActiveTab(ADD_TAB_BUILTINS)}
+          >
+            Default
+          </button>
+          <button
+            type='button'
+            className={cls('add-tab', { active: activeTab === ADD_TAB_BLUEPRINTS })}
+            onClick={() => setActiveTab(ADD_TAB_BLUEPRINTS)}
+          >
+            Custom
+          </button>
+          <button
+            type='button'
+            className={cls('add-tab', { active: activeTab === ADD_TAB_RECYCLE })}
+            onClick={() => setActiveTab(ADD_TAB_RECYCLE)}
+          >
+            {`Trash${orphans.length ? ` (${orphans.length})` : ''}`}
+          </button>
         </div>
         <div className='add-content noscrollbar'>
-          {tab === 'templates' ? (
+          {activeTab === ADD_TAB_RECYCLE ? (
+            <div className='add-orphans'>
+              <div className='add-orphans-head'>
+                <button
+                  type='button'
+                  className='add-orphans-clean'
+                  onClick={runClean}
+                  disabled={!orphans.length || cleaning}
+                >
+                  {cleaning ? 'Cleaning...' : 'Clean now'}
+                </button>
+              </div>
+              {filteredOrphans.length ? (
+                <div className='add-orphans-list'>
+                  {filteredOrphans.map(blueprint => (
+                    <div className='add-orphan-row' key={blueprint.id}>
+                      <div className='add-orphan-name'>{blueprint.name || blueprint.id}</div>
+                      <button
+                        type='button'
+                        className={cls('add-orphan-toggle', { active: blueprint.keep })}
+                        onClick={() => toggleKeep(blueprint)}
+                      >
+                        {blueprint.keep ? <SquareCheckBigIcon size='0.85rem' /> : <SquareIcon size='0.85rem' />}
+                        <span>Keep</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className='add-orphans-empty'>Recycle bin is empty.</div>
+              )}
+            </div>
+          ) : (
             <div className='add-items'>
-              {templates.map(blueprint => {
+              {filteredTemplates.map(blueprint => {
                 const imageUrl = blueprint.image?.url || (typeof blueprint.image === 'string' ? blueprint.image : null)
                 return (
                   <div
@@ -694,39 +774,6 @@ export function Add({ world, hidden }) {
                   </div>
                 )
               })}
-            </div>
-          ) : (
-            <div className='add-orphans'>
-              <div className='add-orphans-head'>
-                <div className='add-orphans-title'>Recycle Bin ({orphans.length})</div>
-                <button
-                  type='button'
-                  className='add-orphans-clean'
-                  onClick={runClean}
-                  disabled={!orphans.length || cleaning}
-                >
-                  {cleaning ? 'Cleaning...' : 'Clean now'}
-                </button>
-              </div>
-              {orphans.length ? (
-                <div className='add-orphans-list'>
-                  {orphans.map(blueprint => (
-                    <div className='add-orphan-row' key={blueprint.id}>
-                      <div className='add-orphan-name'>{blueprint.name || blueprint.id}</div>
-                      <button
-                        type='button'
-                        className={cls('add-orphan-toggle', { active: blueprint.keep })}
-                        onClick={() => toggleKeep(blueprint)}
-                      >
-                        {blueprint.keep ? <SquareCheckBigIcon size='0.85rem' /> : <SquareIcon size='0.85rem' />}
-                        <span>Keep</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className='add-orphans-empty'>Recycle bin is empty.</div>
-              )}
             </div>
           )}
         </div>
