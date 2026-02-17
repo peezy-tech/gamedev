@@ -169,6 +169,7 @@ export function CoreUI({ world, connectionStatus }) {
     }
 
     const handleWalletAddressChange = nextValue => {
+      if (auth.mode === 'privy') return
       const expectedAddress = sessionWalletRef.current
       if (!expectedAddress) return
       const nextAddress = auth.normalizeSiweAddress?.(nextValue || '') || ''
@@ -190,6 +191,7 @@ export function CoreUI({ world, connectionStatus }) {
         providerAvailable,
       })
       if (!expectedAddress) return
+      if (auth.mode === 'privy') return
 
       if (!providerAvailable) {
         if (auth.mode === 'injected') {
