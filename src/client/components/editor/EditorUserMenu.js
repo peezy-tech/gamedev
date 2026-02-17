@@ -4,6 +4,8 @@ import { LoaderIcon, LogOutIcon, UserIcon, XIcon } from 'lucide-react'
 import { editorTheme as theme } from './editorTheme'
 import { cls } from '../cls'
 
+const WORLD_SLUG_REGEX = /^[a-z0-9-]+$/
+
 function resolveWorldServiceApiBase() {
   const configuredAuthUrl = typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''
   if (configuredAuthUrl) {
@@ -21,11 +23,23 @@ function getErrorMessage(body, fallback) {
   return fallback
 }
 
+function slugify(value) {
+  if (typeof value !== 'string') return ''
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+}
+
 async function requestJson(url, options = {}) {
+  const hasBody = typeof options.body === 'string'
   const response = await fetch(url, {
     credentials: 'include',
     headers: {
       accept: 'application/json',
+      ...(hasBody ? { 'content-type': 'application/json' } : null),
       ...(options.headers || null),
     },
     ...options,
@@ -39,6 +53,12 @@ export function EditorUserMenu({ open, onClose, onDisconnectWallet }) {
   const [loadingWorld, setLoadingWorld] = useState(false)
   const [ownedWorld, setOwnedWorld] = useState(null)
   const [error, setError] = useState('')
+  const [worldName, setWorldName] = useState('My World')
+  const [worldSlug, setWorldSlug] = useState('my-world')
+  const [worldDescription, setWorldDescription] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [creatingWorld, setCreatingWorld] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
   const refreshOwnedWorld = useCallback(async () => {
@@ -64,13 +84,29 @@ export function EditorUserMenu({ open, onClose, onDisconnectWallet }) {
     }
 
     const owned = Array.isArray(result.body?.owned) ? result.body.owned : []
-    setOwnedWorld(owned[0] || null)
+    const world = owned[0] || null
+    setOwnedWorld(world)
+    if (world) {
+      const nextName = typeof world.name === 'string' ? world.name : 'My World'
+      const nextSlug = typeof world.slug === 'string' ? world.slug : slugify(nextName)
+      const nextDescription = typeof world.description === 'string' ? world.description : ''
+      setWorldName(nextName)
+      setWorldSlug(nextSlug)
+      setWorldDescription(nextDescription)
+      setSlugEdited(true)
+    }
   }, [apiBaseUrl])
 
   useEffect(() => {
     if (!open) return
+    setCreateError('')
     void refreshOwnedWorld()
   }, [open, refreshOwnedWorld])
+
+  useEffect(() => {
+    if (slugEdited) return
+    setWorldSlug(slugify(worldName))
+  }, [worldName, slugEdited])
 
   useEffect(() => {
     if (!open) return
@@ -99,6 +135,72 @@ export function EditorUserMenu({ open, onClose, onDisconnectWallet }) {
     } finally {
       setSigningOut(false)
     }
+  }
+
+  const createWorld = async () => {
+    if (creatingWorld || loadingWorld) return
+    if (!apiBaseUrl) {
+      setCreateError('World service API is unavailable.')
+      return
+    }
+
+    const normalizedName = worldName.trim()
+    const normalizedSlug = slugify(worldSlug)
+    const normalizedDescription = worldDescription.trim()
+
+    if (!normalizedName) {
+      setCreateError('World name is required.')
+      return
+    }
+    if (normalizedSlug.length < 3) {
+      setCreateError('Slug must be at least 3 characters.')
+      return
+    }
+    if (!WORLD_SLUG_REGEX.test(normalizedSlug)) {
+      setCreateError('Slug can only use lowercase letters, numbers, and hyphens.')
+      return
+    }
+
+    setCreateError('')
+    setCreatingWorld(true)
+    const result = await requestJson(`${apiBaseUrl}/worlds`, {
+      method: 'POST',
+      body: JSON.stringify({
+        slug: normalizedSlug,
+        name: normalizedName,
+        ...(normalizedDescription ? { description: normalizedDescription } : null),
+      }),
+    })
+    setCreatingWorld(false)
+
+    if (!result.ok) {
+      const code = typeof result.body?.error === 'string' ? result.body.error : ''
+      if (result.status === 401) {
+        setCreateError('Session expired. Please sign in again.')
+        return
+      }
+      if (result.status === 409 && code === 'world_limit_reached') {
+        setCreateError('A personal world already exists for this account.')
+        await refreshOwnedWorld()
+        return
+      }
+      if (result.status === 409 && code.toLowerCase().includes('slug')) {
+        setCreateError('That slug is already in use.')
+        return
+      }
+      setCreateError(getErrorMessage(result.body, 'Unable to create world.'))
+      return
+    }
+
+    const created = result.body?.world || null
+    if (created) {
+      setOwnedWorld(created)
+      setSlugEdited(true)
+      setCreateError('')
+      return
+    }
+
+    await refreshOwnedWorld()
   }
 
   if (!open) return null
@@ -207,6 +309,35 @@ export function EditorUserMenu({ open, onClose, onDisconnectWallet }) {
           font-size: 0.82rem;
           color: #ff8e8e;
         }
+        .editor-usermenu-field {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .editor-usermenu-label {
+          font-size: 0.72rem;
+          color: rgba(255, 255, 255, 0.55);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+        }
+        .editor-usermenu-input,
+        .editor-usermenu-textarea {
+          width: 100%;
+          border: 1px solid ${theme.border};
+          background: ${theme.bgInput};
+          color: rgba(255, 255, 255, 0.95);
+          font-size: 0.85rem;
+          border-radius: ${theme.radiusSmall};
+          padding: 0.6rem 0.65rem;
+          &:focus {
+            border-color: ${theme.borderHover};
+            outline: none;
+          }
+        }
+        .editor-usermenu-textarea {
+          min-height: 4.5rem;
+          resize: vertical;
+        }
         .editor-usermenu-actions {
           display: flex;
           align-items: center;
@@ -272,7 +403,52 @@ export function EditorUserMenu({ open, onClose, onDisconnectWallet }) {
           )}
 
           {!loadingWorld && !ownedWorld && !error && (
-            <div className='editor-usermenu-copy'>No personal world found for this account yet.</div>
+            <>
+              <div className='editor-usermenu-copy'>No personal world found. Create one now.</div>
+              <label className='editor-usermenu-field'>
+                <div className='editor-usermenu-label'>World Name</div>
+                <input
+                  className='editor-usermenu-input'
+                  value={worldName}
+                  maxLength={100}
+                  onChange={event => setWorldName(event.target.value)}
+                />
+              </label>
+              <label className='editor-usermenu-field'>
+                <div className='editor-usermenu-label'>Slug</div>
+                <input
+                  className='editor-usermenu-input'
+                  value={worldSlug}
+                  maxLength={32}
+                  onChange={event => {
+                    setSlugEdited(true)
+                    setWorldSlug(slugify(event.target.value))
+                  }}
+                />
+              </label>
+              <label className='editor-usermenu-field'>
+                <div className='editor-usermenu-label'>Description (Optional)</div>
+                <textarea
+                  className='editor-usermenu-textarea'
+                  value={worldDescription}
+                  maxLength={1000}
+                  onChange={event => setWorldDescription(event.target.value)}
+                />
+              </label>
+              {createError && <div className='editor-usermenu-error'>{createError}</div>}
+              <div className='editor-usermenu-actions'>
+                <button
+                  className={cls('editor-usermenu-btn', { disabled: creatingWorld || loadingWorld })}
+                  onClick={() => {
+                    if (creatingWorld || loadingWorld) return
+                    void createWorld()
+                  }}
+                >
+                  {creatingWorld && <LoaderIcon size='0.95rem' />}
+                  {creatingWorld ? 'Creating...' : 'Create My World'}
+                </button>
+              </div>
+            </>
           )}
 
           {error && <div className='editor-usermenu-error'>{error}</div>}
