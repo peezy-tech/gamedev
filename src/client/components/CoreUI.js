@@ -9,56 +9,11 @@ import { cls, isTouch } from '../utils'
 import { theme } from './theme'
 import { uuid } from '../../core/utils'
 import { ControlPriorities } from '../../core/extras/ControlPriorities'
-import { storage } from '../../core/storage'
 // import { AppsPane } from './AppsPane'
 // import { MenuMain } from './MenuMain'
 // import { MenuApp } from './MenuApp'
 import { ChevronDoubleUpIcon, HandIcon } from './Icons'
 import { MainMenu } from './MainMenu'
-
-const defaultWalletAuthState = {
-  enabled: false,
-  mode: null,
-  providerAvailable: false,
-  connected: false,
-  pending: false,
-  address: null,
-}
-
-const PRIVY_SIWE_RESUME_KEY = 'privySiweResume'
-const PRIVY_SIWE_RESUME_TTL_MS = 10 * 60 * 1000
-const PRIVY_PROVIDER_WAIT_MS = 10000
-
-function setPrivySiweResumeIntent() {
-  try {
-    storage.set(PRIVY_SIWE_RESUME_KEY, { ts: Date.now() })
-  } catch {
-    // ignore storage access failures
-  }
-}
-
-function clearPrivySiweResumeIntent() {
-  try {
-    storage.remove(PRIVY_SIWE_RESUME_KEY)
-  } catch {
-    // ignore storage access failures
-  }
-}
-
-function hasPrivySiweResumeIntent() {
-  try {
-    const value = storage.get(PRIVY_SIWE_RESUME_KEY)
-    if (!value || typeof value !== 'object') return false
-    const ts = Number(value.ts)
-    if (!Number.isFinite(ts) || ts <= 0 || Date.now() - ts > PRIVY_SIWE_RESUME_TTL_MS) {
-      storage.remove(PRIVY_SIWE_RESUME_KEY)
-      return false
-    }
-    return true
-  } catch {
-    return false
-  }
-}
 
 export function CoreUI({ world, connectionStatus }) {
   const ref = useRef()
@@ -74,10 +29,6 @@ export function CoreUI({ world, connectionStatus }) {
   const [apps, setApps] = useState(false)
   const [kicked, setKicked] = useState(null)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [buildMode, setBuildMode] = useState(() => world.builder?.enabled || false)
-  const [walletAuth, setWalletAuth] = useState(defaultWalletAuthState)
-  const sessionWalletRef = useRef('')
-  const walletMismatchRef = useRef(false)
   useEffect(() => {
     world.on('ready', setReady)
     world.on('player', setPlayer)
@@ -90,7 +41,6 @@ export function CoreUI({ world, connectionStatus }) {
     world.on('avatar', setAvatar)
     world.on('kick', setKicked)
     world.on('disconnect', setDisconnected)
-    world.on('build-mode', setBuildMode)
     const onOpenMenu = () => setMenuOpen(true)
     world.on('open-menu', onOpenMenu)
     return () => {
@@ -105,7 +55,6 @@ export function CoreUI({ world, connectionStatus }) {
       world.off('avatar', setAvatar)
       world.off('kick', setKicked)
       world.off('disconnect', setDisconnected)
-      world.off('build-mode', setBuildMode)
       world.off('open-menu', onOpenMenu)
     }
   }, [])
@@ -137,187 +86,6 @@ export function CoreUI({ world, connectionStatus }) {
     }
   }, [])
 
-  useEffect(() => {
-    const auth = globalThis.__runtimeAuth
-    if (!auth?.enabled) {
-      setWalletAuth(defaultWalletAuthState)
-      sessionWalletRef.current = ''
-      walletMismatchRef.current = false
-      return
-    }
-
-    let cancelled = false
-    let removeAccountSubscription = null
-    let verifyTimerId = null
-
-    const setAuthState = patch => {
-      if (cancelled) return
-      setWalletAuth(prev => ({ ...prev, ...patch }))
-    }
-
-    const kickForWalletChange = async reason => {
-      if (cancelled || walletMismatchRef.current) return
-      walletMismatchRef.current = true
-      setAuthState({ connected: false, address: null })
-      await auth.logoutAndClearSession?.().catch(() => {})
-      if (cancelled) return
-      world.emit('kick', reason)
-      world.network?.destroy?.()
-      setTimeout(() => {
-        window.location.reload()
-      }, 150)
-    }
-
-    const handleWalletAddressChange = nextValue => {
-      if (auth.mode === 'privy') return
-      const expectedAddress = sessionWalletRef.current
-      if (!expectedAddress) return
-      const nextAddress = auth.normalizeSiweAddress?.(nextValue || '') || ''
-      if (!nextAddress) {
-        void kickForWalletChange('wallet_disconnected')
-        return
-      }
-      if (nextAddress.toLowerCase() !== expectedAddress.toLowerCase()) {
-        void kickForWalletChange('wallet_changed')
-      }
-    }
-
-    const verifyActiveWallet = async () => {
-      const expectedAddress = sessionWalletRef.current
-      const providerAvailable = !!auth.hasWalletProvider?.()
-      setAuthState({
-        enabled: true,
-        mode: auth.mode || null,
-        providerAvailable,
-      })
-      if (!expectedAddress) return
-      if (auth.mode === 'privy') return
-
-      if (!providerAvailable) {
-        if (auth.mode === 'injected') {
-          await kickForWalletChange('wallet_disconnected')
-        }
-        return
-      }
-
-      const activeAddress = auth.normalizeSiweAddress?.(await auth.getActiveWalletAddress?.().catch(() => '')) || ''
-      if (!activeAddress) {
-        await kickForWalletChange('wallet_disconnected')
-        return
-      }
-      if (activeAddress.toLowerCase() !== expectedAddress.toLowerCase()) {
-        await kickForWalletChange('wallet_changed')
-      }
-    }
-
-    const initWalletAuth = async () => {
-      setAuthState({
-        enabled: true,
-        mode: auth.mode || null,
-        providerAvailable: !!auth.hasWalletProvider?.(),
-      })
-
-      const session = await auth.getSessionUser?.().catch(() => null)
-      const sessionUserId = typeof session?.user?.id === 'string' ? session.user.id.trim() : ''
-      const sessionAddress = auth.normalizeSiweAddress?.(session?.user?.wallet_address || '') || ''
-      sessionWalletRef.current = sessionAddress
-      setAuthState({
-        connected: !!sessionUserId,
-        address: sessionAddress || null,
-      })
-
-      const shouldResumePrivySiwe = auth.mode === 'privy' && !sessionUserId && hasPrivySiweResumeIntent()
-      if (shouldResumePrivySiwe) {
-        setAuthState({ pending: true })
-        try {
-          const deadline = Date.now() + PRIVY_PROVIDER_WAIT_MS
-          while (!cancelled && Date.now() < deadline) {
-            if (auth.hasWalletProvider?.()) break
-            await new Promise(resolve => setTimeout(resolve, 100))
-          }
-          if (cancelled) return
-          if (auth.hasWalletProvider?.()) {
-            await auth.connectWalletSession?.()
-            clearPrivySiweResumeIntent()
-            if (!cancelled) {
-              window.location.reload()
-              return
-            }
-          } else {
-            clearPrivySiweResumeIntent()
-          }
-        } catch (err) {
-          clearPrivySiweResumeIntent()
-          if (!err?.skipAuth) {
-            world.emit('toast', err?.message || 'Wallet login failed')
-          }
-        } finally {
-          setAuthState({ pending: false })
-        }
-      } else if (sessionUserId || auth.mode !== 'privy') {
-        clearPrivySiweResumeIntent()
-      }
-
-      removeAccountSubscription = auth.subscribeAccountChanges?.(handleWalletAddressChange) || null
-      await verifyActiveWallet()
-      verifyTimerId = setInterval(() => {
-        void verifyActiveWallet()
-      }, 3000)
-    }
-
-    initWalletAuth()
-
-    return () => {
-      cancelled = true
-      removeAccountSubscription?.()
-      if (verifyTimerId) {
-        clearInterval(verifyTimerId)
-      }
-    }
-  }, [world])
-
-  const connectWallet = async () => {
-    const auth = globalThis.__runtimeAuth
-    if (!auth?.enabled) return
-    if (walletAuth.pending || walletAuth.connected) return
-    const shouldResumePrivySiwe = auth.mode === 'privy'
-    if (shouldResumePrivySiwe) {
-      setPrivySiweResumeIntent()
-    }
-    setWalletAuth(prev => ({ ...prev, pending: true }))
-    try {
-      await auth.connectWalletSession?.()
-      if (shouldResumePrivySiwe) {
-        clearPrivySiweResumeIntent()
-      }
-      window.location.reload()
-    } catch (err) {
-      if (shouldResumePrivySiwe) {
-        clearPrivySiweResumeIntent()
-      }
-      if (!err?.skipAuth) {
-        world.emit('toast', err?.message || 'Wallet login failed')
-      }
-    } finally {
-      setWalletAuth(prev => ({ ...prev, pending: false }))
-    }
-  }
-
-  const disconnectWallet = async () => {
-    const auth = globalThis.__runtimeAuth
-    if (!auth?.enabled) return
-    if (walletAuth.pending) return
-    clearPrivySiweResumeIntent()
-    setWalletAuth(prev => ({ ...prev, pending: true }))
-    try {
-      await auth.logoutAndClearSession?.()
-    } catch {
-      // always reload to force a clean guest state
-    } finally {
-      window.location.reload()
-    }
-  }
-
   return (
     <div
       ref={ref}
@@ -331,14 +99,6 @@ export function CoreUI({ world, connectionStatus }) {
       {disconnected && <Disconnected />}
       {!ui.reticleSuppressors && <Reticle world={world} />}
       {<Toast world={world} />}
-      {ready && (
-        <WalletTopbar
-          auth={walletAuth}
-          buildMode={buildMode}
-          onConnectWallet={connectWallet}
-          onDisconnectWallet={disconnectWallet}
-        />
-      )}
       {ready && <MainMenu world={world} open={menuOpen} onClose={() => setMenuOpen(false)} />}
       {ready && <Chat world={world} />}
       {/* {ready && <Side world={world} player={player} menu={menu} />} */}
@@ -351,130 +111,6 @@ export function CoreUI({ world, connectionStatus }) {
       {confirm && <Confirm options={confirm} />}
       {prompt && <Prompt world={world} options={prompt} />}
       <div id='core-ui-portal' />
-    </div>
-  )
-}
-
-function WalletTopbar({ auth, buildMode, onConnectWallet, onDisconnectWallet }) {
-  if (!auth?.enabled) return null
-  return (
-    <div
-      className={cls('coreui-wallet-topbar', { buildMode })}
-      css={css`
-        position: absolute;
-        top: calc(1rem + env(safe-area-inset-top));
-        left: calc(4.25rem + env(safe-area-inset-left));
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        pointer-events: auto;
-        z-index: 12;
-        &.buildMode {
-          left: calc(7.5rem + env(safe-area-inset-left));
-        }
-      `}
-    >
-      <WalletBtn auth={auth} onClick={onConnectWallet} />
-      <WalletDisconnectBtn auth={auth} onClick={onDisconnectWallet} />
-    </div>
-  )
-}
-
-function formatWalletAddress(address) {
-  if (!address) return ''
-  return `${address.slice(0, 6)}...${address.slice(-4)}`
-}
-
-function WalletBtn({ auth, onClick }) {
-  if (!auth?.enabled) return null
-  const providerUnavailable = !auth.providerAvailable
-  const providerLoading = auth.mode === 'privy' && providerUnavailable
-  const disabled = auth.pending || auth.connected || providerUnavailable
-  const actionLabel = auth.mode === 'privy' ? 'Sign In' : 'Connect Wallet'
-  const unavailableLabel = auth.mode === 'privy' ? 'Auth Unavailable' : 'No Wallet'
-  const label = auth.pending
-    ? 'Connecting...'
-    : auth.connected
-      ? (auth.address ? formatWalletAddress(auth.address) : 'Signed In')
-      : providerLoading
-        ? 'Loading Auth...'
-        : providerUnavailable
-          ? unavailableLabel
-          : actionLabel
-  return (
-    <div
-      className={cls('coreui-wallet', { disabled })}
-      css={css`
-        min-width: 7.5rem;
-        height: 2.75rem;
-        padding: 0 0.75rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: transparent;
-        border: 1px solid ${theme.border};
-        border-radius: ${theme.radius};
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 0.75rem;
-        font-weight: 600;
-        letter-spacing: 0.01em;
-        cursor: pointer;
-        user-select: none;
-        &:hover {
-          background: ${theme.bgHover};
-        }
-        &.disabled {
-          cursor: default;
-          color: rgba(255, 255, 255, 0.55);
-          background: transparent;
-        }
-      `}
-      onClick={() => {
-        if (disabled) return
-        onClick?.()
-      }}
-    >
-      {label}
-    </div>
-  )
-}
-
-function WalletDisconnectBtn({ auth, onClick }) {
-  if (!auth?.enabled || !auth.connected) return null
-  const disabled = auth.pending
-  return (
-    <div
-      className={cls('coreui-wallet-disconnect', { disabled })}
-      css={css`
-        height: 2.75rem;
-        padding: 0 0.75rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: transparent;
-        border: 1px solid rgba(255, 125, 125, 0.45);
-        border-radius: ${theme.radius};
-        color: rgba(255, 185, 185, 0.95);
-        font-size: 0.75rem;
-        font-weight: 600;
-        letter-spacing: 0.01em;
-        cursor: pointer;
-        user-select: none;
-        &:hover {
-          background: rgba(255, 90, 90, 0.12);
-        }
-        &.disabled {
-          cursor: default;
-          color: rgba(255, 185, 185, 0.55);
-          background: transparent;
-        }
-      `}
-      onClick={() => {
-        if (disabled) return
-        onClick?.()
-      }}
-    >
-      Disconnect
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { RightPanel } from './RightPanel'
 import { BottomPanel } from './BottomPanel'
 import { HintContext, HintProvider } from '../Hint'
 import { useRank } from '../useRank'
+import { useWalletAuth } from '../useWalletAuth'
 
 export function EditorLayout({ world, ui, children }) {
   const [ready, setReady] = useState(false)
@@ -14,6 +15,7 @@ export function EditorLayout({ world, ui, children }) {
   const { isBuilder } = useRank(world, player)
   const [open, setOpen] = useState(true)
   const [buildMode, setBuildMode] = useState(false)
+  const { walletAuth, connectWallet, disconnectWallet } = useWalletAuth(world)
   const hasApp = !!ui.app
 
   useEffect(() => {
@@ -93,8 +95,10 @@ export function EditorLayout({ world, ui, children }) {
                 world={world}
                 open={open}
                 onToggle={() => setOpen(!open)}
-                isBuilder={isBuilder}
                 buildMode={buildMode}
+                auth={walletAuth}
+                onConnectWallet={connectWallet}
+                onDisconnectWallet={disconnectWallet}
               />
             )}
           </div>
