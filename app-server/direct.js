@@ -4097,8 +4097,8 @@ export class DirectAppServer {
     const scriptKey = getScriptKey(blueprint)
     const groups =
       scriptGroups || (this.snapshot?.blueprints ? buildScriptGroupIndex(this.snapshot.blueprints) : new Map())
-    let appName = null
-    if (scriptKey && groups.size) {
+    let appName = existingInfo?.appName || null
+    if (!appName && scriptKey && groups.size) {
       const group = groups.get(scriptKey)
       const main = group?.main || null
       if (main?.id) {
@@ -4107,7 +4107,7 @@ export class DirectAppServer {
       }
     }
     if (!appName) {
-      appName = existingInfo?.appName || parseBlueprintId(blueprint.id).appName
+      appName = parseBlueprintId(blueprint.id).appName
     }
     const appPath = path.join(this.appsDir, appName)
     ensureDir(appPath)
