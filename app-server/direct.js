@@ -1,3 +1,4 @@
+import fs from 'fs'
 import path from 'path'
 import readline from 'readline'
 import { WorldManifest } from './WorldManifest.js'
@@ -86,6 +87,9 @@ import {
   classifySyncDiff,
   formatNameList,
 } from './helpers.js'
+import { isValidScriptPath } from '../src/core/blueprintValidation.js'
+import { isEqual } from 'lodash-es'
+import { uuid } from './utils.js'
 
 export class DirectAppServer {
   constructor({ worldUrl, adminCode, rootDir = process.cwd() }) {
@@ -200,22 +204,11 @@ export class DirectAppServer {
 
   _normalizeBlueprintIdentityRecord(record, { key, keyType } = {}) {
     if (!record || typeof record !== 'object') return null
-    const id =
-      keyType === 'id'
-        ? normalizeSyncString(key)
-        : normalizeSyncString(record.id)
+    const id = keyType === 'id' ? normalizeSyncString(key) : normalizeSyncString(record.id)
     if (!id) return null
-    const uid =
-      keyType === 'uid'
-        ? normalizeSyncString(key)
-        : normalizeSyncString(record.uid) || null
-    const projectionPath = normalizeProjectRelativePath(
-      keyType === 'path' ? key : record.path
-    )
-    const signature =
-      keyType === 'signature'
-        ? normalizeSyncString(key)
-        : normalizeSyncString(record.signature) || null
+    const uid = keyType === 'uid' ? normalizeSyncString(key) : normalizeSyncString(record.uid) || null
+    const projectionPath = normalizeProjectRelativePath(keyType === 'path' ? key : record.path)
+    const signature = keyType === 'signature' ? normalizeSyncString(key) : normalizeSyncString(record.signature) || null
     return {
       id,
       uid,
@@ -254,8 +247,7 @@ export class DirectAppServer {
       return output
     }
     return {
-      formatVersion:
-        typeof state.formatVersion === 'number' ? state.formatVersion : BLUEPRINT_IDENTITY_INDEX_VERSION,
+      formatVersion: typeof state.formatVersion === 'number' ? state.formatVersion : BLUEPRINT_IDENTITY_INDEX_VERSION,
       blueprints: {
         byId: normalizeTable(blueprints.byId, 'id'),
         byUid: normalizeTable(blueprints.byUid, 'uid'),
@@ -398,8 +390,7 @@ export class DirectAppServer {
       this.blueprintIdentityIndex && typeof this.blueprintIdentityIndex === 'object'
         ? this.blueprintIdentityIndex
         : createEmptyBlueprintIdentityIndex()
-    const previousBlueprints =
-      previous.blueprints && typeof previous.blueprints === 'object' ? previous.blueprints : {}
+    const previousBlueprints = previous.blueprints && typeof previous.blueprints === 'object' ? previous.blueprints : {}
     const nextById = {
       ...(previousBlueprints.byId && typeof previousBlueprints.byId === 'object' ? previousBlueprints.byId : {}),
     }
@@ -418,8 +409,7 @@ export class DirectAppServer {
       if (!id) continue
       const uid = normalizeSyncString(info?.uid)
       const projectionPath =
-        normalizeProjectRelativePath(info?.relativeConfigPath) ||
-        toProjectRelativePath(this.rootDir, info?.configPath)
+        normalizeProjectRelativePath(info?.relativeConfigPath) || toProjectRelativePath(this.rootDir, info?.configPath)
       const signature = normalizeSyncString(info?.identitySignature)
       const record = {
         id,
@@ -505,10 +495,7 @@ export class DirectAppServer {
     if (!configured || typeof configured !== 'object') return defaults
 
     if (configured.blueprints && typeof configured.blueprints === 'object') {
-      defaults.blueprints.script = normalizeOwnershipValue(
-        configured.blueprints.script,
-        defaults.blueprints.script
-      )
+      defaults.blueprints.script = normalizeOwnershipValue(configured.blueprints.script, defaults.blueprints.script)
       defaults.blueprints.metadata = normalizeOwnershipValue(
         configured.blueprints.metadata,
         defaults.blueprints.metadata
@@ -517,10 +504,7 @@ export class DirectAppServer {
     }
 
     if (configured.entities && typeof configured.entities === 'object') {
-      defaults.entities.transform = normalizeOwnershipValue(
-        configured.entities.transform,
-        defaults.entities.transform
-      )
+      defaults.entities.transform = normalizeOwnershipValue(configured.entities.transform, defaults.entities.transform)
       defaults.entities.props = normalizeOwnershipValue(configured.entities.props, defaults.entities.props)
       defaults.entities.state = normalizeOwnershipValue(configured.entities.state, defaults.entities.state)
     }
@@ -658,16 +642,14 @@ export class DirectAppServer {
     const previous = this.syncState && typeof this.syncState === 'object' ? this.syncState : {}
     const previousWorldId = normalizeSyncString(previous.worldId)
     const worldChanged = !!previousWorldId && previousWorldId !== this.snapshot.worldId
-    const previousObjects = !worldChanged && previous.objects && typeof previous.objects === 'object' ? previous.objects : {}
-    const previousWorldState = !worldChanged && previous.world && typeof previous.world === 'object' ? previous.world : {}
+    const previousObjects =
+      !worldChanged && previous.objects && typeof previous.objects === 'object' ? previous.objects : {}
+    const previousWorldState =
+      !worldChanged && previous.world && typeof previous.world === 'object' ? previous.world : {}
     const nowIso = new Date().toISOString()
 
     const nextCursor =
-      cursor !== undefined
-        ? normalizeSyncCursor(cursor)
-        : worldChanged
-          ? null
-          : normalizeSyncCursor(previous.cursor)
+      cursor !== undefined ? normalizeSyncCursor(cursor) : worldChanged ? null : normalizeSyncCursor(previous.cursor)
 
     return {
       formatVersion: 1,
@@ -861,16 +843,7 @@ export class DirectAppServer {
     }
   }
 
-  _resolveBlueprintField({
-    field,
-    base,
-    local,
-    remote,
-    ownership,
-    merged,
-    unresolvedFields,
-    autoResolvedFields,
-  }) {
+  _resolveBlueprintField({ field, base, local, remote, ownership, merged, unresolvedFields, autoResolvedFields }) {
     const result = resolveThreeWayValue({
       base: base?.[field],
       local: local?.[field],
@@ -902,16 +875,7 @@ export class DirectAppServer {
     }
   }
 
-  _reconcileBlueprint({
-    id,
-    uid,
-    baselineHash,
-    localHash,
-    remoteHash,
-    base,
-    local,
-    remote,
-  }) {
+  _reconcileBlueprint({ id, uid, baselineHash, localHash, remoteHash, base, local, remote }) {
     const baseValue = normalizeBlueprintForCompare(base)
     const localValue = normalizeBlueprintForCompare(local)
     const remoteValue = normalizeBlueprintForCompare(remote)
@@ -990,7 +954,11 @@ export class DirectAppServer {
       defaultOwnership: propsOwnership,
       pathPrefix: 'props',
     })
-    if (Object.keys(propsResult.merged).length > 0 || localValue.props !== undefined || remoteValue.props !== undefined) {
+    if (
+      Object.keys(propsResult.merged).length > 0 ||
+      localValue.props !== undefined ||
+      remoteValue.props !== undefined
+    ) {
       merged.props = propsResult.merged
     }
     unresolvedFields.push(...propsResult.conflicts)
@@ -1018,16 +986,7 @@ export class DirectAppServer {
     return { merged }
   }
 
-  _resolveEntityField({
-    field,
-    base,
-    local,
-    remote,
-    ownership,
-    merged,
-    unresolvedFields,
-    autoResolvedFields,
-  }) {
+  _resolveEntityField({ field, base, local, remote, ownership, merged, unresolvedFields, autoResolvedFields }) {
     const result = resolveThreeWayValue({
       base: base?.[field],
       local: local?.[field],
@@ -1545,9 +1504,7 @@ export class DirectAppServer {
     const parsed = parseBlueprintId(id)
     const appName = projection.appName || info?.appName || parsed.appName
     const configPath =
-      projection.configPath ||
-      info?.configPath ||
-      path.join(this.appsDir, appName, `${parsed.fileBase || id}.json`)
+      projection.configPath || info?.configPath || path.join(this.appsDir, appName, `${parsed.fileBase || id}.json`)
     const existingConfig = readJson(configPath)
     const keep = info?.keep === true || existingConfig?.keep === true
     if (keep) return false
@@ -1768,10 +1725,10 @@ export class DirectAppServer {
       cursor: normalizeSyncCursor(previous.cursor),
       world: previous.world && typeof previous.world === 'object' ? previous.world : {},
       objects: previous.objects && typeof previous.objects === 'object' ? previous.objects : {},
-      lastConflictSnapshots: [entry, ...(Array.isArray(previous.lastConflictSnapshots) ? previous.lastConflictSnapshots : [])].slice(
-        0,
-        MAX_SYNC_CONFLICT_SNAPSHOTS
-      ),
+      lastConflictSnapshots: [
+        entry,
+        ...(Array.isArray(previous.lastConflictSnapshots) ? previous.lastConflictSnapshots : []),
+      ].slice(0, MAX_SYNC_CONFLICT_SNAPSHOTS),
       updatedAt: nowIso,
     }
     this.syncState = next
@@ -2027,23 +1984,11 @@ export class DirectAppServer {
     let strategy = null
     while (!strategy) {
       const answer = ((await this._promptSyncConflictResolutionLine('Selection [1/2/3/q]: ')) || '').toLowerCase()
-      if (
-        answer === '1' ||
-        answer === 'w' ||
-        answer === 'world' ||
-        answer === 'remote' ||
-        answer === 'accept-world'
-      ) {
+      if (answer === '1' || answer === 'w' || answer === 'world' || answer === 'remote' || answer === 'accept-world') {
         strategy = 'remote'
         break
       }
-      if (
-        answer === '2' ||
-        answer === 'p' ||
-        answer === 'project' ||
-        answer === 'local' ||
-        answer === 'push-project'
-      ) {
+      if (answer === '2' || answer === 'p' || answer === 'project' || answer === 'local' || answer === 'push-project') {
         strategy = 'local'
         break
       }
@@ -2517,10 +2462,7 @@ export class DirectAppServer {
     } catch {}
   }
 
-  async exportWorldToDisk(
-    snapshot = this.snapshot,
-    { includeBuiltScripts = false, includeScriptSources = true } = {}
-  ) {
+  async exportWorldToDisk(snapshot = this.snapshot, { includeBuiltScripts = false, includeScriptSources = true } = {}) {
     const rawSnapshot = snapshot || (await this.client.getSnapshot())
     const nextSnapshot = this._normalizeSnapshotForExport(rawSnapshot)
     this.assetsUrl = nextSnapshot.assetsUrl
@@ -2654,9 +2596,7 @@ export class DirectAppServer {
 
     for (const appName of listSubdirs(this.appsDir)) {
       const appPath = path.join(this.appsDir, appName)
-      const entries = fs.existsSync(appPath)
-        ? fs.readdirSync(appPath, { withFileTypes: true })
-        : []
+      const entries = fs.existsSync(appPath) ? fs.readdirSync(appPath, { withFileTypes: true }) : []
       const scriptPath = this._getScriptPath(appName)
 
       for (const entry of entries) {
@@ -3310,9 +3250,7 @@ export class DirectAppServer {
         continue
       }
       const props =
-        entity.props && typeof entity.props === 'object' && !Array.isArray(entity.props)
-          ? entity.props
-          : null
+        entity.props && typeof entity.props === 'object' && !Array.isArray(entity.props) ? entity.props : null
       if (!props) {
         localized.push(entity)
         continue
@@ -3413,9 +3351,7 @@ export class DirectAppServer {
   }
 
   _resolveScriptRootId(appName, infos, index = null) {
-    const candidates = index
-      ? Array.from(index.values()).filter(item => item.appName === appName)
-      : infos
+    const candidates = index ? Array.from(index.values()).filter(item => item.appName === appName) : infos
     if (!candidates || !candidates.length) return null
     const sorted = candidates.slice().sort(compareBlueprintsForMain)
     return sorted[0]?.id || candidates[0]?.id || null
@@ -3520,16 +3456,11 @@ export class DirectAppServer {
     const configuredScope = normalizeScopeValue(cfg?.scope)
     const currentScope = getBlueprintScopeValue(current)
     const fallbackScope =
-      normalizeScopeValue(info?.appName) ||
-      (info?.id === '$scene' ? '$scene' : normalizeScopeValue(info?.id))
+      normalizeScopeValue(info?.appName) || (info?.id === '$scene' ? '$scene' : normalizeScopeValue(info?.id))
     return configuredScope || currentScope || fallbackScope
   }
 
-  async _buildDeployPlan(
-    appName,
-    infos,
-    { uploadAssets = false, uploadScripts = false, index = null } = {}
-  ) {
+  async _buildDeployPlan(appName, infos, { uploadAssets = false, uploadScripts = false, index = null } = {}) {
     const scriptInfo = await this._safeUploadScriptForApp(appName, infos[0].scriptPath, {
       upload: uploadScripts,
       allowMissing: true,
@@ -3595,7 +3526,9 @@ export class DirectAppServer {
       if (summary.scriptChanges) details.push(`script: ${summary.scriptChanges}`)
       if (summary.configChanges) details.push(`config: ${summary.configChanges}`)
       const detailText = details.length ? ` [${details.join(', ')}]` : ''
-      console.log(`  • update: ${summary.updates.length}${detailText}${updateNames.length ? ` (${formatNameList(updateNames)})` : ''}`)
+      console.log(
+        `  • update: ${summary.updates.length}${detailText}${updateNames.length ? ` (${formatNameList(updateNames)})` : ''}`
+      )
     }
     if (unchangedCount) {
       console.log(`  • unchanged: ${unchangedCount}`)
@@ -3636,9 +3569,7 @@ export class DirectAppServer {
 
   async _deployBlueprintsForApp(appName, infos = null, index = null, options = {}) {
     const prior = this.deployQueues.get(appName) || Promise.resolve()
-    const run = prior
-      .catch(() => {})
-      .then(() => this._deployBlueprintsForAppInternal(appName, infos, index, options))
+    const run = prior.catch(() => {}).then(() => this._deployBlueprintsForAppInternal(appName, infos, index, options))
     let chained = run
     chained = run.finally(() => {
       if (this.deployQueues.get(appName) === chained) {
@@ -3696,18 +3627,21 @@ export class DirectAppServer {
       )
     }
 
-    await this._withDeployLock(async lock => {
-      await this._createDeploySnapshot(snapshotIds, { note: snapshotNote, lockToken: lock.token, scope: lock.scope })
-      const scriptInfo = await this._safeUploadScriptForApp(appName, list[0].scriptPath, {
-        allowMissing: true,
-      })
-      if (scriptInfo?.mode === 'module') {
-        scriptInfo.scriptRootId = this._resolveScriptRootId(appName, list, blueprintIndex)
-      }
-      for (const info of list) {
-        await this._deployBlueprint(info, scriptInfo, { lockToken: lock.token })
-      }
-    }, { owner: this._getDeployLockOwner(appName), scope: deployScope })
+    await this._withDeployLock(
+      async lock => {
+        await this._createDeploySnapshot(snapshotIds, { note: snapshotNote, lockToken: lock.token, scope: lock.scope })
+        const scriptInfo = await this._safeUploadScriptForApp(appName, list[0].scriptPath, {
+          allowMissing: true,
+        })
+        if (scriptInfo?.mode === 'module') {
+          scriptInfo.scriptRootId = this._resolveScriptRootId(appName, list, blueprintIndex)
+        }
+        for (const info of list) {
+          await this._deployBlueprint(info, scriptInfo, { lockToken: lock.token })
+        }
+      },
+      { owner: this._getDeployLockOwner(appName), scope: deployScope }
+    )
   }
 
   async _uploadScriptForApp(appName, scriptPath = null, { upload = true } = {}) {
@@ -3722,9 +3656,7 @@ export class DirectAppServer {
       throw new Error(`missing_script_entry:${appName}`)
     }
 
-    const files = Array.isArray(modeInfo?.files) && modeInfo.files.length
-      ? modeInfo.files
-      : listScriptFiles(appPath)
+    const files = Array.isArray(modeInfo?.files) && modeInfo.files.length ? modeInfo.files : listScriptFiles(appPath)
     if (!files.length) {
       throw new Error(`missing_script_files:${appName}`)
     }
@@ -3801,7 +3733,9 @@ export class DirectAppServer {
 
     const syncedFormats = this._syncScriptFormatForApp(appName, detectedFormat)
     if (syncedFormats > 0) {
-      console.log(`📝 Updated scriptFormat to "${detectedFormat}" in ${syncedFormats} blueprint file(s) for ${appName}.`)
+      console.log(
+        `📝 Updated scriptFormat to "${detectedFormat}" in ${syncedFormats} blueprint file(s) for ${appName}.`
+      )
     }
     return {
       mode: 'module',
@@ -4341,9 +4275,7 @@ export class DirectAppServer {
   async _blueprintToLocalConfig(appName, blueprint, { existingConfig } = {}) {
     const output = {}
     const existing =
-      existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig)
-        ? existingConfig
-        : null
+      existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig) ? existingConfig : null
     const existingCreatedAt = typeof existing?.createdAt === 'string' ? existing.createdAt : null
     const createdAt = typeof blueprint.createdAt === 'string' ? blueprint.createdAt : existingCreatedAt
     if (typeof blueprint.id === 'string' && blueprint.id) output.id = blueprint.id
@@ -4386,12 +4318,9 @@ export class DirectAppServer {
       const modelExt = path.extname(blueprint.model) || '.glb'
       const modelBaseName = normalizeSyncString(blueprint?.name) || appName
       const modelSuggestedName = buildSuggestedAssetFilename(modelBaseName, { fallbackBase: appName, ext: modelExt })
-      output.model = await this._maybeDownloadAsset(
-        appName,
-        blueprint.model,
-        modelSuggestedName,
-        { existingUrl: existingModel }
-      )
+      output.model = await this._maybeDownloadAsset(appName, blueprint.model, modelSuggestedName, {
+        existingUrl: existingModel,
+      })
     } else if (blueprint.model !== undefined) {
       output.model = blueprint.model
     }
@@ -4415,9 +4344,7 @@ export class DirectAppServer {
     if (blueprint.props && typeof blueprint.props === 'object') {
       const props = {}
       const existingProps =
-        existing?.props && typeof existing.props === 'object' && !Array.isArray(existing.props)
-          ? existing.props
-          : null
+        existing?.props && typeof existing.props === 'object' && !Array.isArray(existing.props) ? existing.props : null
       for (const [key, value] of Object.entries(blueprint.props)) {
         if (value && typeof value === 'object' && typeof value.url === 'string') {
           const v = { ...value }
