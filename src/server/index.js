@@ -2,6 +2,7 @@ import 'ses'
 import '../core/lockdown'
 import './bootstrap'
 
+import crypto from 'crypto'
 import fs from 'fs-extra'
 import path from 'path'
 import Fastify from 'fastify'
@@ -21,6 +22,7 @@ import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } fr
 import { resolveAuthRuntimeConfig } from './authModes'
 import { getMaxUploadSizeBytes } from './worldLimits.js'
 import { createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
+import { Ranks } from '../core/extras/ranks'
 
 const rootDir = path.join(__dirname, '../')
 // Resolve world directory relative to the consumer project (cwd), not the package root
@@ -89,6 +91,67 @@ function derivePublicWsUrlFromApiUrl(apiUrl) {
     .replace(/\/api\/?$/, '/ws')
     .replace(/^http:/, 'ws:')
     .replace(/^https:/, 'wss:')
+}
+
+function hasValue(value) {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
+  if (!hasValue(worldId) || !hasValue(jwtSecret)) return null
+  return crypto
+    .createHmac('sha256', jwtSecret.trim())
+    .update(`runtime-internal:${worldId.trim()}`)
+    .digest('hex')
+}
+
+function resolveLobbyInternalUserUrl(userId) {
+  const authBaseUrl = process.env.PUBLIC_AUTH_URL?.trim()
+  if (!hasValue(authBaseUrl) || !hasValue(userId)) return null
+  try {
+    const url = new URL(authBaseUrl)
+    let basePath = url.pathname.replace(/\/+$/, '')
+    basePath = basePath.replace(/\/identity$/, '')
+    url.pathname = `${basePath}/internal/users/${encodeURIComponent(userId.trim())}`
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function mapLobbyRoleToRank(role) {
+  if (role === 'admin') return Ranks.ADMIN
+  if (role === 'builder') return Ranks.BUILDER
+  return Ranks.VISITOR
+}
+
+async function resolveLobbyRoleRank(userId) {
+  const endpoint = resolveLobbyInternalUserUrl(userId)
+  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
+  if (!endpoint || !apiKey) return Ranks.VISITOR
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 4000)
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+    })
+    if (!response.ok) return Ranks.VISITOR
+    const payload = await response.json().catch(() => null)
+    const role = typeof payload?.role === 'string' ? payload.role.trim() : ''
+    return mapLobbyRoleToRank(role)
+  } catch {
+    return Ranks.VISITOR
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 // check envs
@@ -314,19 +377,21 @@ async function handleAuthExchange(req, reply) {
   }
   const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
   const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
+  const rank = await resolveLobbyRoleRank(userId)
 
   await db('users')
     .insert({
       id: userId,
       name: claimName,
       avatar,
-      rank: 0,
+      rank,
       createdAt: new Date().toISOString(),
     })
     .onConflict('id')
     .merge({
       name: claimName,
       avatar,
+      rank,
     })
 
   const runtimeToken = await createJWT({ userId, worldId: process.env.WORLD_ID })

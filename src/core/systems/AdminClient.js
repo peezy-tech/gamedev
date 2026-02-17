@@ -34,6 +34,7 @@ export class AdminClient extends System {
     this.queue = []
     this.pending = new Map()
     this.code = null
+    this.authToken = null
     this.deployLockToken = null
     this.deployLockScope = null
     this.requireCode = false
@@ -41,6 +42,7 @@ export class AdminClient extends System {
 
   init({ adminUrl, requireAdminCode } = {}) {
     this.code = storage.get('adminCode')
+    this.refreshAuthToken()
     if (adminUrl) {
       this.adminUrl = normalizeAdminUrl(adminUrl)
       this.requireCode = !!requireAdminCode
@@ -51,6 +53,7 @@ export class AdminClient extends System {
   onSnapshot(data) {
     this.adminUrl = normalizeAdminUrl(data.adminUrl) || deriveAdminUrl(data.apiUrl)
     this.requireCode = !!data.hasAdminCode
+    this.refreshAuthToken(data.authToken)
     this.connect()
   }
 
@@ -63,9 +66,20 @@ export class AdminClient extends System {
     this.connect()
   }
 
+  refreshAuthToken(nextToken) {
+    const tokenCandidate = typeof nextToken === 'string' ? nextToken : storage.get('authToken')
+    const token = typeof tokenCandidate === 'string' ? tokenCandidate.trim() : ''
+    this.authToken = token || null
+    return this.authToken
+  }
+
+  hasAuthCredential() {
+    return !!(this.code || this.refreshAuthToken())
+  }
+
   connect() {
     if (this.ws || !this.adminUrl) return
-    if (this.requireCode && !this.code) {
+    if (this.requireCode && !this.hasAuthCredential()) {
       this.error = 'missing_code'
       return
     }
@@ -99,6 +113,7 @@ export class AdminClient extends System {
     this.error = null
     this.sendPacket('adminAuth', {
       code: this.code,
+      authToken: this.refreshAuthToken(),
       subscriptions: { snapshot: false, players: false, runtime: false },
       networkId: this.world.network?.id || null,
     })
@@ -182,7 +197,7 @@ export class AdminClient extends System {
       err.code = 'admin_url_missing'
       return Promise.reject(err)
     }
-    if (this.requireCode && !this.code) {
+    if (this.requireCode && !this.hasAuthCredential()) {
       const err = new Error('admin_code_missing')
       err.code = 'admin_code_missing'
       return Promise.reject(err)
@@ -214,11 +229,11 @@ export class AdminClient extends System {
 
   async upload(file) {
     if (!this.adminUrl) throw new Error('admin_url_missing')
-    if (this.requireCode && !this.code) throw new Error('admin_code_missing')
+    if (this.requireCode && !this.hasAuthCredential()) throw new Error('admin_code_missing')
     const hash = await hashFile(file)
     const ext = file.name.split('.').pop().toLowerCase()
     const filename = `${hash}.${ext}`
-    const headers = this.code ? { 'X-Admin-Code': this.code } : undefined
+    const headers = this.getDeployHeaders()
     const checkUrl = joinUrl(this.adminUrl, `/admin/upload-check?filename=${encodeURIComponent(filename)}`)
     const checkResp = await fetch(checkUrl, { headers })
     if (checkResp.status === 403) throw new Error('admin_required')
@@ -232,7 +247,9 @@ export class AdminClient extends System {
       let error = null
       try {
         error = await uploadResp.json()
-      } catch {}
+      } catch {
+        // ignore non-JSON error payloads
+      }
       if (error?.error) {
         const err = new Error(error.error)
         err.code = error.error
@@ -248,12 +265,14 @@ export class AdminClient extends System {
   getDeployHeaders() {
     const headers = {}
     if (this.code) headers['X-Admin-Code'] = this.code
+    const authToken = this.refreshAuthToken()
+    if (authToken) headers.authorization = `Bearer ${authToken}`
     return Object.keys(headers).length > 0 ? headers : undefined
   }
 
   async acquireDeployLock({ owner, ttl, scope } = {}) {
     if (!this.adminUrl) throw new Error('admin_url_missing')
-    if (this.requireCode && !this.code) throw new Error('admin_code_missing')
+    if (this.requireCode && !this.hasAuthCredential()) throw new Error('admin_code_missing')
     const headers = this.getDeployHeaders() || {}
     const payload = {}
     if (owner) payload.owner = owner
@@ -276,7 +295,9 @@ export class AdminClient extends System {
       let data = null
       try {
         data = await res.json()
-      } catch {}
+      } catch {
+        // ignore non-JSON error payloads
+      }
       const code = data?.error || 'locked'
       const error = new Error(code)
       error.code = code
@@ -296,7 +317,7 @@ export class AdminClient extends System {
 
   async releaseDeployLock(token, scope) {
     if (!this.adminUrl) throw new Error('admin_url_missing')
-    if (this.requireCode && !this.code) throw new Error('admin_code_missing')
+    if (this.requireCode && !this.hasAuthCredential()) throw new Error('admin_code_missing')
     const lockToken = token || this.deployLockToken
     if (!lockToken) return { ok: true }
     const lockScope = scope || this.deployLockScope
@@ -320,7 +341,9 @@ export class AdminClient extends System {
       let data = null
       try {
         data = await res.json()
-      } catch {}
+      } catch {
+        // ignore non-JSON error payloads
+      }
       const code = data?.error || 'deploy_lock_release_failed'
       const error = new Error(code)
       error.code = code
@@ -361,8 +384,8 @@ export class AdminClient extends System {
 
   async blueprintRemove(id) {
     if (!this.adminUrl) throw new Error('admin_url_missing')
-    if (this.requireCode && !this.code) throw new Error('admin_code_missing')
-    const headers = this.code ? { 'X-Admin-Code': this.code } : undefined
+    if (this.requireCode && !this.hasAuthCredential()) throw new Error('admin_code_missing')
+    const headers = this.getDeployHeaders()
     const url = joinUrl(this.adminUrl, `/admin/blueprints/${encodeURIComponent(id)}`)
     const res = await fetch(url, { method: 'DELETE', headers })
     if (res.status === 403) throw new Error('admin_required')
@@ -371,7 +394,9 @@ export class AdminClient extends System {
       try {
         const data = await res.json()
         error = data?.error || null
-      } catch {}
+      } catch {
+        // ignore non-JSON error payloads
+      }
       throw new Error(error || `blueprint_remove_failed:${res.status}`)
     }
     try {
@@ -464,10 +489,10 @@ export class AdminClient extends System {
 
   async runClean({ dryrun } = {}) {
     if (!this.adminUrl) throw new Error('admin_url_missing')
-    if (this.requireCode && !this.code) throw new Error('admin_code_missing')
+    if (this.requireCode && !this.hasAuthCredential()) throw new Error('admin_code_missing')
     const headers = {
       'Content-Type': 'application/json',
-      ...(this.code ? { 'X-Admin-Code': this.code } : {}),
+      ...(this.getDeployHeaders() || {}),
     }
     const res = await fetch(joinUrl(this.adminUrl, '/admin/clean'), {
       method: 'POST',
@@ -483,7 +508,9 @@ export class AdminClient extends System {
       let data = null
       try {
         data = await res.json()
-      } catch {}
+      } catch {
+        // ignore non-JSON error payloads
+      }
       const code = data?.error || `clean_failed:${res.status}`
       const error = new Error(code)
       error.code = code

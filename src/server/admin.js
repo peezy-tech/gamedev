@@ -2,6 +2,8 @@ import crypto from 'crypto'
 import fs from 'fs'
 
 import { readPacket, writePacket } from '../core/packets.js'
+import { Ranks } from '../core/extras/ranks'
+import { readJWT } from '../core/utils-server.js'
 import { cleaner } from './cleaner'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
@@ -201,6 +203,28 @@ function getAdminCodeFromRequest(req) {
   return typeof header === 'string' ? header : null
 }
 
+function getAuthTokenFromAuthorizationHeader(value) {
+  if (typeof value !== 'string') return null
+  if (!value.startsWith('Bearer ')) return null
+  const token = value.slice(7).trim()
+  return token || null
+}
+
+function getRuntimeAuthTokenFromRequest(req) {
+  const authHeader = normalizeHeader(req.headers.authorization)
+  const fromAuthHeader = getAuthTokenFromAuthorizationHeader(authHeader)
+  if (fromAuthHeader) return fromAuthHeader
+  const tokenHeader = normalizeHeader(req.headers['x-runtime-auth-token'])
+  if (typeof tokenHeader !== 'string') return null
+  const token = tokenHeader.trim()
+  return token || null
+}
+
+function parseUserRank(value) {
+  const rank = Number(value)
+  return Number.isFinite(rank) ? rank : Ranks.VISITOR
+}
+
 function sendPacket(ws, name, payload) {
   try {
     ws.send(writePacket(name, payload))
@@ -283,18 +307,52 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
     return toCursorNumber(row?.cursor)
   }
 
-  function requireAdmin(req, reply) {
-    const code = getAdminCodeFromRequest(req)
+  function getCapabilitiesFromAdminCode(code) {
     if (!isAdminCodeValid(code)) {
+      return { builder: false, deploy: false }
+    }
+    return { builder: true, deploy: true }
+  }
+
+  async function getCapabilitiesFromAuthToken(token) {
+    if (!token || !db) return { builder: false, deploy: false }
+    const worldId = world?.network?.worldId || process.env.WORLD_ID
+    const claims = await readJWT(token, { worldId })
+    const userId = typeof claims?.userId === 'string' ? claims.userId.trim() : ''
+    if (!userId) return { builder: false, deploy: false }
+
+    const user = await db('users').where('id', userId).first('rank')
+    const rank = parseUserRank(user?.rank)
+    return {
+      builder: rank >= Ranks.BUILDER,
+      deploy: rank >= Ranks.ADMIN,
+    }
+  }
+
+  async function resolveRequestCapabilities(req) {
+    const codeCapabilities = getCapabilitiesFromAdminCode(getAdminCodeFromRequest(req))
+    if (codeCapabilities.builder && codeCapabilities.deploy) {
+      return codeCapabilities
+    }
+    const tokenCapabilities = await getCapabilitiesFromAuthToken(getRuntimeAuthTokenFromRequest(req))
+    return {
+      builder: codeCapabilities.builder || tokenCapabilities.builder,
+      deploy: codeCapabilities.deploy || tokenCapabilities.deploy,
+    }
+  }
+
+  async function requireAdmin(req, reply) {
+    const capabilities = await resolveRequestCapabilities(req)
+    if (!capabilities.builder) {
       reply.code(403).send({ error: 'admin_required' })
       return false
     }
     return true
   }
 
-  function requireDeploy(req, reply) {
-    const code = getAdminCodeFromRequest(req)
-    if (!isAdminCodeValid(code)) {
+  async function requireDeploy(req, reply) {
+    const capabilities = await resolveRequestCapabilities(req)
+    if (!capabilities.deploy) {
       reply.code(403).send({ error: 'admin_required' })
       return false
     }
@@ -649,7 +707,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
       html = html.replaceAll('{image}', image)
       reply.type('text/html').send(html)
     },
-    wsHandler: (ws, _req) => {
+    wsHandler: (ws, req) => {
       let authed = false
       let defaultNetworkId = null
       let subscriptions = { snapshot: false, players: false, runtime: false }
@@ -676,10 +734,18 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
             ws.close()
             return
           }
-          const builderOk = isAdminCodeValid(data?.code)
-          const deployOk = builderOk
+          const codeCapabilities = getCapabilitiesFromAdminCode(data?.code)
+          let builderOk = codeCapabilities.builder
+          let deployOk = codeCapabilities.deploy
+          if (!builderOk || !deployOk) {
+            const payloadToken = typeof data?.authToken === 'string' ? data.authToken.trim() : ''
+            const headerToken = getRuntimeAuthTokenFromRequest(req) || ''
+            const tokenCapabilities = await getCapabilitiesFromAuthToken(payloadToken || headerToken)
+            builderOk = builderOk || tokenCapabilities.builder
+            deployOk = deployOk || tokenCapabilities.deploy
+          }
           if (!builderOk && !deployOk) {
-            sendPacket(ws, 'adminAuthError', { error: 'invalid_code' })
+            sendPacket(ws, 'adminAuthError', { error: data?.code ? 'invalid_code' : 'unauthorized' })
             ws.close()
             return
           }
@@ -1015,7 +1081,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.get('/admin/snapshot', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     const network = world.network
     return {
       worldId: network.worldId,
@@ -1032,7 +1098,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.get('/admin/changes', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     if (!db) {
       return reply.code(500).send({ error: 'db_unavailable' })
     }
@@ -1075,13 +1141,13 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.get('/admin/deploy-lock', async (req, reply) => {
-    if (!requireDeploy(req, reply)) return
+    if (!(await requireDeploy(req, reply))) return
     const scope = normalizeHeader(req.query?.scope)
     return getDeployLockStatus(scope)
   })
 
   fastify.post('/admin/deploy-lock', async (req, reply) => {
-    if (!requireDeploy(req, reply)) return
+    if (!(await requireDeploy(req, reply))) return
     const rawScope = normalizeHeader(req.body?.scope)
     const status = getBlockingLockStatus(rawScope)
     if (status?.locked) {
@@ -1104,7 +1170,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.put('/admin/deploy-lock', async (req, reply) => {
-    if (!requireDeploy(req, reply)) return
+    if (!(await requireDeploy(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
@@ -1129,7 +1195,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.delete('/admin/deploy-lock', async (req, reply) => {
-    if (!requireDeploy(req, reply)) return
+    if (!(await requireDeploy(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
@@ -1151,7 +1217,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.post('/admin/deploy-snapshots', async (req, reply) => {
-    if (!requireDeploy(req, reply)) return
+    if (!(await requireDeploy(req, reply))) return
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
     const normalizedScope = normalizeLockScope(rawScope)
@@ -1187,7 +1253,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.post('/admin/deploy-snapshots/rollback', async (req, reply) => {
-    if (!requireDeploy(req, reply)) return
+    if (!(await requireDeploy(req, reply))) return
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
     const normalizedScope = normalizeLockScope(rawScope)
@@ -1254,7 +1320,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.get('/admin/blueprints/:id', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     const blueprint = world.blueprints.get(req.params.id)
     if (!blueprint) {
       return reply.code(404).send({ error: 'not_found' })
@@ -1263,7 +1329,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.delete('/admin/blueprints/:id', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     const result = await world.network.applyBlueprintRemoved(
       { id: req.params.id },
       {
@@ -1284,7 +1350,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.get('/admin/entities', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     const type = req.query?.type
     const entities = serializeEntitiesForAdmin(world)
     if (typeof type !== 'string' || !type) {
@@ -1294,13 +1360,13 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.get('/admin/upload-check', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     const exists = await assets.exists(req.query.filename)
     return { exists }
   })
 
   fastify.put('/admin/spawn', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     const { position, quaternion } = req.body || {}
     const result = await world.network.applySpawnSet(
       { position, quaternion },
@@ -1317,7 +1383,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.post('/admin/upload', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     const maxUploadSizeBytes = getMaxUploadSizeBytes()
     const maxUploadSizeMb = getMaxUploadSizeMb()
     let mp
@@ -1361,7 +1427,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   })
 
   fastify.post('/admin/clean', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return
+    if (!(await requireAdmin(req, reply))) return
     if (!db) {
       return reply.code(500).send({ error: 'db_unavailable' })
     }
