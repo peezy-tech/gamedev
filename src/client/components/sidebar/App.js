@@ -191,7 +191,6 @@ export function App({ world, hidden }) {
     setAddingId(variant.id)
     const transform = world.builder.getSpawnTransform(true)
     world.builder.toggle(true)
-    world.builder.control.pointer.lock()
     let spawnBlueprint = variant
     if (variant.unique) {
       spawnBlueprint = await world.builder.forkTemplateFromBlueprint(variant, 'Add', null, {})
@@ -208,15 +207,14 @@ export function App({ world, hidden }) {
         position: transform.position,
         quaternion: transform.quaternion,
         scale: [1, 1, 1],
-        mover: world.network.id,
+        mover: null,
         uploader: null,
         pinned: false,
         props: {},
         state: {},
       }
-      const nextApp = world.entities.add(data)
+      world.entities.add(data)
       world.admin.entityAdd(data, { ignoreNetworkId: world.network.id })
-      world.builder.select(nextApp)
       setAddingId(null)
     }, 100)
   }
@@ -421,7 +419,16 @@ export function App({ world, hidden }) {
               className='app-btn'
               onClick={() => {
                 world.ui.setApp(null)
+                const blueprint = world.blueprints.items.get(app.data.blueprint)
+                if (blueprint?.keep) {
+                  const version = blueprint.version + 1
+                  world.blueprints.modify({ id: blueprint.id, version, keep: false })
+                  world.admin.blueprintModify({ id: blueprint.id, version, keep: false }, { ignoreNetworkId: world.network.id })
+                }
                 app.destroy(true)
+                // check state after destroy
+                const bpAfter = world.blueprints.items.get(app.data.blueprint)
+                console.log('[DELETE] after destroy — blueprint still exists:', !!bpAfter, 'keep:', bpAfter?.keep)
               }}
               onPointerEnter={() => setHint('Delete this app')}
               onPointerLeave={() => setHint(null)}
