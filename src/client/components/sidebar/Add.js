@@ -5,7 +5,6 @@ import { cls } from '../cls'
 import { theme } from '../theme'
 import { sortBy } from 'lodash-es'
 import { uuid } from '../../../core/utils'
-import { buildScriptGroups } from '../../../core/extras/blueprintGroups'
 import { BUILTIN_APP_TEMPLATES } from '../../builtinApps'
 import { Pane } from './Pane'
 
@@ -55,19 +54,9 @@ export function Add({ world, hidden }) {
         !builtinScriptKeys.has(getScriptKey(bp?.script)) &&
         bp.keep === true
     )
-    const groups = buildScriptGroups(world.blueprints.items)
-    const mainIds = new Set()
-    for (const group of groups.groups.values()) {
-      if (group?.main?.id) mainIds.add(group.main.id)
-    }
-    const mainsOnly = items.filter(bp => {
-      const scriptKey = getScriptKey(bp?.script)
-      if (!scriptKey) return true
-      return mainIds.has(bp.id)
-    })
     return {
       [ADD_TAB_BUILTINS]: sortBy(CLIENT_BUILTIN_TEMPLATES, bp => (bp.name || bp.id || '').toLowerCase()),
-      [ADD_TAB_BLUEPRINTS]: sortBy(mainsOnly, bp => (bp.name || bp.id || '').toLowerCase()),
+      [ADD_TAB_BLUEPRINTS]: sortBy(items, bp => (bp.name || bp.id || '').toLowerCase()),
     }
   }
   const buildOrphans = () => {
