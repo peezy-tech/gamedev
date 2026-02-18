@@ -2892,6 +2892,8 @@ export class DirectAppServer {
       }
       if (!fs.statSync(abs).isDirectory()) return
       this._watchAppDir(filename)
+      // New app directories can already contain files before nested watchers attach.
+      this._scheduleDeployApp(filename)
     })
     this.watchers.set('appsDir', watcher)
   }

@@ -67,9 +67,7 @@ export function Add({ world, hidden }) {
       }
     }
     const all = Array.from(world.blueprints.items.values())
-    const items = all.filter(
-      bp => !bp.scene && !used.has(bp.id) && bp.keep !== true
-    )
+    const items = all.filter(bp => !bp.scene && !used.has(bp.id) && bp.keep !== true)
     return sortBy(items, bp => (bp.name || bp.id || '').toLowerCase())
   }
   const [templateSets, setTemplateSets] = useState(() => buildTemplateSets())
@@ -303,7 +301,6 @@ export function Add({ world, hidden }) {
     setCreateName('')
     setCreateOpen(true)
   }
-
 
   return (
     <Pane hidden={hidden}>
@@ -721,7 +718,7 @@ export function Add({ world, hidden }) {
             className={cls('add-tab', { active: activeTab === ADD_TAB_BLUEPRINTS })}
             onClick={() => setActiveTab(ADD_TAB_BLUEPRINTS)}
           >
-            Custom
+            Local
           </button>
           <button
             type='button'
