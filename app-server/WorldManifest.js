@@ -120,7 +120,7 @@ export class WorldManifest {
         ao: true,
       },
       spawn: {
-        position: [0, 0, 0],
+        position: [0, 1, 0],
         quaternion: [0, 0, 0, 1],
       },
       entities: [],
