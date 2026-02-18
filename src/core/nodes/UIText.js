@@ -144,6 +144,11 @@ export class UIText extends Node {
     this.yogaNode.setFlexShrink(this._flexShrink)
     this.parent.yogaNode.insertChild(this.yogaNode, this.parent.yogaNode.getChildCount())
     this.ui?.redraw()
+    // Ensure font is loaded before rendering (canvas doesn't wait for fonts)
+    document.fonts.load(`${this._fontWeight} ${this._fontSize}px ${this._fontFamily}`).then(() => {
+      this.yogaNode?.markDirty()
+      this.ui?.redraw()
+    })
   }
 
   commit(didMove) {
