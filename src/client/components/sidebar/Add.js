@@ -5,7 +5,6 @@ import { cls } from '../cls'
 import { theme } from '../theme'
 import { sortBy } from 'lodash-es'
 import { uuid } from '../../../core/utils'
-import { buildScriptGroups } from '../../../core/extras/blueprintGroups'
 import { BUILTIN_APP_TEMPLATES } from '../../builtinApps'
 import { Pane } from './Pane'
 
@@ -55,19 +54,9 @@ export function Add({ world, hidden }) {
         !builtinScriptKeys.has(getScriptKey(bp?.script)) &&
         bp.keep === true
     )
-    const groups = buildScriptGroups(world.blueprints.items)
-    const mainIds = new Set()
-    for (const group of groups.groups.values()) {
-      if (group?.main?.id) mainIds.add(group.main.id)
-    }
-    const mainsOnly = items.filter(bp => {
-      const scriptKey = getScriptKey(bp?.script)
-      if (!scriptKey) return true
-      return mainIds.has(bp.id)
-    })
     return {
       [ADD_TAB_BUILTINS]: sortBy(CLIENT_BUILTIN_TEMPLATES, bp => (bp.name || bp.id || '').toLowerCase()),
-      [ADD_TAB_BLUEPRINTS]: sortBy(mainsOnly, bp => (bp.name || bp.id || '').toLowerCase()),
+      [ADD_TAB_BLUEPRINTS]: sortBy(items, bp => (bp.name || bp.id || '').toLowerCase()),
     }
   }
   const buildOrphans = () => {
@@ -77,9 +66,8 @@ export function Add({ world, hidden }) {
         used.add(entity.data.blueprint)
       }
     }
-    const items = Array.from(world.blueprints.items.values()).filter(
-      bp => !bp.scene && !used.has(bp.id) && bp.keep !== true
-    )
+    const all = Array.from(world.blueprints.items.values())
+    const items = all.filter(bp => !bp.scene && !used.has(bp.id) && bp.keep !== true)
     return sortBy(items, bp => (bp.name || bp.id || '').toLowerCase())
   }
   const [templateSets, setTemplateSets] = useState(() => buildTemplateSets())
@@ -223,15 +211,14 @@ export function Add({ world, hidden }) {
         position: transform.position,
         quaternion: transform.quaternion,
         scale: [1, 1, 1],
-        mover: world.network.id,
+        mover: null,
         uploader: null,
         pinned: false,
         props: {},
         state: {},
       }
-      const app = world.entities.add(data)
+      world.entities.add(data)
       world.admin.entityAdd(data, { ignoreNetworkId: world.network.id })
-      world.builder.select(app)
     }, 100)
   }
 
@@ -250,11 +237,34 @@ export function Add({ world, hidden }) {
       })
   }
 
-  const toggleKeep = blueprint => {
+  const toggleKeep = async blueprint => {
     const nextKeep = !blueprint.keep
     const version = blueprint.version + 1
     world.blueprints.modify({ id: blueprint.id, version, keep: nextKeep })
     world.admin.blueprintModify({ id: blueprint.id, version, keep: nextKeep }, { ignoreNetworkId: world.network.id })
+
+    // When keeping, also spawn the app back into the world
+    if (nextKeep) {
+      const transform = world.builder.getSpawnTransform(true)
+      world.builder.toggle(true)
+      setTimeout(() => {
+        const data = {
+          id: uuid(),
+          type: 'app',
+          blueprint: blueprint.id,
+          position: transform.position,
+          quaternion: transform.quaternion,
+          scale: [1, 1, 1],
+          mover: null,
+          uploader: null,
+          pinned: false,
+          props: {},
+          state: {},
+        }
+        world.entities.add(data)
+        world.admin.entityAdd(data, { ignoreNetworkId: world.network.id })
+      }, 100)
+    }
   }
 
   const runClean = async () => {
@@ -294,7 +304,6 @@ export function Add({ world, hidden }) {
     setCreateName('')
     setCreateOpen(true)
   }
-
 
   return (
     <Pane hidden={hidden}>
@@ -712,7 +721,7 @@ export function Add({ world, hidden }) {
             className={cls('add-tab', { active: activeTab === ADD_TAB_BLUEPRINTS })}
             onClick={() => setActiveTab(ADD_TAB_BLUEPRINTS)}
           >
-            Custom
+            Local
           </button>
           <button
             type='button'
