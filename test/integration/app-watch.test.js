@@ -56,3 +56,29 @@ test('app watch schedules deploy when entry file extension changes', async () =>
     await stopAppServer(server)
   }
 })
+
+test('apps dir watch schedules deploy when a new app folder appears', async () => {
+  const rootDir = await createTempDir('hyperfy-app-watch-apps-dir-')
+  const appsDir = path.join(rootDir, 'apps')
+  await fs.mkdir(appsDir, { recursive: true })
+
+  const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })
+  const watched = []
+  const scheduled = []
+  server._watchAppDir = appName => {
+    watched.push(appName)
+  }
+  server._scheduleDeployApp = appName => {
+    scheduled.push(appName)
+  }
+
+  try {
+    server._watchAppsDir()
+    await fs.mkdir(path.join(appsDir, 'FreshApp'), { recursive: true })
+
+    await waitFor(() => watched.includes('FreshApp'), { timeoutMs: 10000 })
+    await waitFor(() => scheduled.includes('FreshApp'), { timeoutMs: 10000 })
+  } finally {
+    await stopAppServer(server)
+  }
+})

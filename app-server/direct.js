@@ -1,1189 +1,95 @@
 import fs from 'fs'
 import path from 'path'
-import crypto from 'crypto'
 import readline from 'readline'
-import { EventEmitter } from 'events'
-import { isEqual } from 'lodash-es'
-import { parse as acornParse } from 'acorn'
-import { uuid } from './utils.js'
 import { WorldManifest } from './WorldManifest.js'
 import { deriveBlueprintId, parseBlueprintId, isBlueprintDenylist } from './blueprintUtils.js'
 import { scaffoldBaseProject, scaffoldBuiltins } from './scaffold.js'
 import { BUILTIN_BLUEPRINT_IDS, SCENE_TEMPLATE } from './templates/builtins.js'
-import { readPacket, writePacket } from '../src/core/packets.js'
+import { WorldAdminClient } from './WorldAdminClient.js'
+import {
+  BLUEPRINT_FIELDS,
+  SCRIPT_EXTENSIONS,
+  SCRIPT_DIR_SKIP,
+  SHARED_DIR_NAME,
+  SHARED_IMPORT_PREFIX,
+  SHARED_IMPORT_ALIAS,
+  CHANGEFEED_PAGE_LIMIT,
+  CHANGEFEED_MAX_PAGES,
+  MAX_SYNC_CONFLICT_SNAPSHOTS,
+  MAX_SYNC_CONFLICT_ARTIFACTS,
+  BLUEPRINT_IDENTITY_INDEX_VERSION,
+  OWNERSHIP_LOCAL,
+  OWNERSHIP_REMOTE,
+  OWNERSHIP_SHARED,
+  BLUEPRINT_SCRIPT_FIELDS,
+  BLUEPRINT_METADATA_FIELDS,
+  ENTITY_TRANSFORM_FIELDS,
+  DEFAULT_SYNC_POLICY,
+  sha256,
+  sleep,
+  normalizeBaseUrl,
+  toWsUrl,
+  joinUrl,
+  normalizePacketData,
+  extractAssetFilename,
+  isHashedAssetFilename,
+  sanitizeFileBaseName,
+  buildSuggestedAssetFilename,
+  sanitizeDirName,
+  readJson,
+  sortObjectKeysDeep,
+  stableStringify,
+  cloneJson,
+  isPlainObject,
+  normalizeSyncString,
+  normalizeProjectRelativePath,
+  toProjectRelativePath,
+  normalizeSyncCursor,
+  normalizeOwnershipValue,
+  resolveThreeWayValue,
+  reconcileObjectByKeys,
+  ensureDir,
+  listSubdirs,
+  normalizeAssetPath,
+  normalizeScriptRelPath,
+  isRelativeImport,
+  normalizeRelativePath,
+  normalizeSharedSpecifier,
+  getSharedDiskRelativePath,
+  extractImportSpecifiers,
+  isScriptFilename,
+  normalizeScriptFormat,
+  getScriptKey,
+  normalizeScopeValue,
+  getBlueprintScopeValue,
+  toCreatedAtMs,
+  getBlueprintFileBase,
+  compareBlueprintsForMain,
+  buildScriptGroupIndex,
+  resolveUniqueFileBase,
+  getExportedName,
+  entryHasDefaultExport,
+  hasScriptFiles,
+  listScriptFiles,
+  collectSharedDependencies,
+  buildSharedFileEntries,
+  getExistingAssetUrl,
+  pickBlueprintFields,
+  normalizeBlueprintForCompare,
+  normalizeBlueprintForCompareWithoutScript,
+  normalizeBlueprintScriptFields,
+  normalizeEntityForCompare,
+  normalizeSettingsForCompare,
+  normalizeSpawnForCompare,
+  hashSyncValue,
+  buildBlueprintIdentitySignature,
+  createEmptyBlueprintIdentityIndex,
+  classifySyncDiff,
+  formatNameList,
+} from './helpers.js'
 import { isValidScriptPath } from '../src/core/blueprintValidation.js'
-
-const BLUEPRINT_FIELDS = [
-  'model',
-  'image',
-  'props',
-  'preload',
-  'public',
-  'locked',
-  'frozen',
-  'unique',
-  'scene',
-  'disabled',
-  'keep',
-  'author',
-  'url',
-  'desc',
-  'scope',
-]
-
-const SCRIPT_EXTENSIONS = new Set(['.js', '.ts'])
-const SCRIPT_DIR_SKIP = new Set(['.git', 'node_modules'])
-const SHARED_DIR_NAME = 'shared'
-const SHARED_IMPORT_PREFIX = '@shared/'
-const SHARED_IMPORT_ALIAS = 'shared/'
-const CHANGEFEED_PAGE_LIMIT = 500
-const CHANGEFEED_MAX_PAGES = 20
-const MAX_SYNC_CONFLICT_SNAPSHOTS = 25
-const MAX_SYNC_CONFLICT_ARTIFACTS = 100
-const BLUEPRINT_IDENTITY_INDEX_VERSION = 1
-
-const OWNERSHIP_LOCAL = 'local'
-const OWNERSHIP_REMOTE = 'runtime'
-const OWNERSHIP_SHARED = 'shared'
-
-const BLUEPRINT_SCRIPT_FIELDS = ['script', 'scriptEntry', 'scriptFiles', 'scriptFormat', 'scriptRef']
-const BLUEPRINT_METADATA_FIELDS = ['name', ...BLUEPRINT_FIELDS.filter(field => field !== 'props')]
-const ENTITY_TRANSFORM_FIELDS = ['blueprint', 'position', 'quaternion', 'scale', 'pinned']
-
-const DEFAULT_SYNC_POLICY = {
-  blueprints: {
-    script: OWNERSHIP_LOCAL,
-    metadata: OWNERSHIP_SHARED,
-    props: OWNERSHIP_SHARED,
-  },
-  entities: {
-    transform: OWNERSHIP_SHARED,
-    props: OWNERSHIP_SHARED,
-    state: OWNERSHIP_REMOTE,
-  },
-  world: {
-    settings: {
-      '*': OWNERSHIP_SHARED,
-    },
-    spawn: {
-      position: OWNERSHIP_SHARED,
-      quaternion: OWNERSHIP_SHARED,
-    },
-  },
-}
-
-function sha256(buffer) {
-  return crypto.createHash('sha256').update(buffer).digest('hex')
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function normalizeBaseUrl(url) {
-  if (!url) return ''
-  return url.replace(/\/+$/, '')
-}
-
-function toWsUrl(httpUrl) {
-  const url = normalizeBaseUrl(httpUrl)
-  if (url.startsWith('ws://') || url.startsWith('wss://')) return url
-  if (url.startsWith('https://')) return `wss://${url.slice('https://'.length)}`
-  if (url.startsWith('http://')) return `ws://${url.slice('http://'.length)}`
-  return `ws://${url}`
-}
-
-function joinUrl(base, pathname) {
-  const a = normalizeBaseUrl(base)
-  const b = (pathname || '').replace(/^\/+/, '')
-  return `${a}/${b}`
-}
-
-async function normalizePacketData(data) {
-  if (!data) return data
-  if (data instanceof Uint8Array) return data
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-  }
-  if (data instanceof ArrayBuffer) return new Uint8Array(data)
-  if (typeof Blob !== 'undefined' && data instanceof Blob) {
-    const buffer = await data.arrayBuffer()
-    return new Uint8Array(buffer)
-  }
-  return data
-}
-
-function extractAssetFilename(url) {
-  if (typeof url !== 'string') return null
-  if (!url.startsWith('asset://')) return null
-  return url.slice('asset://'.length)
-}
-
-function isHashedAssetFilename(filename) {
-  const ext = path.extname(filename)
-  if (!ext) return false
-  const base = filename.slice(0, -ext.length)
-  return /^[a-f0-9]{64}$/i.test(base)
-}
-
-function sanitizeFileBaseName(name) {
-  const trimmed = (name || '').toString().trim()
-  const base = trimmed.replace(/[^a-zA-Z0-9._ -]+/g, '-').replace(/\s+/g, ' ').trim()
-  if (!base) return 'file'
-  return base
-}
-
-function buildSuggestedAssetFilename(name, { fallbackBase = 'file', ext = '' } = {}) {
-  const normalizedExt = typeof ext === 'string' ? ext : ''
-  let base = sanitizeFileBaseName(name || fallbackBase)
-  if (normalizedExt && base.toLowerCase().endsWith(normalizedExt.toLowerCase())) {
-    base = base.slice(0, -normalizedExt.length)
-  }
-  base = sanitizeFileBaseName(base || fallbackBase)
-  return normalizedExt ? `${base}${normalizedExt}` : base
-}
-
-function sanitizeDirName(name) {
-  const base = sanitizeFileBaseName(name)
-  return base.replace(/[. ]+$/g, '').replace(/^[. ]+/g, '') || 'app'
-}
-
-function readJson(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return null
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-function sortObjectKeysDeep(value) {
-  if (Array.isArray(value)) {
-    return value.map(item => sortObjectKeysDeep(item))
-  }
-  if (value && typeof value === 'object') {
-    const out = {}
-    const keys = Object.keys(value).sort()
-    for (const key of keys) {
-      out[key] = sortObjectKeysDeep(value[key])
-    }
-    return out
-  }
-  return value
-}
-
-function stableStringify(value) {
-  return JSON.stringify(sortObjectKeysDeep(value))
-}
-
-function cloneJson(value) {
-  if (value === undefined) return undefined
-  try {
-    return JSON.parse(JSON.stringify(value))
-  } catch {
-    return value
-  }
-}
-
-function isPlainObject(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function normalizeSyncString(value) {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed || null
-}
-
-function normalizeProjectRelativePath(value) {
-  if (typeof value !== 'string') return null
-  const normalized = normalizeScriptRelPath(value).trim()
-  if (!normalized) return null
-  const clean = path.posix.normalize(normalized)
-  if (!clean || clean === '.' || clean.startsWith('../') || clean === '..') return null
-  if (clean.startsWith('/')) return null
-  return clean
-}
-
-function toProjectRelativePath(rootDir, filePath) {
-  if (typeof rootDir !== 'string' || typeof filePath !== 'string') return null
-  const rel = normalizeScriptRelPath(path.relative(rootDir, filePath))
-  return normalizeProjectRelativePath(rel)
-}
-
-function normalizeSyncCursor(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  const normalized = normalizeSyncString(value)
-  return normalized || null
-}
-
-function normalizeOwnershipValue(value, fallback = OWNERSHIP_SHARED) {
-  if (typeof value !== 'string') return fallback
-  const normalized = value.trim().toLowerCase()
-  if (normalized === OWNERSHIP_LOCAL) return OWNERSHIP_LOCAL
-  if (normalized === OWNERSHIP_REMOTE || normalized === 'remote') return OWNERSHIP_REMOTE
-  if (normalized === OWNERSHIP_SHARED) return OWNERSHIP_SHARED
-  return fallback
-}
-
-function resolveThreeWayValue({ base, local, remote, ownership = OWNERSHIP_SHARED } = {}) {
-  const normalizedOwnership = normalizeOwnershipValue(ownership)
-  if (isEqual(local, remote)) {
-    return { ok: true, value: cloneJson(local), resolution: 'equal' }
-  }
-  const localChanged = !isEqual(local, base)
-  const remoteChanged = !isEqual(remote, base)
-  if (!localChanged && !remoteChanged) {
-    return { ok: true, value: cloneJson(base), resolution: 'unchanged' }
-  }
-  if (localChanged && !remoteChanged) {
-    return { ok: true, value: cloneJson(local), resolution: 'local-only' }
-  }
-  if (!localChanged && remoteChanged) {
-    return { ok: true, value: cloneJson(remote), resolution: 'remote-only' }
-  }
-  if (normalizedOwnership === OWNERSHIP_LOCAL) {
-    return { ok: true, value: cloneJson(local), resolution: 'local-policy' }
-  }
-  if (normalizedOwnership === OWNERSHIP_REMOTE) {
-    return { ok: true, value: cloneJson(remote), resolution: 'remote-policy' }
-  }
-  return { ok: false, resolution: 'conflict' }
-}
-
-function reconcileObjectByKeys({
-  base,
-  local,
-  remote,
-  ownershipForKey = null,
-  defaultOwnership = OWNERSHIP_SHARED,
-  pathPrefix = '',
-} = {}) {
-  const baseObject = isPlainObject(base) ? base : {}
-  const localObject = isPlainObject(local) ? local : {}
-  const remoteObject = isPlainObject(remote) ? remote : {}
-  const keys = new Set([...Object.keys(baseObject), ...Object.keys(localObject), ...Object.keys(remoteObject)])
-  const merged = {}
-  const conflicts = []
-  const autoResolved = []
-
-  for (const key of keys) {
-    const baseValue = baseObject[key]
-    const localValue = localObject[key]
-    const remoteValue = remoteObject[key]
-    const ownership = normalizeOwnershipValue(
-      typeof ownershipForKey === 'function' ? ownershipForKey(key) : defaultOwnership,
-      defaultOwnership
-    )
-    const result = resolveThreeWayValue({
-      base: baseValue,
-      local: localValue,
-      remote: remoteValue,
-      ownership,
-    })
-    const path = pathPrefix ? `${pathPrefix}.${key}` : key
-    if (result.ok) {
-      if (result.value !== undefined) {
-        merged[key] = cloneJson(result.value)
-      }
-      if (result.resolution === 'local-policy' || result.resolution === 'remote-policy') {
-        autoResolved.push({
-          path,
-          ownership,
-          resolution: result.resolution,
-          value: cloneJson(result.value),
-        })
-      }
-      continue
-    }
-    conflicts.push({
-      path,
-      ownership,
-      base: cloneJson(baseValue),
-      local: cloneJson(localValue),
-      remote: cloneJson(remoteValue),
-    })
-    if (localValue !== undefined) {
-      merged[key] = cloneJson(localValue)
-    } else if (remoteValue !== undefined) {
-      merged[key] = cloneJson(remoteValue)
-    }
-  }
-
-  return { merged, conflicts, autoResolved }
-}
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true })
-}
-
-function listSubdirs(dirPath) {
-  if (!fs.existsSync(dirPath)) return []
-  return fs
-    .readdirSync(dirPath, { withFileTypes: true })
-    .filter(e => e.isDirectory())
-    .map(e => e.name)
-}
-
-function normalizeAssetPath(value) {
-  if (typeof value !== 'string') return value
-  return value.replace(/\\/g, '/')
-}
-
-function normalizeScriptRelPath(value) {
-  if (typeof value !== 'string') return value
-  return value.replace(/\\/g, '/')
-}
-
-function isRelativeImport(specifier) {
-  return typeof specifier === 'string' && (specifier.startsWith('./') || specifier.startsWith('../'))
-}
-
-function normalizeRelativePath(referrerPath, importSpecifier) {
-  if (typeof referrerPath !== 'string' || typeof importSpecifier !== 'string') return null
-  if (importSpecifier.includes('\\')) return null
-  const refSegments = normalizeScriptRelPath(referrerPath).split('/').filter(Boolean)
-  refSegments.pop()
-  const specSegments = importSpecifier.split('/')
-  const nextSegments = [...refSegments]
-  for (const segment of specSegments) {
-    if (!segment || segment === '.') continue
-    if (segment === '..') {
-      if (nextSegments.length === 0) return null
-      nextSegments.pop()
-      continue
-    }
-    nextSegments.push(segment)
-  }
-  const normalized = nextSegments.join('/')
-  return normalized || null
-}
-
-function normalizeSharedSpecifier(specifier) {
-  if (typeof specifier !== 'string') return null
-  const normalized = normalizeScriptRelPath(specifier)
-  if (normalized.startsWith(SHARED_IMPORT_PREFIX)) {
-    return isValidScriptPath(normalized) ? normalized : null
-  }
-  if (normalized.startsWith(SHARED_IMPORT_ALIAS)) {
-    const rest = normalized.slice(SHARED_IMPORT_ALIAS.length)
-    if (!rest) return null
-    const relPath = `${SHARED_IMPORT_PREFIX}${rest}`
-    return isValidScriptPath(relPath) ? relPath : null
-  }
-  return null
-}
-
-function getSharedDiskRelativePath(relPath) {
-  if (typeof relPath !== 'string') return null
-  const normalized = normalizeScriptRelPath(relPath)
-  if (normalized.startsWith(SHARED_IMPORT_PREFIX)) {
-    const rest = normalized.slice(SHARED_IMPORT_PREFIX.length)
-    return rest || null
-  }
-  if (normalized.startsWith(SHARED_IMPORT_ALIAS)) {
-    const rest = normalized.slice(SHARED_IMPORT_ALIAS.length)
-    return rest || null
-  }
-  return null
-}
-
-const IMPORT_EXPORT_SPECIFIER_REGEX =
-  /\b(?:import|export)\s+(?:type\s+)?(?:[^'"]*from\s*)?['"]([^'"]+)['"]/g
-const DYNAMIC_IMPORT_SPECIFIER_REGEX = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
-
-function extractImportSpecifiersFallback(sourceText) {
-  const specifiers = new Set()
-  IMPORT_EXPORT_SPECIFIER_REGEX.lastIndex = 0
-  DYNAMIC_IMPORT_SPECIFIER_REGEX.lastIndex = 0
-  let match = null
-  while ((match = IMPORT_EXPORT_SPECIFIER_REGEX.exec(sourceText)) !== null) {
-    if (match[1]) specifiers.add(match[1])
-  }
-  while ((match = DYNAMIC_IMPORT_SPECIFIER_REGEX.exec(sourceText)) !== null) {
-    if (match[1]) specifiers.add(match[1])
-  }
-  return Array.from(specifiers)
-}
-
-function extractImportSpecifiers(sourceText) {
-  if (typeof sourceText !== 'string' || !sourceText.trim()) return []
-  let ast = null
-  try {
-    ast = acornParse(sourceText, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      allowHashBang: true,
-    })
-  } catch {
-    return extractImportSpecifiersFallback(sourceText)
-  }
-
-  const specifiers = []
-  for (const node of ast.body) {
-    if (node.type === 'ImportDeclaration') {
-      const specifier = node.source?.value
-      if (typeof specifier === 'string') specifiers.push(specifier)
-      continue
-    }
-    if (node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') {
-      const specifier = node.source?.value
-      if (typeof specifier === 'string') specifiers.push(specifier)
-    }
-  }
-  return specifiers
-}
-
-function isScriptFilename(name) {
-  const ext = path.extname(name || '').toLowerCase()
-  return SCRIPT_EXTENSIONS.has(ext)
-}
-
-function normalizeScriptFormat(value) {
-  if (value === 'module' || value === 'legacy-body') return value
-  return null
-}
-
-function getScriptKey(blueprint) {
-  const script = typeof blueprint?.script === 'string' ? blueprint.script.trim() : ''
-  return script || null
-}
-
-function normalizeScopeValue(value) {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed || null
-}
-
-function getBlueprintScopeValue(blueprint) {
-  if (!blueprint || typeof blueprint !== 'object') return null
-  return normalizeScopeValue(blueprint.scope)
-}
-
-function toCreatedAtMs(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (value instanceof Date) return value.getTime()
-  if (typeof value === 'string') {
-    const ts = Date.parse(value)
-    if (Number.isFinite(ts)) return ts
-  }
-  return null
-}
-
-function getBlueprintFileBase(blueprint) {
-  if (!blueprint) return ''
-  if (typeof blueprint.fileBase === 'string' && blueprint.fileBase) return blueprint.fileBase
-  if (typeof blueprint.id === 'string' && blueprint.id) {
-    const parsed = parseBlueprintId(blueprint.id)
-    return parsed.fileBase || blueprint.id
-  }
-  return ''
-}
-
-function compareBlueprintsForMain(a, b) {
-  const aTime = toCreatedAtMs(a?.createdAt)
-  const bTime = toCreatedAtMs(b?.createdAt)
-  if (aTime !== null && bTime !== null && aTime !== bTime) {
-    return aTime - bTime
-  }
-  if (aTime !== null && bTime === null) return -1
-  if (aTime === null && bTime !== null) return 1
-  const aBase = (getBlueprintFileBase(a) || '').toLowerCase()
-  const bBase = (getBlueprintFileBase(b) || '').toLowerCase()
-  if (aBase < bBase) return -1
-  if (aBase > bBase) return 1
-  return 0
-}
-
-function buildScriptGroupIndex(blueprints) {
-  const groups = new Map()
-  if (!blueprints) return groups
-  const items = Array.isArray(blueprints) ? blueprints : Array.from(blueprints.values ? blueprints.values() : [])
-  for (const blueprint of items) {
-    const key = getScriptKey(blueprint)
-    if (!key) continue
-    let group = groups.get(key)
-    if (!group) {
-      group = { script: key, items: [], main: null }
-      groups.set(key, group)
-    }
-    group.items.push(blueprint)
-  }
-  for (const group of groups.values()) {
-    group.items.sort(compareBlueprintsForMain)
-    group.main = group.items[0] || null
-  }
-  return groups
-}
-
-function resolveUniqueFileBase(appPath, desiredBase, blueprintId, existingPath = null) {
-  const base = sanitizeFileBaseName(desiredBase || blueprintId || 'blueprint')
-  for (let idx = 0; idx < 10000; idx += 1) {
-    const suffix = idx === 0 ? '' : `_${idx}`
-    const candidate = `${base}${suffix}`
-    const candidatePath = path.join(appPath, `${candidate}.json`)
-    if (existingPath && path.resolve(candidatePath) === path.resolve(existingPath)) {
-      return candidate
-    }
-    if (!fs.existsSync(candidatePath)) return candidate
-    const existing = readJson(candidatePath)
-    const existingId = typeof existing?.id === 'string' ? existing.id.trim() : ''
-    if (existingId && existingId === blueprintId) {
-      return candidate
-    }
-  }
-  return `${base}_${uuid()}`
-}
-
-function getExportedName(node) {
-  if (!node) return null
-  if (node.type === 'Identifier') return node.name
-  if (node.type === 'Literal') return String(node.value)
-  return null
-}
-
-function entryHasDefaultExport(sourceText) {
-  if (typeof sourceText !== 'string' || !sourceText.trim()) return false
-  let ast
-  try {
-    ast = acornParse(sourceText, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      allowHashBang: true,
-    })
-  } catch {
-    return /\bexport\s+default\b/.test(sourceText) || /\bexport\s*\{[^}]*\bdefault\b[^}]*\}/.test(sourceText)
-  }
-  for (const node of ast.body) {
-    if (node.type === 'ExportDefaultDeclaration') return true
-    if (node.type === 'ExportNamedDeclaration' && Array.isArray(node.specifiers)) {
-      for (const spec of node.specifiers) {
-        if (spec.type !== 'ExportSpecifier') continue
-        const exported = getExportedName(spec.exported)
-        if (exported === 'default') return true
-      }
-    }
-  }
-  return false
-}
-
-function hasScriptFiles(blueprint) {
-  return blueprint?.scriptFiles && typeof blueprint.scriptFiles === 'object' && !Array.isArray(blueprint.scriptFiles)
-}
-
-function listScriptFiles(rootDir) {
-  if (!fs.existsSync(rootDir)) return []
-  const files = []
-  const pending = [rootDir]
-  while (pending.length) {
-    const dir = pending.pop()
-    let entries = []
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true })
-    } catch {
-      continue
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (SCRIPT_DIR_SKIP.has(entry.name)) continue
-        pending.push(path.join(dir, entry.name))
-        continue
-      }
-      if (!entry.isFile()) continue
-      if (!isScriptFilename(entry.name)) continue
-      const absPath = path.join(dir, entry.name)
-      const relPath = normalizeScriptRelPath(path.relative(rootDir, absPath))
-      files.push({ absPath, relPath })
-    }
-  }
-  files.sort((a, b) => a.relPath.localeCompare(b.relPath))
-  return files
-}
-
-function collectSharedDependencies(appFiles, sharedDir) {
-  const sharedRelPaths = new Set()
-  const queue = []
-
-  const enqueue = relPath => {
-    if (!relPath) return
-    if (!relPath.startsWith(SHARED_IMPORT_PREFIX)) return
-    if (!isValidScriptPath(relPath)) return
-    if (sharedRelPaths.has(relPath)) return
-    sharedRelPaths.add(relPath)
-    queue.push(relPath)
-  }
-
-  for (const file of appFiles) {
-    let sourceText = ''
-    try {
-      sourceText = fs.readFileSync(file.absPath, 'utf8')
-    } catch {
-      continue
-    }
-    const specifiers = extractImportSpecifiers(sourceText)
-    for (const specifier of specifiers) {
-      const relPath = normalizeSharedSpecifier(specifier)
-      if (relPath) enqueue(relPath)
-    }
-  }
-
-  while (queue.length) {
-    const relPath = queue.pop()
-    const sharedRel = getSharedDiskRelativePath(relPath)
-    if (!sharedRel) continue
-    const absPath = path.join(sharedDir, sharedRel)
-    if (!fs.existsSync(absPath)) continue
-    if (!isScriptFilename(absPath)) continue
-    let sourceText = ''
-    try {
-      sourceText = fs.readFileSync(absPath, 'utf8')
-    } catch {
-      continue
-    }
-    const specifiers = extractImportSpecifiers(sourceText)
-    for (const specifier of specifiers) {
-      const aliasRelPath = normalizeSharedSpecifier(specifier)
-      if (aliasRelPath) {
-        enqueue(aliasRelPath)
-        continue
-      }
-      if (!isRelativeImport(specifier)) continue
-      const resolved = normalizeRelativePath(relPath, specifier)
-      if (!resolved) continue
-      if (!resolved.startsWith(SHARED_IMPORT_PREFIX)) continue
-      if (!isValidScriptPath(resolved)) continue
-      enqueue(resolved)
-    }
-  }
-
-  return sharedRelPaths
-}
-
-function buildSharedFileEntries(sharedRelPaths, sharedDir) {
-  if (!sharedRelPaths || !sharedDir) return []
-  const files = []
-  for (const relPath of sharedRelPaths) {
-    const sharedRel = getSharedDiskRelativePath(relPath)
-    if (!sharedRel) continue
-    const absPath = path.join(sharedDir, sharedRel)
-    if (!fs.existsSync(absPath)) continue
-    if (!isScriptFilename(absPath)) continue
-    files.push({ absPath, relPath })
-  }
-  files.sort((a, b) => a.relPath.localeCompare(b.relPath))
-  return files
-}
-
-function getExistingAssetUrl(value) {
-  if (typeof value === 'string') return value
-  if (value && typeof value === 'object' && typeof value.url === 'string') {
-    return value.url
-  }
-  return null
-}
-
-function pickBlueprintFields(source) {
-  const out = {}
-  for (const key of BLUEPRINT_FIELDS) {
-    if (source[key] !== undefined) out[key] = source[key]
-  }
-  return out
-}
-
-function normalizeBlueprintForCompare(source) {
-  if (!source || typeof source !== 'object') return null
-  return {
-    id: source.id,
-    name: source.name,
-    script: source.script,
-    scriptEntry: source.scriptEntry,
-    scriptFiles: source.scriptFiles,
-    scriptFormat: source.scriptFormat,
-    scriptRef: source.scriptRef,
-    ...pickBlueprintFields(source),
-  }
-}
-
-function normalizeBlueprintForCompareWithoutScript(source) {
-  const normalized = normalizeBlueprintForCompare(source)
-  if (!normalized) return normalized
-  delete normalized.script
-  delete normalized.scriptEntry
-  delete normalized.scriptFiles
-  delete normalized.scriptFormat
-  delete normalized.scriptRef
-  return normalized
-}
-
-function normalizeBlueprintScriptFields(source) {
-  if (!source || typeof source !== 'object') return null
-  return {
-    script: source.script,
-    scriptEntry: source.scriptEntry,
-    scriptFiles: source.scriptFiles,
-    scriptFormat: source.scriptFormat,
-    scriptRef: source.scriptRef,
-  }
-}
-
-function normalizeEntityForCompare(source) {
-  if (!source || typeof source !== 'object') return null
-  const props =
-    source.props && typeof source.props === 'object' && !Array.isArray(source.props) ? source.props : {}
-  return {
-    id: source.id,
-    type: source.type || 'app',
-    blueprint: source.blueprint,
-    position: Array.isArray(source.position) ? source.position.slice(0, 3) : [0, 0, 0],
-    quaternion: Array.isArray(source.quaternion) ? source.quaternion.slice(0, 4) : [0, 0, 0, 1],
-    scale: Array.isArray(source.scale) ? source.scale.slice(0, 3) : [1, 1, 1],
-    pinned: Boolean(source.pinned),
-    props,
-    state: source.state && typeof source.state === 'object' ? source.state : {},
-  }
-}
-
-function normalizeSettingsForCompare(source) {
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return {}
-  return source
-}
-
-function normalizeSpawnForCompare(source) {
-  return {
-    position: Array.isArray(source?.position) ? source.position.slice(0, 3) : [0, 0, 0],
-    quaternion: Array.isArray(source?.quaternion) ? source.quaternion.slice(0, 4) : [0, 0, 0, 1],
-  }
-}
-
-function hashSyncValue(value) {
-  return sha256(Buffer.from(stableStringify(value), 'utf8'))
-}
-
-function buildBlueprintIdentitySignature(config) {
-  if (!config || typeof config !== 'object' || Array.isArray(config)) return null
-  const createdAt = normalizeSyncString(config.createdAt)
-  if (createdAt) return `createdAt:${createdAt}`
-  const copy = cloneJson(config)
-  if (!copy || typeof copy !== 'object' || Array.isArray(copy)) return null
-  delete copy.id
-  delete copy.uid
-  return `hash:${hashSyncValue(copy)}`
-}
-
-function createEmptyBlueprintIdentityIndex() {
-  return {
-    formatVersion: BLUEPRINT_IDENTITY_INDEX_VERSION,
-    blueprints: {
-      byId: {},
-      byUid: {},
-      byPath: {},
-      bySignature: {},
-    },
-    updatedAt: null,
-  }
-}
-
-function classifySyncDiff({ baselineHash, localHash, remoteHash }) {
-  const hasBaseline = baselineHash !== null && baselineHash !== undefined
-  if (!hasBaseline) {
-    if (localHash == null && remoteHash == null) return 'unchanged'
-    if (localHash == null) return 'remote-only'
-    if (remoteHash == null) return 'local-only'
-    if (localHash === remoteHash) return 'unchanged'
-    return 'concurrent'
-  }
-  const localChanged = localHash !== baselineHash
-  const remoteChanged = remoteHash !== baselineHash
-  if (!localChanged && !remoteChanged) return 'unchanged'
-  if (localChanged && !remoteChanged) return 'local-only'
-  if (!localChanged && remoteChanged) return 'remote-only'
-  if (localHash === remoteHash) return 'unchanged'
-  return 'concurrent'
-}
-
-function formatNameList(items, limit = 6) {
-  if (!Array.isArray(items) || items.length === 0) return ''
-  if (items.length <= limit) return items.join(', ')
-  const shown = items.slice(0, limit).join(', ')
-  return `${shown} (+${items.length - limit} more)`
-}
-
-class WorldAdminClient extends EventEmitter {
-  constructor({ worldUrl, adminCode }) {
-    super()
-    this.worldUrl = normalizeBaseUrl(worldUrl)
-    this.adminCode = adminCode || null
-    this.ws = null
-    this.pending = new Map()
-  }
-
-  get httpBase() {
-    return this.worldUrl
-  }
-
-  get wsBase() {
-    return toWsUrl(this.worldUrl)
-  }
-
-  get wsAdminUrl() {
-    return joinUrl(this.wsBase, '/admin')
-  }
-
-  adminHeaders(extra = {}) {
-    const headers = { ...extra }
-    if (this.adminCode) headers['X-Admin-Code'] = this.adminCode
-    return headers
-  }
-
-  async connect() {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) return
-
-    await new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsAdminUrl)
-      ws.binaryType = 'arraybuffer'
-      this.ws = ws
-
-      const onOpen = () => {
-        ws.send(
-          writePacket('adminAuth', {
-            code: this.adminCode,
-            subscriptions: { snapshot: false, players: false, runtime: false },
-          })
-        )
-      }
-
-      const onMessage = async event => {
-        let packet
-        try {
-          packet = await normalizePacketData(event.data)
-        } catch (err) {
-          console.error(err)
-          return
-        }
-        const [method, data] = readPacket(packet)
-        if (!method) return
-        if (method === 'onAdminAuthOk') {
-          cleanup()
-          this._attachListeners(ws)
-          resolve()
-          return
-        }
-
-        if (method === 'onAdminAuthError') {
-          cleanup()
-          reject(new Error(data?.error || 'auth_error'))
-        }
-      }
-
-      const onError = err => {
-        cleanup()
-        reject(err instanceof Error ? err : new Error('ws_error'))
-      }
-
-      const onClose = () => {
-        cleanup()
-        reject(new Error('ws_closed'))
-      }
-
-      const cleanup = () => {
-        ws.removeEventListener('open', onOpen)
-        ws.removeEventListener('message', onMessage)
-        ws.removeEventListener('error', onError)
-        ws.removeEventListener('close', onClose)
-      }
-
-      ws.addEventListener('open', onOpen)
-      ws.addEventListener('message', onMessage)
-      ws.addEventListener('error', onError)
-      ws.addEventListener('close', onClose)
-    })
-  }
-
-  _attachListeners(ws) {
-    ws.addEventListener('message', async event => {
-      let packet
-      try {
-        packet = await normalizePacketData(event.data)
-      } catch (err) {
-        console.error(err)
-        return
-      }
-      const [method, data] = readPacket(packet)
-      if (!method) return
-
-      if (method === 'onAdminResult') {
-        const requestId = data?.requestId
-        if (!requestId) return
-        const pending = this.pending.get(requestId)
-        if (!pending) return
-        this.pending.delete(requestId)
-        if (data.ok) {
-          pending.resolve(data)
-        } else {
-          const err = new Error(data.error || 'error')
-          err.code = data.error
-          err.current = data.current
-          err.lock = data.lock
-          pending.reject(err)
-        }
-        return
-      }
-
-      const type = method.slice(2)
-      if (type) {
-        const name = type.charAt(0).toLowerCase() + type.slice(1)
-        if (name === 'blueprintAdded' || name === 'blueprintModified') {
-          this.emit('message', { type: name, blueprint: data })
-          return
-        }
-        if (name === 'blueprintRemoved') {
-          const id = data?.id || data
-          this.emit('message', { type: name, id })
-          return
-        }
-        if (name === 'entityAdded' || name === 'entityModified') {
-          this.emit('message', { type: name, entity: data })
-          return
-        }
-        if (name === 'entityRemoved') {
-          this.emit('message', { type: name, id: data })
-          return
-        }
-        if (name === 'settingsModified') {
-          this.emit('message', { type: name, data })
-          return
-        }
-        if (name === 'spawnModified') {
-          this.emit('message', { type: name, spawn: data })
-          return
-        }
-        this.emit('message', { type: name, data })
-        return
-      }
-
-      this.emit('message', { type: null, data })
-    })
-
-    ws.addEventListener('close', () => {
-      for (const pending of this.pending.values()) {
-        pending.reject(new Error('ws_closed'))
-      }
-      this.pending.clear()
-      this.emit('disconnect')
-    })
-  }
-
-  request(type, payload = {}) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error('not_connected'))
-    }
-    const requestId = uuid()
-    const message = {
-      type,
-      requestId,
-      source: 'app-server',
-      actor: 'app-server',
-      ...payload,
-    }
-    return new Promise((resolve, reject) => {
-      this.pending.set(requestId, { resolve, reject })
-      this.ws.send(writePacket('adminCommand', message))
-    })
-  }
-
-  async getSnapshot() {
-    const res = await fetch(joinUrl(this.httpBase, '/admin/snapshot'), {
-      headers: this.adminHeaders(),
-    })
-    if (!res.ok) {
-      throw new Error(`snapshot_failed:${res.status}`)
-    }
-    return res.json()
-  }
-
-  async getChanges({ cursor, limit } = {}) {
-    const params = new URLSearchParams()
-    if (cursor !== undefined && cursor !== null && cursor !== '') {
-      params.set('cursor', String(cursor))
-    }
-    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
-      params.set('limit', String(Math.floor(limit)))
-    }
-    const suffix = params.size > 0 ? `?${params.toString()}` : ''
-    const res = await fetch(joinUrl(this.httpBase, `/admin/changes${suffix}`), {
-      headers: this.adminHeaders(),
-    })
-    if (!res.ok) {
-      throw new Error(`changes_failed:${res.status}`)
-    }
-    return res.json()
-  }
-
-  async getBlueprint(id) {
-    const res = await fetch(joinUrl(this.httpBase, `/admin/blueprints/${encodeURIComponent(id)}`), {
-      headers: this.adminHeaders(),
-    })
-    if (!res.ok) {
-      throw new Error(`blueprint_failed:${res.status}`)
-    }
-    const data = await res.json()
-    return data.blueprint
-  }
-
-  async removeBlueprint(id) {
-    const res = await fetch(joinUrl(this.httpBase, `/admin/blueprints/${encodeURIComponent(id)}`), {
-      method: 'DELETE',
-      headers: this.adminHeaders(),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      const err = new Error(data?.error || `blueprint_remove_failed:${res.status}`)
-      err.code = data?.error || 'blueprint_remove_failed'
-      throw err
-    }
-    return res.json().catch(() => ({ ok: true }))
-  }
-
-  async setSpawn({ position, quaternion }) {
-    const res = await fetch(joinUrl(this.httpBase, '/admin/spawn'), {
-      method: 'PUT',
-      headers: this.adminHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ position, quaternion }),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      const err = data?.error ? `spawn_failed:${data.error}` : `spawn_failed:${res.status}`
-      throw new Error(err)
-    }
-    return res.json()
-  }
-
-  async uploadAsset({ filename, buffer, mimeType }) {
-    const check = await fetch(joinUrl(this.httpBase, `/admin/upload-check?filename=${encodeURIComponent(filename)}`), {
-      headers: this.adminHeaders(),
-    })
-    if (!check.ok) {
-      throw new Error(`upload_check_failed:${check.status}`)
-    }
-    const { exists } = await check.json()
-    if (exists) return { ok: true, filename, exists: true }
-
-    const form = new FormData()
-    const file = new File([buffer], filename, { type: mimeType || 'application/octet-stream' })
-    form.set('file', file)
-
-    const upload = await fetch(joinUrl(this.httpBase, '/admin/upload'), {
-      method: 'POST',
-      headers: this.adminHeaders(),
-      body: form,
-    })
-    if (!upload.ok) {
-      throw new Error(`upload_failed:${upload.status}`)
-    }
-    return upload.json()
-  }
-
-  async getDeployLockStatus({ scope } = {}) {
-    const suffix = scope ? `?scope=${encodeURIComponent(scope)}` : ''
-    const res = await fetch(joinUrl(this.httpBase, `/admin/deploy-lock${suffix}`), {
-      headers: this.adminHeaders(),
-    })
-    if (!res.ok) {
-      throw new Error(`deploy_lock_status_failed:${res.status}`)
-    }
-    return res.json()
-  }
-
-  async acquireDeployLock({ owner, ttl, scope } = {}) {
-    const payload = { owner, ttl }
-    if (scope) payload.scope = scope
-    const res = await fetch(joinUrl(this.httpBase, '/admin/deploy-lock'), {
-      method: 'POST',
-      headers: this.adminHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      const err = new Error(data?.error || `deploy_lock_failed:${res.status}`)
-      err.code = data?.error || 'deploy_lock_failed'
-      err.lock = data?.lock
-      throw err
-    }
-    return res.json()
-  }
-
-  async renewDeployLock({ token, ttl, scope } = {}) {
-    const payload = { token, ttl }
-    if (scope) payload.scope = scope
-    const res = await fetch(joinUrl(this.httpBase, '/admin/deploy-lock'), {
-      method: 'PUT',
-      headers: this.adminHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      const err = new Error(data?.error || `deploy_lock_renew_failed:${res.status}`)
-      err.code = data?.error || 'deploy_lock_renew_failed'
-      err.lock = data?.lock
-      throw err
-    }
-    return res.json()
-  }
-
-  async releaseDeployLock({ token, scope } = {}) {
-    const payload = { token }
-    if (scope) payload.scope = scope
-    const res = await fetch(joinUrl(this.httpBase, '/admin/deploy-lock'), {
-      method: 'DELETE',
-      headers: this.adminHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      const err = new Error(data?.error || `deploy_lock_release_failed:${res.status}`)
-      err.code = data?.error || 'deploy_lock_release_failed'
-      err.lock = data?.lock
-      throw err
-    }
-    return res.json()
-  }
-
-  async createDeploySnapshot({ ids, target, note, lockToken, scope } = {}) {
-    const payload = { ids, target, note, lockToken }
-    if (scope) payload.scope = scope
-    const res = await fetch(joinUrl(this.httpBase, '/admin/deploy-snapshots'), {
-      method: 'POST',
-      headers: this.adminHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      const err = new Error(data?.error || `snapshot_failed:${res.status}`)
-      err.code = data?.error || 'snapshot_failed'
-      err.lock = data?.lock
-      throw err
-    }
-    return res.json()
-  }
-
-  async rollbackDeploySnapshot({ id, lockToken, scope } = {}) {
-    const payload = { id, lockToken }
-    if (scope) payload.scope = scope
-    const res = await fetch(joinUrl(this.httpBase, '/admin/deploy-snapshots/rollback'), {
-      method: 'POST',
-      headers: this.adminHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      const err = new Error(data?.error || `rollback_failed:${res.status}`)
-      err.code = data?.error || 'rollback_failed'
-      err.lock = data?.lock
-      throw err
-    }
-    return res.json()
-  }
-}
+import { isEqual } from 'lodash-es'
+import { uuid } from './utils.js'
 
 export class DirectAppServer {
   constructor({ worldUrl, adminCode, rootDir = process.cwd() }) {
@@ -1298,22 +204,11 @@ export class DirectAppServer {
 
   _normalizeBlueprintIdentityRecord(record, { key, keyType } = {}) {
     if (!record || typeof record !== 'object') return null
-    const id =
-      keyType === 'id'
-        ? normalizeSyncString(key)
-        : normalizeSyncString(record.id)
+    const id = keyType === 'id' ? normalizeSyncString(key) : normalizeSyncString(record.id)
     if (!id) return null
-    const uid =
-      keyType === 'uid'
-        ? normalizeSyncString(key)
-        : normalizeSyncString(record.uid) || null
-    const projectionPath = normalizeProjectRelativePath(
-      keyType === 'path' ? key : record.path
-    )
-    const signature =
-      keyType === 'signature'
-        ? normalizeSyncString(key)
-        : normalizeSyncString(record.signature) || null
+    const uid = keyType === 'uid' ? normalizeSyncString(key) : normalizeSyncString(record.uid) || null
+    const projectionPath = normalizeProjectRelativePath(keyType === 'path' ? key : record.path)
+    const signature = keyType === 'signature' ? normalizeSyncString(key) : normalizeSyncString(record.signature) || null
     return {
       id,
       uid,
@@ -1352,8 +247,7 @@ export class DirectAppServer {
       return output
     }
     return {
-      formatVersion:
-        typeof state.formatVersion === 'number' ? state.formatVersion : BLUEPRINT_IDENTITY_INDEX_VERSION,
+      formatVersion: typeof state.formatVersion === 'number' ? state.formatVersion : BLUEPRINT_IDENTITY_INDEX_VERSION,
       blueprints: {
         byId: normalizeTable(blueprints.byId, 'id'),
         byUid: normalizeTable(blueprints.byUid, 'uid'),
@@ -1496,8 +390,7 @@ export class DirectAppServer {
       this.blueprintIdentityIndex && typeof this.blueprintIdentityIndex === 'object'
         ? this.blueprintIdentityIndex
         : createEmptyBlueprintIdentityIndex()
-    const previousBlueprints =
-      previous.blueprints && typeof previous.blueprints === 'object' ? previous.blueprints : {}
+    const previousBlueprints = previous.blueprints && typeof previous.blueprints === 'object' ? previous.blueprints : {}
     const nextById = {
       ...(previousBlueprints.byId && typeof previousBlueprints.byId === 'object' ? previousBlueprints.byId : {}),
     }
@@ -1516,8 +409,7 @@ export class DirectAppServer {
       if (!id) continue
       const uid = normalizeSyncString(info?.uid)
       const projectionPath =
-        normalizeProjectRelativePath(info?.relativeConfigPath) ||
-        toProjectRelativePath(this.rootDir, info?.configPath)
+        normalizeProjectRelativePath(info?.relativeConfigPath) || toProjectRelativePath(this.rootDir, info?.configPath)
       const signature = normalizeSyncString(info?.identitySignature)
       const record = {
         id,
@@ -1603,10 +495,7 @@ export class DirectAppServer {
     if (!configured || typeof configured !== 'object') return defaults
 
     if (configured.blueprints && typeof configured.blueprints === 'object') {
-      defaults.blueprints.script = normalizeOwnershipValue(
-        configured.blueprints.script,
-        defaults.blueprints.script
-      )
+      defaults.blueprints.script = normalizeOwnershipValue(configured.blueprints.script, defaults.blueprints.script)
       defaults.blueprints.metadata = normalizeOwnershipValue(
         configured.blueprints.metadata,
         defaults.blueprints.metadata
@@ -1615,10 +504,7 @@ export class DirectAppServer {
     }
 
     if (configured.entities && typeof configured.entities === 'object') {
-      defaults.entities.transform = normalizeOwnershipValue(
-        configured.entities.transform,
-        defaults.entities.transform
-      )
+      defaults.entities.transform = normalizeOwnershipValue(configured.entities.transform, defaults.entities.transform)
       defaults.entities.props = normalizeOwnershipValue(configured.entities.props, defaults.entities.props)
       defaults.entities.state = normalizeOwnershipValue(configured.entities.state, defaults.entities.state)
     }
@@ -1756,16 +642,14 @@ export class DirectAppServer {
     const previous = this.syncState && typeof this.syncState === 'object' ? this.syncState : {}
     const previousWorldId = normalizeSyncString(previous.worldId)
     const worldChanged = !!previousWorldId && previousWorldId !== this.snapshot.worldId
-    const previousObjects = !worldChanged && previous.objects && typeof previous.objects === 'object' ? previous.objects : {}
-    const previousWorldState = !worldChanged && previous.world && typeof previous.world === 'object' ? previous.world : {}
+    const previousObjects =
+      !worldChanged && previous.objects && typeof previous.objects === 'object' ? previous.objects : {}
+    const previousWorldState =
+      !worldChanged && previous.world && typeof previous.world === 'object' ? previous.world : {}
     const nowIso = new Date().toISOString()
 
     const nextCursor =
-      cursor !== undefined
-        ? normalizeSyncCursor(cursor)
-        : worldChanged
-          ? null
-          : normalizeSyncCursor(previous.cursor)
+      cursor !== undefined ? normalizeSyncCursor(cursor) : worldChanged ? null : normalizeSyncCursor(previous.cursor)
 
     return {
       formatVersion: 1,
@@ -1959,16 +843,7 @@ export class DirectAppServer {
     }
   }
 
-  _resolveBlueprintField({
-    field,
-    base,
-    local,
-    remote,
-    ownership,
-    merged,
-    unresolvedFields,
-    autoResolvedFields,
-  }) {
+  _resolveBlueprintField({ field, base, local, remote, ownership, merged, unresolvedFields, autoResolvedFields }) {
     const result = resolveThreeWayValue({
       base: base?.[field],
       local: local?.[field],
@@ -2000,16 +875,7 @@ export class DirectAppServer {
     }
   }
 
-  _reconcileBlueprint({
-    id,
-    uid,
-    baselineHash,
-    localHash,
-    remoteHash,
-    base,
-    local,
-    remote,
-  }) {
+  _reconcileBlueprint({ id, uid, baselineHash, localHash, remoteHash, base, local, remote }) {
     const baseValue = normalizeBlueprintForCompare(base)
     const localValue = normalizeBlueprintForCompare(local)
     const remoteValue = normalizeBlueprintForCompare(remote)
@@ -2088,7 +954,11 @@ export class DirectAppServer {
       defaultOwnership: propsOwnership,
       pathPrefix: 'props',
     })
-    if (Object.keys(propsResult.merged).length > 0 || localValue.props !== undefined || remoteValue.props !== undefined) {
+    if (
+      Object.keys(propsResult.merged).length > 0 ||
+      localValue.props !== undefined ||
+      remoteValue.props !== undefined
+    ) {
       merged.props = propsResult.merged
     }
     unresolvedFields.push(...propsResult.conflicts)
@@ -2116,16 +986,7 @@ export class DirectAppServer {
     return { merged }
   }
 
-  _resolveEntityField({
-    field,
-    base,
-    local,
-    remote,
-    ownership,
-    merged,
-    unresolvedFields,
-    autoResolvedFields,
-  }) {
+  _resolveEntityField({ field, base, local, remote, ownership, merged, unresolvedFields, autoResolvedFields }) {
     const result = resolveThreeWayValue({
       base: base?.[field],
       local: local?.[field],
@@ -2643,9 +1504,7 @@ export class DirectAppServer {
     const parsed = parseBlueprintId(id)
     const appName = projection.appName || info?.appName || parsed.appName
     const configPath =
-      projection.configPath ||
-      info?.configPath ||
-      path.join(this.appsDir, appName, `${parsed.fileBase || id}.json`)
+      projection.configPath || info?.configPath || path.join(this.appsDir, appName, `${parsed.fileBase || id}.json`)
     const existingConfig = readJson(configPath)
     const keep = info?.keep === true || existingConfig?.keep === true
     if (keep) return false
@@ -2866,10 +1725,10 @@ export class DirectAppServer {
       cursor: normalizeSyncCursor(previous.cursor),
       world: previous.world && typeof previous.world === 'object' ? previous.world : {},
       objects: previous.objects && typeof previous.objects === 'object' ? previous.objects : {},
-      lastConflictSnapshots: [entry, ...(Array.isArray(previous.lastConflictSnapshots) ? previous.lastConflictSnapshots : [])].slice(
-        0,
-        MAX_SYNC_CONFLICT_SNAPSHOTS
-      ),
+      lastConflictSnapshots: [
+        entry,
+        ...(Array.isArray(previous.lastConflictSnapshots) ? previous.lastConflictSnapshots : []),
+      ].slice(0, MAX_SYNC_CONFLICT_SNAPSHOTS),
       updatedAt: nowIso,
     }
     this.syncState = next
@@ -3125,23 +1984,11 @@ export class DirectAppServer {
     let strategy = null
     while (!strategy) {
       const answer = ((await this._promptSyncConflictResolutionLine('Selection [1/2/3/q]: ')) || '').toLowerCase()
-      if (
-        answer === '1' ||
-        answer === 'w' ||
-        answer === 'world' ||
-        answer === 'remote' ||
-        answer === 'accept-world'
-      ) {
+      if (answer === '1' || answer === 'w' || answer === 'world' || answer === 'remote' || answer === 'accept-world') {
         strategy = 'remote'
         break
       }
-      if (
-        answer === '2' ||
-        answer === 'p' ||
-        answer === 'project' ||
-        answer === 'local' ||
-        answer === 'push-project'
-      ) {
+      if (answer === '2' || answer === 'p' || answer === 'project' || answer === 'local' || answer === 'push-project') {
         strategy = 'local'
         break
       }
@@ -3615,10 +2462,7 @@ export class DirectAppServer {
     } catch {}
   }
 
-  async exportWorldToDisk(
-    snapshot = this.snapshot,
-    { includeBuiltScripts = false, includeScriptSources = true } = {}
-  ) {
+  async exportWorldToDisk(snapshot = this.snapshot, { includeBuiltScripts = false, includeScriptSources = true } = {}) {
     const rawSnapshot = snapshot || (await this.client.getSnapshot())
     const nextSnapshot = this._normalizeSnapshotForExport(rawSnapshot)
     this.assetsUrl = nextSnapshot.assetsUrl
@@ -3752,9 +2596,7 @@ export class DirectAppServer {
 
     for (const appName of listSubdirs(this.appsDir)) {
       const appPath = path.join(this.appsDir, appName)
-      const entries = fs.existsSync(appPath)
-        ? fs.readdirSync(appPath, { withFileTypes: true })
-        : []
+      const entries = fs.existsSync(appPath) ? fs.readdirSync(appPath, { withFileTypes: true }) : []
       const scriptPath = this._getScriptPath(appName)
 
       for (const entry of entries) {
@@ -4050,6 +2892,8 @@ export class DirectAppServer {
       }
       if (!fs.statSync(abs).isDirectory()) return
       this._watchAppDir(filename)
+      // New app directories can already contain files before nested watchers attach.
+      this._scheduleDeployApp(filename)
     })
     this.watchers.set('appsDir', watcher)
   }
@@ -4408,9 +3252,7 @@ export class DirectAppServer {
         continue
       }
       const props =
-        entity.props && typeof entity.props === 'object' && !Array.isArray(entity.props)
-          ? entity.props
-          : null
+        entity.props && typeof entity.props === 'object' && !Array.isArray(entity.props) ? entity.props : null
       if (!props) {
         localized.push(entity)
         continue
@@ -4511,9 +3353,7 @@ export class DirectAppServer {
   }
 
   _resolveScriptRootId(appName, infos, index = null) {
-    const candidates = index
-      ? Array.from(index.values()).filter(item => item.appName === appName)
-      : infos
+    const candidates = index ? Array.from(index.values()).filter(item => item.appName === appName) : infos
     if (!candidates || !candidates.length) return null
     const sorted = candidates.slice().sort(compareBlueprintsForMain)
     return sorted[0]?.id || candidates[0]?.id || null
@@ -4618,16 +3458,11 @@ export class DirectAppServer {
     const configuredScope = normalizeScopeValue(cfg?.scope)
     const currentScope = getBlueprintScopeValue(current)
     const fallbackScope =
-      normalizeScopeValue(info?.appName) ||
-      (info?.id === '$scene' ? '$scene' : normalizeScopeValue(info?.id))
+      normalizeScopeValue(info?.appName) || (info?.id === '$scene' ? '$scene' : normalizeScopeValue(info?.id))
     return configuredScope || currentScope || fallbackScope
   }
 
-  async _buildDeployPlan(
-    appName,
-    infos,
-    { uploadAssets = false, uploadScripts = false, index = null } = {}
-  ) {
+  async _buildDeployPlan(appName, infos, { uploadAssets = false, uploadScripts = false, index = null } = {}) {
     const scriptInfo = await this._safeUploadScriptForApp(appName, infos[0].scriptPath, {
       upload: uploadScripts,
       allowMissing: true,
@@ -4693,7 +3528,9 @@ export class DirectAppServer {
       if (summary.scriptChanges) details.push(`script: ${summary.scriptChanges}`)
       if (summary.configChanges) details.push(`config: ${summary.configChanges}`)
       const detailText = details.length ? ` [${details.join(', ')}]` : ''
-      console.log(`  • update: ${summary.updates.length}${detailText}${updateNames.length ? ` (${formatNameList(updateNames)})` : ''}`)
+      console.log(
+        `  • update: ${summary.updates.length}${detailText}${updateNames.length ? ` (${formatNameList(updateNames)})` : ''}`
+      )
     }
     if (unchangedCount) {
       console.log(`  • unchanged: ${unchangedCount}`)
@@ -4734,9 +3571,7 @@ export class DirectAppServer {
 
   async _deployBlueprintsForApp(appName, infos = null, index = null, options = {}) {
     const prior = this.deployQueues.get(appName) || Promise.resolve()
-    const run = prior
-      .catch(() => {})
-      .then(() => this._deployBlueprintsForAppInternal(appName, infos, index, options))
+    const run = prior.catch(() => {}).then(() => this._deployBlueprintsForAppInternal(appName, infos, index, options))
     let chained = run
     chained = run.finally(() => {
       if (this.deployQueues.get(appName) === chained) {
@@ -4794,18 +3629,21 @@ export class DirectAppServer {
       )
     }
 
-    await this._withDeployLock(async lock => {
-      await this._createDeploySnapshot(snapshotIds, { note: snapshotNote, lockToken: lock.token, scope: lock.scope })
-      const scriptInfo = await this._safeUploadScriptForApp(appName, list[0].scriptPath, {
-        allowMissing: true,
-      })
-      if (scriptInfo?.mode === 'module') {
-        scriptInfo.scriptRootId = this._resolveScriptRootId(appName, list, blueprintIndex)
-      }
-      for (const info of list) {
-        await this._deployBlueprint(info, scriptInfo, { lockToken: lock.token })
-      }
-    }, { owner: this._getDeployLockOwner(appName), scope: deployScope })
+    await this._withDeployLock(
+      async lock => {
+        await this._createDeploySnapshot(snapshotIds, { note: snapshotNote, lockToken: lock.token, scope: lock.scope })
+        const scriptInfo = await this._safeUploadScriptForApp(appName, list[0].scriptPath, {
+          allowMissing: true,
+        })
+        if (scriptInfo?.mode === 'module') {
+          scriptInfo.scriptRootId = this._resolveScriptRootId(appName, list, blueprintIndex)
+        }
+        for (const info of list) {
+          await this._deployBlueprint(info, scriptInfo, { lockToken: lock.token })
+        }
+      },
+      { owner: this._getDeployLockOwner(appName), scope: deployScope }
+    )
   }
 
   async _uploadScriptForApp(appName, scriptPath = null, { upload = true } = {}) {
@@ -4820,9 +3658,7 @@ export class DirectAppServer {
       throw new Error(`missing_script_entry:${appName}`)
     }
 
-    const files = Array.isArray(modeInfo?.files) && modeInfo.files.length
-      ? modeInfo.files
-      : listScriptFiles(appPath)
+    const files = Array.isArray(modeInfo?.files) && modeInfo.files.length ? modeInfo.files : listScriptFiles(appPath)
     if (!files.length) {
       throw new Error(`missing_script_files:${appName}`)
     }
@@ -4899,7 +3735,9 @@ export class DirectAppServer {
 
     const syncedFormats = this._syncScriptFormatForApp(appName, detectedFormat)
     if (syncedFormats > 0) {
-      console.log(`📝 Updated scriptFormat to "${detectedFormat}" in ${syncedFormats} blueprint file(s) for ${appName}.`)
+      console.log(
+        `📝 Updated scriptFormat to "${detectedFormat}" in ${syncedFormats} blueprint file(s) for ${appName}.`
+      )
     }
     return {
       mode: 'module',
@@ -5261,8 +4099,8 @@ export class DirectAppServer {
     const scriptKey = getScriptKey(blueprint)
     const groups =
       scriptGroups || (this.snapshot?.blueprints ? buildScriptGroupIndex(this.snapshot.blueprints) : new Map())
-    let appName = null
-    if (scriptKey && groups.size) {
+    let appName = existingInfo?.appName || null
+    if (!appName && scriptKey && groups.size) {
       const group = groups.get(scriptKey)
       const main = group?.main || null
       if (main?.id) {
@@ -5271,7 +4109,7 @@ export class DirectAppServer {
       }
     }
     if (!appName) {
-      appName = existingInfo?.appName || parseBlueprintId(blueprint.id).appName
+      appName = parseBlueprintId(blueprint.id).appName
     }
     const appPath = path.join(this.appsDir, appName)
     ensureDir(appPath)
@@ -5439,9 +4277,7 @@ export class DirectAppServer {
   async _blueprintToLocalConfig(appName, blueprint, { existingConfig } = {}) {
     const output = {}
     const existing =
-      existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig)
-        ? existingConfig
-        : null
+      existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig) ? existingConfig : null
     const existingCreatedAt = typeof existing?.createdAt === 'string' ? existing.createdAt : null
     const createdAt = typeof blueprint.createdAt === 'string' ? blueprint.createdAt : existingCreatedAt
     if (typeof blueprint.id === 'string' && blueprint.id) output.id = blueprint.id
@@ -5484,12 +4320,9 @@ export class DirectAppServer {
       const modelExt = path.extname(blueprint.model) || '.glb'
       const modelBaseName = normalizeSyncString(blueprint?.name) || appName
       const modelSuggestedName = buildSuggestedAssetFilename(modelBaseName, { fallbackBase: appName, ext: modelExt })
-      output.model = await this._maybeDownloadAsset(
-        appName,
-        blueprint.model,
-        modelSuggestedName,
-        { existingUrl: existingModel }
-      )
+      output.model = await this._maybeDownloadAsset(appName, blueprint.model, modelSuggestedName, {
+        existingUrl: existingModel,
+      })
     } else if (blueprint.model !== undefined) {
       output.model = blueprint.model
     }
@@ -5513,9 +4346,7 @@ export class DirectAppServer {
     if (blueprint.props && typeof blueprint.props === 'object') {
       const props = {}
       const existingProps =
-        existing?.props && typeof existing.props === 'object' && !Array.isArray(existing.props)
-          ? existing.props
-          : null
+        existing?.props && typeof existing.props === 'object' && !Array.isArray(existing.props) ? existing.props : null
       for (const [key, value] of Object.entries(blueprint.props)) {
         if (value && typeof value === 'object' && typeof value.url === 'string') {
           const v = { ...value }

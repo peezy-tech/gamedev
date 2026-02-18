@@ -502,12 +502,14 @@ async function worldNetwork(fastify) {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
+  await world.network.save()
   await fastify.close()
   if (wssServer) await wssServer.close()
   process.exit(0)
 })
 
 process.on('SIGTERM', async () => {
+  await world.network.save()
   await fastify.close()
   if (wssServer) await wssServer.close()
   process.exit(0)
