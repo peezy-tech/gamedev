@@ -254,7 +254,7 @@ function serializeEntitiesForAdmin(world) {
   return world.entities.serialize().filter(entity => entity?.type !== 'player')
 }
 
-export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
+export async function admin(fastify, { world, assets, adminHtmlPath, onConnectionCountChanged } = {}) {
   const subscribers = new Set()
   const playerSubscribers = new Set()
   const runtimeSubscribers = new Set()
@@ -263,6 +263,15 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
   const deployLocks = new Map()
   const lockTtlSeconds = Number.parseInt(process.env.DEPLOY_LOCK_TTL || '120', 10)
   const lockTtlMs = Number.isFinite(lockTtlSeconds) && lockTtlSeconds > 0 ? lockTtlSeconds * 1000 : 120000
+
+  function notifyConnectionCountChanged() {
+    if (typeof onConnectionCountChanged !== 'function') return
+    try {
+      onConnectionCountChanged(subscribers.size)
+    } catch (err) {
+      console.error('[admin] failed to report connection count', err)
+    }
+  }
 
   function broadcast(name, payload) {
     for (const ws of subscribers) {
@@ -714,9 +723,11 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
       let capabilities = { builder: false, deploy: false }
 
       const onClose = () => {
+        const hadSubscriber = subscribers.has(ws)
         subscribers.delete(ws)
         playerSubscribers.delete(ws)
         runtimeSubscribers.delete(ws)
+        if (hadSubscriber) notifyConnectionCountChanged()
       }
 
       ws.on('close', onClose)
@@ -762,7 +773,9 @@ export async function admin(fastify, { world, assets, adminHtmlPath } = {}) {
           }
           defaultNetworkId = data?.networkId || null
           capabilities = { builder: builderOk, deploy: deployOk }
+          const hadSubscriber = subscribers.has(ws)
           subscribers.add(ws)
+          if (!hadSubscriber) notifyConnectionCountChanged()
           if (subscriptions.players) playerSubscribers.add(ws)
           if (subscriptions.runtime) runtimeSubscribers.add(ws)
           sendPacket(ws, 'adminAuthOk', { ok: true, capabilities })
