@@ -97,6 +97,27 @@ function hasValue(value) {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function toErrorMeta(error) {
+  if (!error) return null
+  return {
+    name: typeof error.name === 'string' ? error.name : 'Error',
+    message: typeof error.message === 'string' ? error.message : String(error),
+  }
+}
+
+function logAuthFlow(level, event, meta = {}) {
+  const payload = { event, worldId: process.env.WORLD_ID || null, ...meta }
+  if (level === 'error') {
+    console.error('[auth-flow]', payload)
+    return
+  }
+  if (level === 'warn') {
+    console.warn('[auth-flow]', payload)
+    return
+  }
+  console.info('[auth-flow]', payload)
+}
+
 function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
   if (!hasValue(worldId) || !hasValue(jwtSecret)) return null
   return crypto
@@ -127,10 +148,32 @@ function mapLobbyRoleToRank(role) {
   return Ranks.VISITOR
 }
 
-async function resolveLobbyRoleRank(userId) {
+async function resolveLobbyRoleRank(userId, { requestId } = {}) {
   const endpoint = resolveLobbyInternalUserUrl(userId)
   const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
-  if (!endpoint || !apiKey) return Ranks.VISITOR
+  if (!endpoint) {
+    logAuthFlow('warn', 'role_lookup_skipped_missing_endpoint', {
+      requestId: requestId || null,
+      userId,
+      publicAuthUrl: process.env.PUBLIC_AUTH_URL || null,
+    })
+    return Ranks.VISITOR
+  }
+  if (!apiKey) {
+    logAuthFlow('warn', 'role_lookup_skipped_missing_api_key', {
+      requestId: requestId || null,
+      userId,
+      hasWorldId: hasValue(process.env.WORLD_ID),
+      hasJwtSecret: hasValue(process.env.JWT_SECRET),
+    })
+    return Ranks.VISITOR
+  }
+
+  logAuthFlow('info', 'role_lookup_started', {
+    requestId: requestId || null,
+    userId,
+    endpoint,
+  })
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 4000)
@@ -143,11 +186,33 @@ async function resolveLobbyRoleRank(userId) {
       },
       signal: controller.signal,
     })
-    if (!response.ok) return Ranks.VISITOR
+    if (!response.ok) {
+      logAuthFlow('warn', 'role_lookup_failed_status', {
+        requestId: requestId || null,
+        userId,
+        endpoint,
+        status: response.status,
+      })
+      return Ranks.VISITOR
+    }
     const payload = await response.json().catch(() => null)
     const role = typeof payload?.role === 'string' ? payload.role.trim() : ''
-    return mapLobbyRoleToRank(role)
-  } catch {
+    const rank = mapLobbyRoleToRank(role)
+    logAuthFlow('info', 'role_lookup_succeeded', {
+      requestId: requestId || null,
+      userId,
+      role: role || null,
+      rank,
+    })
+    return rank
+  } catch (error) {
+    logAuthFlow('warn', 'role_lookup_exception', {
+      requestId: requestId || null,
+      userId,
+      endpoint,
+      aborted: controller.signal.aborted,
+      error: toErrorMeta(error),
+    })
     return Ranks.VISITOR
   } finally {
     clearTimeout(timeoutId)
@@ -354,16 +419,30 @@ fastify.get('/api/upload-check', async (req, reply) => {
 
 async function handleAuthExchange(req, reply) {
   if (!authConfig.usesLobbyIdentity) {
+    logAuthFlow('warn', 'auth_exchange_disabled', {
+      requestId: req.id || null,
+    })
     return reply.code(404).send({ error: 'not_found' })
   }
 
+  logAuthFlow('info', 'auth_exchange_started', {
+    requestId: req.id || null,
+  })
+
   const identityToken = typeof req?.body?.token === 'string' ? req.body.token.trim() : ''
   if (!identityToken) {
+    logAuthFlow('warn', 'auth_exchange_missing_token', {
+      requestId: req.id || null,
+    })
     return reply.code(400).send({ error: 'invalid_payload', message: 'token is required' })
   }
 
   const verification = await verifyIdentityExchangeTokenWithLobby(identityToken)
   if (!verification?.ok) {
+    logAuthFlow('warn', 'auth_exchange_verify_failed', {
+      requestId: req.id || null,
+      reason: verification?.reason || 'unknown',
+    })
     if (verification?.reason === 'unreachable') {
       return reply.code(503).send({ error: 'identity_verifier_unreachable' })
     }
@@ -373,11 +452,23 @@ async function handleAuthExchange(req, reply) {
   const claims = verification.claims
   const userId = typeof claims?.userId === 'string' ? claims.userId.trim() : ''
   if (!userId) {
+    logAuthFlow('warn', 'auth_exchange_missing_user_id', {
+      requestId: req.id || null,
+    })
     return reply.code(401).send({ error: 'invalid_exchange_token' })
   }
+  logAuthFlow('info', 'auth_exchange_verified', {
+    requestId: req.id || null,
+    userId,
+  })
   const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
   const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
-  const rank = await resolveLobbyRoleRank(userId)
+  const rank = await resolveLobbyRoleRank(userId, { requestId: req.id || null })
+  logAuthFlow('info', 'auth_exchange_rank_resolved', {
+    requestId: req.id || null,
+    userId,
+    rank,
+  })
 
   await db('users')
     .insert({
@@ -394,7 +485,18 @@ async function handleAuthExchange(req, reply) {
       rank,
     })
 
+  logAuthFlow('info', 'auth_exchange_user_upserted', {
+    requestId: req.id || null,
+    userId,
+    rank,
+  })
+
   const runtimeToken = await createJWT({ userId, worldId: process.env.WORLD_ID })
+  logAuthFlow('info', 'auth_exchange_succeeded', {
+    requestId: req.id || null,
+    userId,
+    rank,
+  })
   return reply.code(200).send({
     token: runtimeToken,
     token_type: 'runtime_session',
