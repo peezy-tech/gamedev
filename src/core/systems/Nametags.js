@@ -190,6 +190,13 @@ export class Nametags extends System {
   start() {
     this.world.stage.scene.add(this.mesh)
     this.world.on('xrSession', this.onXRSession)
+    // Ensure font is loaded before rendering (canvas doesn't wait for fonts)
+    document.fonts.load(`800 ${NAME_FONT_SIZE}px Space Mono`).then(() => {
+      for (const nametag of this.nametags) {
+        this.draw(nametag)
+      }
+      this.texture.needsUpdate = true
+    })
   }
 
   add({ name, health }) {
@@ -293,7 +300,7 @@ export class Nametags extends System {
     // this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
     // fillRoundRect(this.ctx, x, y, NAMETAG_WIDTH, NAMETAG_HEIGHT, NAMETAG_BORDER_RADIUS)
     // draw name
-    this.ctx.font = `800 ${NAME_FONT_SIZE}px Rubik`
+    this.ctx.font = `800 ${NAME_FONT_SIZE}px Space Mono`
     this.ctx.fillStyle = 'white'
     this.ctx.textAlign = 'center'
     this.ctx.textBaseline = 'top'
