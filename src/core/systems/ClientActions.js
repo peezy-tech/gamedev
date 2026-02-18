@@ -279,7 +279,7 @@ function createBoard(width, height, pxToMeters, world) {
       ctx.fillStyle = color
       ctx.fill()
     },
-    measureText(x, y, text, color, fontSize = 16, fontWeight = 400, font = 'Rubik') {
+    measureText(x, y, text, color, fontSize = 16, fontWeight = 400, font = 'Space Mono') {
       fontSize *= pr
       ctx.font = `${fontWeight} ${fontSize}px ${font}`
       const metrics = ctx.measureText(text)
@@ -287,7 +287,7 @@ function createBoard(width, height, pxToMeters, world) {
         width: metrics.width / pr,
       }
     },
-    drawText(x, y, text, color, fontSize = 16, fontWeight = 400, font = 'Rubik') {
+    drawText(x, y, text, color, fontSize = 16, fontWeight = 400, font = 'Space Mono') {
       x *= pr
       y *= pr
       // y -= fontSize / 2 // no idea why but yup
