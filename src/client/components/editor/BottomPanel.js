@@ -25,7 +25,9 @@ export function BottomPanel({ world }) {
   useEffect(() => {
     const resizer = resizerRef.current
     const panel = panelRef.current
-    panel.style.height = `${storage.get('bottom-panel-height', 288)}px`
+    const initialHeight = storage.get('bottom-panel-height', 288)
+    panel.style.height = `${initialHeight}px`
+    world.emit('bottom-panel-height', initialHeight)
     function onPointerDown(e) {
       resizer.addEventListener('pointermove', onPointerMove)
       resizer.addEventListener('pointerup', onPointerUp)
@@ -37,6 +39,7 @@ export function BottomPanel({ world }) {
       if (newHeight > 600) newHeight = 600
       panel.style.height = `${newHeight}px`
       storage.set('bottom-panel-height', newHeight)
+      world.emit('bottom-panel-height', newHeight)
     }
     function onPointerUp(e) {
       e.currentTarget.releasePointerCapture(e.pointerId)

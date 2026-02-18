@@ -334,15 +334,21 @@ function Chat({ world }) {
   const [msg, setMsg] = useState('')
   const [active, setActive] = useState(false)
   const [buildMode, setBuildMode] = useState(false)
+  const [uiState, setUiState] = useState(() => world.ui.state)
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(0)
   useEffect(() => {
     const onToggle = () => {
       setActive(value => !value)
     }
     world.on('sidebar-chat-toggle', onToggle)
     world.on('build-mode', setBuildMode)
+    world.on('ui', setUiState)
+    world.on('bottom-panel-height', setBottomPanelHeight)
     return () => {
       world.off('sidebar-chat-toggle', onToggle)
       world.off('build-mode', setBuildMode)
+      world.off('ui', setUiState)
+      world.off('bottom-panel-height', setBottomPanelHeight)
     }
   }, [])
   useEffect(() => {
@@ -367,7 +373,6 @@ function Chat({ world }) {
       inputRef.current?.blur()
     }
   }, [active])
-  if (buildMode) return null
   const send = async e => {
     if (world.controls.pointer.locked) {
       setTimeout(() => setActive(false), 10)
@@ -393,6 +398,10 @@ function Chat({ world }) {
   return (
     <div
       className={cls('mainchat', { active })}
+      style={{
+        left: buildMode ? 'calc(18rem + 2rem + env(safe-area-inset-left))' : undefined,
+        bottom: buildMode && uiState.app ? `calc(${bottomPanelHeight}px + 2rem + env(safe-area-inset-bottom))` : undefined,
+      }}
       css={css`
         position: absolute;
         left: calc(2rem + env(safe-area-inset-left));
