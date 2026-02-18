@@ -28,7 +28,6 @@ const rootDir = path.join(__dirname, '../')
 // Resolve world directory relative to the consumer project (cwd), not the package root
 const worldDir = path.resolve(process.cwd(), process.env.WORLD)
 const port = process.env.PORT
-const authConfig = resolveAuthRuntimeConfig(process.env)
 
 function formatUserName(name) {
   if (!name || name.startsWith('anon_')) return 'Anonymous'
@@ -105,19 +104,98 @@ function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
     .digest('hex')
 }
 
-function resolveLobbyInternalUserUrl(userId) {
+function normalizePublicUrl(value) {
+  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
+}
+
+function resolveLobbyInternalEndpoint(pathname) {
   const authBaseUrl = process.env.PUBLIC_AUTH_URL?.trim()
-  if (!hasValue(authBaseUrl) || !hasValue(userId)) return null
+  if (!hasValue(authBaseUrl)) return null
   try {
     const url = new URL(authBaseUrl)
     let basePath = url.pathname.replace(/\/+$/, '')
     basePath = basePath.replace(/\/identity$/, '')
-    url.pathname = `${basePath}/internal/users/${encodeURIComponent(userId.trim())}`
+    const suffix = pathname.startsWith('/') ? pathname : `/${pathname}`
+    url.pathname = `${basePath}${suffix}`
     url.search = ''
     url.hash = ''
     return url.toString()
   } catch {
     return null
+  }
+}
+
+function resolveLobbyInternalUserUrl(userId) {
+  if (!hasValue(userId)) return null
+  return resolveLobbyInternalEndpoint(`/internal/users/${encodeURIComponent(userId.trim())}`)
+}
+
+function resolveLobbyRuntimeBootstrapUrl() {
+  return resolveLobbyInternalEndpoint('/internal/runtime/bootstrap')
+}
+
+async function syncRuntimePublicConfigFromLobby() {
+  if (!hasValue(process.env.PUBLIC_AUTH_URL)) return
+
+  const endpoint = resolveLobbyRuntimeBootstrapUrl()
+  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
+  if (!endpoint || !apiKey) return
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 4000)
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      console.warn(`[startup] runtime bootstrap metadata request failed (${response.status})`)
+      return
+    }
+
+    const payload = await response.json().catch(() => null)
+    const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl || '')
+    const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl || '')
+    const authUrl = normalizePublicUrl(payload?.auth?.publicAuthUrl || '')
+    const privyAppId = typeof payload?.auth?.publicPrivyAppId === 'string' ? payload.auth.publicPrivyAppId.trim() : ''
+
+    const appliedKeys = []
+
+    if (runtimeApiUrl) {
+      process.env.PUBLIC_API_URL = runtimeApiUrl
+      appliedKeys.push('PUBLIC_API_URL')
+    }
+
+    const runtimeWsUrl = runtimeWsUrlRaw || (runtimeApiUrl ? derivePublicWsUrlFromApiUrl(runtimeApiUrl) || '' : '')
+    if (runtimeWsUrl && runtimeWsUrl.startsWith('ws')) {
+      process.env.PUBLIC_WS_URL = runtimeWsUrl
+      appliedKeys.push('PUBLIC_WS_URL')
+    }
+
+    if (authUrl) {
+      process.env.PUBLIC_AUTH_URL = authUrl
+      appliedKeys.push('PUBLIC_AUTH_URL')
+    }
+
+    if (privyAppId) {
+      process.env.PUBLIC_PRIVY_APP_ID = privyAppId
+      appliedKeys.push('PUBLIC_PRIVY_APP_ID')
+    }
+
+    if (appliedKeys.length) {
+      console.info(`[startup] runtime bootstrap metadata applied: ${appliedKeys.join(', ')}`)
+    }
+  } catch (err) {
+    const message = err?.name === 'AbortError' ? 'timeout' : err?.message || String(err)
+    console.warn(`[startup] runtime bootstrap metadata request failed (${message})`)
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 
@@ -167,6 +245,9 @@ if (!process.env.PORT) {
 if (!process.env.JWT_SECRET) {
   throw new Error('[envs] JWT_SECRET not set')
 }
+if (hasValue(process.env.PUBLIC_AUTH_URL)) {
+  await syncRuntimePublicConfigFromLobby()
+}
 if (!process.env.ADMIN_CODE) {
   console.warn('[envs] ADMIN_CODE not set - admin privileges are open to all players')
 }
@@ -199,6 +280,8 @@ if (!process.env.ASSETS_BASE_URL) {
 if (process.env.ASSETS === 's3' && !process.env.ASSETS_S3_URI) {
   throw new Error(`[envs] ASSETS_S3_URI must be set when using ASSETS=s3`)
 }
+
+const authConfig = resolveAuthRuntimeConfig(process.env)
 
 const tlsConfig =
   process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH
