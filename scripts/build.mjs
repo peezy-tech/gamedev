@@ -8,7 +8,6 @@ import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 
 const dev = process.argv.includes('--dev')
 const clientOnly = process.argv.includes('--client-only')
-const platformClient = process.argv.includes('--platform-client')
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(dirname, '../')
 const buildDir = path.join(rootDir, 'build')
@@ -27,10 +26,14 @@ const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
 const adminHtmlSrc = path.join(rootDir, 'src/client/public/admin.html')
 const adminHtmlDest = path.join(rootDir, 'build/public/admin.html')
 
-const resolveClientImportPath = value => {
-  if (!platformClient) return value
+const resolveRelativeClientImportPath = value => {
   const normalized = (value || '').replace(/^\/+/, '')
   return `./${normalized}`
+}
+
+const resolveAbsoluteClientImportPath = value => {
+  const normalized = (value || '').replace(/^\/+/, '')
+  return `/${normalized}`
 }
 
 {
@@ -80,23 +83,29 @@ const resolveClientImportPath = value => {
             const adminJsPath = outputFiles
               .find(file => file.includes('/admin-') && file.endsWith('.js'))
               .split('build/public')[1]
-            const resolvedJsPath = resolveClientImportPath(jsPath)
-            const resolvedParticlesPath = resolveClientImportPath(particlesPath)
-            const resolvedAdminJsPath = resolveClientImportPath(adminJsPath)
+            // Universal output contract:
+            // - stable aliases use relative imports for proxy-safe chunk loading
+            // - HTML keeps absolute chunk paths for standalone route compatibility
+            const aliasJsPath = resolveRelativeClientImportPath(jsPath)
+            const aliasParticlesPath = resolveRelativeClientImportPath(particlesPath)
+            const aliasAdminJsPath = resolveRelativeClientImportPath(adminJsPath)
+            const htmlJsPath = resolveAbsoluteClientImportPath(jsPath)
+            const htmlParticlesPath = resolveAbsoluteClientImportPath(particlesPath)
+            const htmlAdminJsPath = resolveAbsoluteClientImportPath(adminJsPath)
             // write stable aliases to avoid hardcoding hashes in other services
-            await fs.writeFile(path.join(clientBuildDir, 'index.js'), `import '${resolvedJsPath}';\n`)
-            await fs.writeFile(path.join(clientBuildDir, 'particles.js'), `import '${resolvedParticlesPath}';\n`)
-            await fs.writeFile(path.join(clientBuildDir, 'admin.js'), `import '${resolvedAdminJsPath}';\n`)
+            await fs.writeFile(path.join(clientBuildDir, 'index.js'), `import '${aliasJsPath}';\n`)
+            await fs.writeFile(path.join(clientBuildDir, 'particles.js'), `import '${aliasParticlesPath}';\n`)
+            await fs.writeFile(path.join(clientBuildDir, 'admin.js'), `import '${aliasAdminJsPath}';\n`)
             // inject into html and copy over
             let htmlContent = await fs.readFile(clientHtmlSrc, 'utf-8')
-            htmlContent = htmlContent.replace('{jsPath}', resolvedJsPath)
-            htmlContent = htmlContent.replace('{particlesPath}', resolvedParticlesPath)
+            htmlContent = htmlContent.replace('{jsPath}', htmlJsPath)
+            htmlContent = htmlContent.replace('{particlesPath}', htmlParticlesPath)
             htmlContent = htmlContent.replaceAll('{buildId}', Date.now())
             await fs.writeFile(clientHtmlDest, htmlContent)
             if (await fs.pathExists(adminHtmlSrc)) {
               let adminHtml = await fs.readFile(adminHtmlSrc, 'utf-8')
-              adminHtml = adminHtml.replace('{jsPath}', resolvedAdminJsPath)
-              adminHtml = adminHtml.replace('{particlesPath}', resolvedParticlesPath)
+              adminHtml = adminHtml.replace('{jsPath}', htmlAdminJsPath)
+              adminHtml = adminHtml.replace('{particlesPath}', htmlParticlesPath)
               adminHtml = adminHtml.replaceAll('{buildId}', Date.now())
               await fs.writeFile(adminHtmlDest, adminHtml)
             }
