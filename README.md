@@ -1,120 +1,77 @@
-# Hyperfy ⚡️
+# Lobby
 
-<div align="center">
-  <img src="overview.png" alt="Hyperfy Ecosystem" width="100%" />
-  <p>
-    <strong>Build, deploy, and experience interactive 3D virtual worlds</strong>
-  </p>
-</div>
+Open-source runtime and SDK for persistent multiplayer 3D worlds.
 
-## What is Hyperfy?
+## Quick Start
 
-Hyperfy is an open-source framework for building interactive 3D virtual worlds. It combines a powerful physics engine, networked real-time collaboration, and a component-based application system to create immersive experiences that can be self-hosted or connected to the wider Hyperfy ecosystem.
-
-## 🧬 Key Features
-
-- **Standalone persistent worlds** - Host on your own domain
-- **Realtime content creation** - Build directly in-world
-- **Interactive app system** - Create dynamic applications with JavaScript
-- **Portable avatars** - Connect via Hyperfy for consistent identity
-- **Physics-based interactions** - Built on PhysX for realistic simulation
-- **WebXR support** - Experience worlds in VR
-- **Extensible architecture** - Highly customizable for various use cases
-
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/hyperfy-xyz/hyperfy)
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Node.js 22.11.0+ (via [nvm](https://github.com/nvm-sh/nvm) or direct install)
-
-### Installation
+Create a new world project with the `gamedev` CLI:
 
 ```bash
-# Clone the repository
-git clone https://github.com/hyperfy-xyz/hyperfy.git my-world
-cd my-world
-
-# Copy example environment settings
-cp .env.example .env
-
-# Install dependencies
+mkdir my-lobby-world
+cd my-lobby-world
+npx gamedev init
 npm install
-
-# Start the development server
 npm run dev
 ```
 
-### Docker Deployment
+Then open `http://localhost:3000`.
 
-For containerized deployment, check [DOCKER.md](DOCKER.md) for detailed instructions.
+What `npm run dev` does:
 
-## 🧩 Use Cases
+- Requires Node.js `22.11.0` (or newer in the same major line).
+- Starts a local world server when `WORLD_URL` points to localhost.
+- Runs app-server sync so local edits deploy to the world in seconds.
+- Auto-creates `.env` with local defaults if one does not exist yet.
 
-- **Virtual Events & Conferences** - Host live gatherings with spatial audio
-- **Interactive Showrooms** - Create product displays and demos
-- **Social Spaces** - Build community hubs for collaboration
-- **Gaming Environments** - Design immersive game worlds
-- **Educational Experiences** - Develop interactive learning spaces
-- **Creative Showcases** - Display 3D art and interactive installations
+## Lobby Runtime and SDK
 
-## 📚 Documentation & Resources
+This repository powers the `gamedev` package and CLI used to scaffold, run, sync, and deploy Lobby world projects.
 
-- **[Community Documentation](https://docs.hyperfy.xyz)** - Comprehensive guides and reference
-- **[Website](https://hyperfy.io/)** - Official Hyperfy website
-- **[Sandbox](https://play.hyperfy.xyz/)** - Try Hyperfy in your browser
-- **[Twitter/X](https://x.com/hyperfy_io)** - Latest updates and announcements
+## What You Get
 
-## 📏 Project Structure
+- Persistent self-hosted world runtime (multiplayer, physics, WebXR).
+- Multi-file app scripting with live sync via app-server.
+- World project structure with `apps/`, `assets/`, `shared/`, and `world.json`.
+- App deploys, rollback snapshots, and sync conflict resolution tools.
 
-```
-docs/              - Documentation and references
-src/
-  client/          - Client-side code and components
-  core/            - Core systems (physics, networking, entities)
-  server/          - Server implementation
-CHANGELOG.md       - Version history and changes
-```
-
-## 🛠️ Development
-
-### Key Commands
+## Core CLI Commands
 
 ```bash
-# Development mode
-npm run dev
-
-# Production build
-npm run build
-npm start
-
-# Clean orphaned assets (experimental)
-npm run world:clean
-
-# Viewer only (development)
-npm run viewer:dev
-
-# Client only (development)
-npm run client:dev
-
-# Linting
-npm run lint
-npm run lint:fix
+gamedev init
+gamedev dev
+gamedev app-server
+gamedev apps deploy <app>
+gamedev world export
+gamedev world import
 ```
 
-## 🖊️ Contributing
+Run `gamedev help` for the full command list.
 
-Contributions are welcome! Please check out our [contributing guidelines](CONTRIBUTING.md) and [code of conduct](CODE_OF_CONDUCT.md) before getting started.
+## Documentation
 
-1. Fork the repository
-2. Create your feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a pull request
+- [World Projects](docs/World-projects.md)
+- [App-server](docs/App-server.md)
+- [Scripting API](docs/scripting/README.md)
+- [Docker Deployment](DOCKER.md)
 
-## 🌱 Project Status
+## Developing This Repository
 
-This project is still in alpha as we transition all of our [reference platform](https://github.com/hyperfy-xyz/hyperfy-ref) code into fully self hostable worlds.
-Most features are already here in this repo but still need to be connected up to work with self hosting in mind.
-Note that APIs are highly likely to change during this time.
+If you are working on the runtime/SDK itself (not just a world project):
+
+```bash
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Useful commands:
+
+```bash
+npm run build
+npm run test
+npm run lint
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
