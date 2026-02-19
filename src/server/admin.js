@@ -5,6 +5,11 @@ import { readPacket, writePacket } from '../core/packets.js'
 import { Ranks } from '../core/extras/ranks'
 import { readJWT } from '../core/utils-server.js'
 import { cleaner } from './cleaner'
+import {
+  ADMIN_CREDENTIAL_COMMAND,
+  isAdminCredentialRevealEnabled,
+  handleRuntimeCredentialCommand,
+} from './adminCredentials.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
 const SCRIPT_BLUEPRINT_FIELDS = new Set([
@@ -14,8 +19,6 @@ const SCRIPT_BLUEPRINT_FIELDS = new Set([
   'scriptFormat',
   'scriptRef',
 ])
-const ADMIN_CREDENTIAL_COMMAND = 'runtime_credentials_get'
-const ADMIN_CREDENTIAL_REVEAL_ENV = 'ADMIN_CREDENTIAL_REVEAL_ENABLED'
 const CHANGEFEED_TABLE = 'sync_changes'
 const CHANGEFEED_DEFAULT_LIMIT = 200
 const CHANGEFEED_MAX_LIMIT = 1000
@@ -37,15 +40,6 @@ function normalizeOperationValue(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed || null
-}
-
-function parseBooleanEnvFlag(value, fallback = false) {
-  if (typeof value !== 'string') return fallback
-  const normalized = value.trim().toLowerCase()
-  if (!normalized) return fallback
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
-  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
-  return fallback
 }
 
 function normalizeIsoTimestamp(value) {
@@ -266,7 +260,7 @@ function serializeEntitiesForAdmin(world) {
 }
 
 export async function admin(fastify, { world, assets, adminHtmlPath, onConnectionCountChanged } = {}) {
-  const adminCredentialRevealEnabled = parseBooleanEnvFlag(process.env[ADMIN_CREDENTIAL_REVEAL_ENV], false)
+  const adminCredentialRevealEnabled = isAdminCredentialRevealEnabled(process.env)
   const subscribers = new Set()
   const playerSubscribers = new Set()
   const runtimeSubscribers = new Set()
@@ -275,17 +269,6 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
   const deployLocks = new Map()
   const lockTtlSeconds = Number.parseInt(process.env.DEPLOY_LOCK_TTL || '120', 10)
   const lockTtlMs = Number.isFinite(lockTtlSeconds) && lockTtlSeconds > 0 ? lockTtlSeconds * 1000 : 120000
-
-  function resolveRuntimeCredentialResponse({ includeAdminCode = false } = {}) {
-    const worldId = world?.network?.worldId || process.env.WORLD_ID || null
-    const hasAdminCode = typeof process.env.ADMIN_CODE === 'string' && process.env.ADMIN_CODE.trim().length > 0
-    return {
-      worldId,
-      hasAdminCode,
-      canRevealAdminCode: adminCredentialRevealEnabled,
-      adminCode: includeAdminCode && hasAdminCode ? process.env.ADMIN_CODE : null,
-    }
-  }
 
   function auditRuntimeCredentialReveal({
     req,
@@ -840,6 +823,35 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
         const lastOpId = normalizeOperationValue(data?.lastOpId) || undefined
 
         try {
+          if (data.type === ADMIN_CREDENTIAL_COMMAND) {
+            const commandResult = handleRuntimeCredentialCommand({
+              canDeploy: capabilities.deploy,
+              revealEnabled: adminCredentialRevealEnabled,
+              worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+              adminCode: process.env.ADMIN_CODE,
+            })
+            auditRuntimeCredentialReveal({
+              req,
+              allowed: commandResult.ok,
+              revealed: commandResult.revealed,
+              reason: commandResult.reason,
+            })
+            if (!commandResult.ok) {
+              sendPacket(ws, 'adminResult', {
+                ok: false,
+                error: commandResult.error,
+                requestId,
+              })
+              return
+            }
+            sendPacket(ws, 'adminResult', {
+              ok: true,
+              requestId,
+              credentials: commandResult.credentials,
+            })
+            return
+          }
+
           if (data.type === 'blueprint_add') {
             if (!capabilities.builder) {
               sendPacket(ws, 'adminResult', { ok: false, error: 'builder_required', requestId })

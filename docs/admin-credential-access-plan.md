@@ -28,7 +28,7 @@ Last updated: 2026-02-19
   - Add tracked plan and command contract.
   - Add runtime flag parsing + credential response/audit helpers.
 
-- [ ] PR-2: Runtime Server Command Handler
+- [x] PR-2: Runtime Server Command Handler
   - Implement `runtime_credentials_get` in admin WS command handling.
   - Gate by deploy capability and add reveal audit logging.
   - Add targeted tests.
