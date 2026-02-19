@@ -41,7 +41,7 @@ Last updated: 2026-02-19
   - Add admin-only credential section with copy actions.
   - Add explicit reveal/copy action for `ADMIN_CODE`.
 
-- [ ] PR-5: Rollout + Docs
+- [x] PR-5: Rollout + Docs
   - Add operator runbook for enabling/disabling reveal.
   - Set rollout defaults in dev/prod config.
 
