@@ -37,7 +37,7 @@ Last updated: 2026-02-19
   - Add `getRuntimeCredentials()` API in client admin system.
   - Keep returned credentials in memory only.
 
-- [ ] PR-4: World Pane UX
+- [x] PR-4: World Pane UX
   - Add admin-only credential section with copy actions.
   - Add explicit reveal/copy action for `ADMIN_CODE`.
 
