@@ -23,17 +23,43 @@ function getWorldPlayerLimitCap() {
   return parsePositiveInt(globalThis?.env?.PUBLIC_WORLD_MAX_PLAYERS)
 }
 
+function normalizeCredentialValue(value) {
+  if (typeof value !== 'string') return ''
+  return value.trim()
+}
+
+function resolveWorldUrl(world) {
+  const adminUrl = normalizeCredentialValue(world?.admin?.adminUrl)
+  if (adminUrl) return adminUrl
+  const href = typeof globalThis?.location?.href === 'string' ? globalThis.location.href : ''
+  if (!href) return ''
+  try {
+    const url = new URL(href)
+    const path = url.pathname.replace(/\/admin\/?$/, '') || '/'
+    return `${url.origin}${path}`.replace(/\/$/, '') || url.origin
+  } catch {
+    return ''
+  }
+}
+
+function buildCredentialsEnvBlock({ worldId, adminCode, worldUrl }) {
+  return `WORLD_ID=${normalizeCredentialValue(worldId)}
+ADMIN_CODE=${normalizeCredentialValue(adminCode)}
+WORLD_URL=${normalizeCredentialValue(worldUrl)}`
+}
+
 function formatCredentialError(code) {
   if (code === 'admin_required') return 'Deploy access is required to view runtime credentials.'
   if (code === 'admin_url_missing') return 'Admin endpoint is unavailable for this world.'
   if (code === 'admin_code_missing') return 'Enter an admin code before requesting runtime credentials.'
+  if (code === 'clipboard_unavailable') return 'Clipboard access is unavailable in this browser context.'
   if (code === 'timeout') return 'Timed out requesting runtime credentials.'
   return 'Failed to load runtime credentials.'
 }
 
 async function copyToClipboard(value) {
-  if (!value || !navigator?.clipboard?.writeText) return false
-  await navigator.clipboard.writeText(value)
+  if (value === null || value === undefined || !navigator?.clipboard?.writeText) return false
+  await navigator.clipboard.writeText(String(value))
   return true
 }
 
@@ -54,8 +80,7 @@ export function World({ world, hidden }) {
   const [runtimeCredentials, setRuntimeCredentials] = useState(null)
   const [credentialsLoading, setCredentialsLoading] = useState(false)
   const [credentialsError, setCredentialsError] = useState(null)
-  const [adminCodeVisible, setAdminCodeVisible] = useState(false)
-  const [copiedField, setCopiedField] = useState(null)
+  const [copiedCredentials, setCopiedCredentials] = useState(false)
 
   useEffect(() => {
     const onChange = changes => {
@@ -80,7 +105,6 @@ export function World({ world, hidden }) {
       setRuntimeCredentials(null)
       setCredentialsLoading(false)
       setCredentialsError(null)
-      setAdminCodeVisible(false)
       return
     }
     let active = true
@@ -107,32 +131,21 @@ export function World({ world, hidden }) {
   }, [isAdmin, world])
 
   useEffect(() => {
-    if (!adminCodeVisible) return
-    if (!runtimeCredentials?.adminCode) {
-      setAdminCodeVisible(false)
-    }
-  }, [adminCodeVisible, runtimeCredentials?.adminCode])
-
-  useEffect(() => {
-    if (!copiedField) return
-    const timer = setTimeout(() => setCopiedField(null), 1250)
+    if (!copiedCredentials) return
+    const timer = setTimeout(() => setCopiedCredentials(false), 1250)
     return () => clearTimeout(timer)
-  }, [copiedField])
+  }, [copiedCredentials])
 
-  const loadRuntimeCredentials = async ({ forceRefresh = false, reveal = false } = {}) => {
+  const loadRuntimeCredentials = async ({ forceRefresh = false } = {}) => {
     if (!world.admin?.getRuntimeCredentials) return
     setCredentialsLoading(true)
     setCredentialsError(null)
     try {
       const credentials = await world.admin.getRuntimeCredentials({ forceRefresh })
       setRuntimeCredentials(credentials)
-      if (reveal && credentials?.adminCode) {
-        setAdminCodeVisible(true)
-      }
       return credentials
     } catch (err) {
       setRuntimeCredentials(null)
-      setAdminCodeVisible(false)
       setCredentialsError(err?.code || 'request_failed')
       return null
     } finally {
@@ -140,35 +153,32 @@ export function World({ world, hidden }) {
     }
   }
 
-  const copyCredential = async (value, field) => {
+  const copyCredentials = async () => {
+    const credentials = runtimeCredentials || (await loadRuntimeCredentials({ forceRefresh: true }))
+    if (!credentials) return
+    const payload = buildCredentialsEnvBlock({
+      worldId: credentials.worldId,
+      adminCode: credentials.adminCode,
+      worldUrl: resolveWorldUrl(world),
+    })
     try {
-      const copied = await copyToClipboard(value)
+      const copied = await copyToClipboard(payload)
       if (!copied) {
         setCredentialsError('clipboard_unavailable')
         return
       }
-      setCopiedField(field)
+      setCopiedCredentials(true)
     } catch {
       setCredentialsError('clipboard_unavailable')
     }
   }
 
-  const revealAdminCode = async () => {
-    if (runtimeCredentials?.adminCode) {
-      setAdminCodeVisible(true)
-      return
-    }
-    const credentials = await loadRuntimeCredentials({ forceRefresh: true, reveal: true })
-    if (!credentials?.adminCode) {
-      setAdminCodeVisible(false)
-    }
-  }
-
   const hasAdminCode = !!runtimeCredentials?.hasAdminCode
   const canRevealAdminCode = !!runtimeCredentials?.canRevealAdminCode
-  const adminCodeValue = runtimeCredentials?.adminCode || null
-  const adminCodeDisplay = adminCodeVisible && adminCodeValue ? adminCodeValue : hasAdminCode ? '••••••••' : 'Not set'
+  const adminCodeValue = normalizeCredentialValue(runtimeCredentials?.adminCode)
+  const adminCodeDisplay = adminCodeValue || (hasAdminCode ? '••••••••' : 'Not set')
   const worldIdValue = runtimeCredentials?.worldId || 'Unavailable'
+  const worldUrlValue = resolveWorldUrl(world) || 'Unavailable'
 
   return (
     <Pane hidden={hidden}>
@@ -240,27 +250,6 @@ export function World({ world, hidden }) {
             overflow: hidden;
             text-overflow: ellipsis;
             color: rgba(255, 255, 255, 0.9);
-          }
-          .world-credentials-actions {
-            display: flex;
-            gap: 0.3125rem;
-          }
-          .world-credentials-btn {
-            border: 1px solid ${theme.borderLight};
-            border-radius: 0.375rem;
-            background: rgba(255, 255, 255, 0.03);
-            color: rgba(255, 255, 255, 0.9);
-            height: 1.625rem;
-            padding: 0 0.55rem;
-            font-size: 0.75rem;
-            line-height: 1;
-            &:hover {
-              background: rgba(255, 255, 255, 0.075);
-            }
-            &.disabled {
-              opacity: 0.4;
-              pointer-events: none;
-            }
           }
         `}
       >
@@ -345,48 +334,13 @@ export function World({ world, hidden }) {
             />
           )}
           {isAdmin && (
-            <div className='world-credentials'>
-              <div className='world-credentials-title'>Runtime Credentials</div>
-              <div className='world-credentials-note'>
-                `WORLD_ID` and `ADMIN_CODE` for app-server and CLI remote sync.
-              </div>
+            <>
               {credentialsError && <div className='world-credentials-note error'>{formatCredentialError(credentialsError)}</div>}
               {!runtimeCredentials && credentialsLoading && (
                 <div className='world-credentials-note'>Loading runtime credentials...</div>
               )}
               {runtimeCredentials && (
                 <>
-                  <div className='world-credentials-row'>
-                    <div className='world-credentials-label'>WORLD_ID</div>
-                    <div className='world-credentials-value'>{worldIdValue}</div>
-                    <div className='world-credentials-actions'>
-                      <button
-                        className='world-credentials-btn'
-                        type='button'
-                        onClick={() => copyCredential(runtimeCredentials?.worldId, 'worldId')}
-                      >
-                        {copiedField === 'worldId' ? 'Copied' : 'Copy'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className='world-credentials-row'>
-                    <div className='world-credentials-label'>ADMIN_CODE</div>
-                    <div className='world-credentials-value'>{adminCodeDisplay}</div>
-                    <div className='world-credentials-actions'>
-                      {hasAdminCode && (
-                        <button className='world-credentials-btn' type='button' onClick={revealAdminCode}>
-                          {adminCodeVisible ? 'Shown' : 'Reveal'}
-                        </button>
-                      )}
-                      <button
-                        className={`world-credentials-btn ${adminCodeValue ? '' : 'disabled'}`}
-                        type='button'
-                        onClick={() => copyCredential(adminCodeValue, 'adminCode')}
-                      >
-                        {copiedField === 'adminCode' ? 'Copied' : 'Copy'}
-                      </button>
-                    </div>
-                  </div>
                   {hasAdminCode && !canRevealAdminCode && !adminCodeValue && (
                     <div className='world-credentials-note'>
                       Admin code reveal is disabled by operator (`ADMIN_CREDENTIAL_REVEAL_ENABLED=false`).
@@ -394,16 +348,18 @@ export function World({ world, hidden }) {
                   )}
                 </>
               )}
-              <div className='world-credentials-actions'>
-                <button
-                  className={`world-credentials-btn ${credentialsLoading ? 'disabled' : ''}`}
-                  type='button'
-                  onClick={() => loadRuntimeCredentials({ forceRefresh: true })}
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
+              <FieldToggle
+                label='Copy Credentials'
+                hint='Copy WORLD_ID, ADMIN_CODE, and WORLD_URL as .env variables.'
+                trueLabel='Copied'
+                falseLabel={credentialsLoading ? 'Loading...' : 'Copy'}
+                value={copiedCredentials}
+                onChange={() => {
+                  if (credentialsLoading) return
+                  void copyCredentials()
+                }}
+              />
+            </>
           )}
         </div>
       </div>

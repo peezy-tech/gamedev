@@ -1,12 +1,12 @@
 import { EventEmitter } from 'events'
 import { uuid } from './utils.js'
 import { readPacket, writePacket } from '../src/core/packets.js'
-import { normalizeBaseUrl, toWsUrl, joinUrl, normalizePacketData } from './helpers.js'
+import { normalizeWorldAdminBaseUrl, toWsUrl, joinUrl, normalizePacketData } from './helpers.js'
 
 export class WorldAdminClient extends EventEmitter {
   constructor({ worldUrl, adminCode }) {
     super()
-    this.worldUrl = normalizeBaseUrl(worldUrl)
+    this.worldUrl = normalizeWorldAdminBaseUrl(worldUrl)
     this.adminCode = adminCode || null
     this.ws = null
     this.pending = new Map()
