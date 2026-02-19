@@ -14,6 +14,8 @@ const SCRIPT_BLUEPRINT_FIELDS = new Set([
   'scriptFormat',
   'scriptRef',
 ])
+const ADMIN_CREDENTIAL_COMMAND = 'runtime_credentials_get'
+const ADMIN_CREDENTIAL_REVEAL_ENV = 'ADMIN_CREDENTIAL_REVEAL_ENABLED'
 const CHANGEFEED_TABLE = 'sync_changes'
 const CHANGEFEED_DEFAULT_LIMIT = 200
 const CHANGEFEED_MAX_LIMIT = 1000
@@ -35,6 +37,15 @@ function normalizeOperationValue(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed || null
+}
+
+function parseBooleanEnvFlag(value, fallback = false) {
+  if (typeof value !== 'string') return fallback
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return fallback
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return fallback
 }
 
 function normalizeIsoTimestamp(value) {
@@ -255,6 +266,7 @@ function serializeEntitiesForAdmin(world) {
 }
 
 export async function admin(fastify, { world, assets, adminHtmlPath, onConnectionCountChanged } = {}) {
+  const adminCredentialRevealEnabled = parseBooleanEnvFlag(process.env[ADMIN_CREDENTIAL_REVEAL_ENV], false)
   const subscribers = new Set()
   const playerSubscribers = new Set()
   const runtimeSubscribers = new Set()
@@ -263,6 +275,36 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
   const deployLocks = new Map()
   const lockTtlSeconds = Number.parseInt(process.env.DEPLOY_LOCK_TTL || '120', 10)
   const lockTtlMs = Number.isFinite(lockTtlSeconds) && lockTtlSeconds > 0 ? lockTtlSeconds * 1000 : 120000
+
+  function resolveRuntimeCredentialResponse({ includeAdminCode = false } = {}) {
+    const worldId = world?.network?.worldId || process.env.WORLD_ID || null
+    const hasAdminCode = typeof process.env.ADMIN_CODE === 'string' && process.env.ADMIN_CODE.trim().length > 0
+    return {
+      worldId,
+      hasAdminCode,
+      canRevealAdminCode: adminCredentialRevealEnabled,
+      adminCode: includeAdminCode && hasAdminCode ? process.env.ADMIN_CODE : null,
+    }
+  }
+
+  function auditRuntimeCredentialReveal({
+    req,
+    allowed,
+    revealed,
+    reason = null,
+  } = {}) {
+    fastify.log.info({
+      channel: 'admin_ws',
+      action: ADMIN_CREDENTIAL_COMMAND,
+      allowed: !!allowed,
+      revealed: !!revealed,
+      reason,
+      revealEnabled: adminCredentialRevealEnabled,
+      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+      remoteAddress: req?.socket?.remoteAddress || null,
+      userAgent: req?.headers?.['user-agent'] || null,
+    }, 'runtime credential reveal audit')
+  }
 
   function notifyConnectionCountChanged() {
     if (typeof onConnectionCountChanged !== 'function') return
