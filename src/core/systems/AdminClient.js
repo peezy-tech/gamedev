@@ -23,6 +23,24 @@ function toWsUrl(baseUrl) {
   return joinUrl(wsBase, '/admin')
 }
 
+export const RUNTIME_CREDENTIAL_COMMAND = 'runtime_credentials_get'
+
+function normalizeRuntimeCredentialValue(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+function normalizeRuntimeCredentials(data) {
+  if (!data || typeof data !== 'object') return null
+  return {
+    worldId: normalizeRuntimeCredentialValue(data.worldId),
+    hasAdminCode: !!data.hasAdminCode,
+    canRevealAdminCode: !!data.canRevealAdminCode,
+    adminCode: normalizeRuntimeCredentialValue(data.adminCode),
+  }
+}
+
 export class AdminClient extends System {
   constructor(world) {
     super(world)
@@ -38,6 +56,7 @@ export class AdminClient extends System {
     this.deployLockToken = null
     this.deployLockScope = null
     this.requireCode = false
+    this.runtimeCredentials = null
   }
 
   init({ adminUrl, requireAdminCode } = {}) {
@@ -53,12 +72,14 @@ export class AdminClient extends System {
   onSnapshot(data) {
     this.adminUrl = normalizeAdminUrl(data.adminUrl) || deriveAdminUrl(data.apiUrl)
     this.requireCode = !!data.hasAdminCode
+    this.runtimeCredentials = null
     this.refreshAuthToken(data.authToken)
     this.connect()
   }
 
   setCode(code) {
     this.code = code
+    this.runtimeCredentials = null
     storage.set('adminCode', code)
     this.world.emit('admin-code', code)
     this.error = null
@@ -93,6 +114,7 @@ export class AdminClient extends System {
   }
 
   disconnect() {
+    this.runtimeCredentials = null
     if (!this.ws) return
     this.ws.removeEventListener('open', this.onOpen)
     this.ws.removeEventListener('message', this.onMessage)
@@ -129,6 +151,7 @@ export class AdminClient extends System {
     }
     if (method === 'onAdminAuthError') {
       this.error = data?.error || 'auth_error'
+      this.runtimeCredentials = null
       this.failPending(this.error)
       return
     }
@@ -159,12 +182,14 @@ export class AdminClient extends System {
   onClose = () => {
     this.connected = false
     this.authenticated = false
+    this.runtimeCredentials = null
     this.ws = null
     this.failPending('connection_error')
   }
 
   onError = () => {
     this.error = 'connection_error'
+    this.runtimeCredentials = null
     this.failPending(this.error)
   }
 
@@ -521,5 +546,20 @@ export class AdminClient extends System {
     } catch {
       return { ok: true }
     }
+  }
+
+  async getRuntimeCredentials({ forceRefresh = false, timeoutMs = 10000 } = {}) {
+    if (!forceRefresh && this.runtimeCredentials) {
+      return this.runtimeCredentials
+    }
+    const data = await this.request({ type: RUNTIME_CREDENTIAL_COMMAND }, { timeoutMs })
+    const credentials = normalizeRuntimeCredentials(data?.credentials)
+    if (!credentials) {
+      const error = new Error('invalid_response')
+      error.code = 'invalid_response'
+      throw error
+    }
+    this.runtimeCredentials = credentials
+    return credentials
   }
 }

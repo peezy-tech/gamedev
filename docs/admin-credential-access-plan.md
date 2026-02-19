@@ -33,7 +33,7 @@ Last updated: 2026-02-19
   - Gate by deploy capability and add reveal audit logging.
   - Add targeted tests.
 
-- [ ] PR-3: Admin Client API
+- [x] PR-3: Admin Client API
   - Add `getRuntimeCredentials()` API in client admin system.
   - Keep returned credentials in memory only.
 
