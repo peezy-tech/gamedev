@@ -511,6 +511,15 @@ export function createVRMFactory(glb, setupMaterial) {
           version,
           getBoneName,
         })
+        // remove neck/head tracks so locomotion animations
+        // never conflict with aimBone gaze overrides
+        const neckName = getBoneName('neck')
+        const headName = getBoneName('head')
+        // const chestName = getBoneName('chest')
+        clip.tracks = clip.tracks.filter(track => {
+          const boneName = track.name.split('.')[0]
+          return boneName !== neckName && boneName !== headName
+        })
         pose.action = mixer.clipAction(clip)
         pose.action.timeScale = speed
         pose.action.weight = pose.weight
