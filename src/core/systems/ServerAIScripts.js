@@ -5,16 +5,12 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { System } from './System'
 import { isValidScriptPath } from '../blueprintValidation'
+import { buildScriptGroups, getScriptGroupMain } from '../extras/blueprintGroups'
+import { hashFile } from '../utils-server'
+import { getBlueprintAppName } from '../blueprintUtils'
 
 function hasScriptFiles(blueprint) {
   return blueprint?.scriptFiles && typeof blueprint.scriptFiles === 'object' && !Array.isArray(blueprint.scriptFiles)
-}
-
-function getBlueprintAppName(id) {
-  if (typeof id !== 'string' || !id) return ''
-  if (id === '$scene') return '$scene'
-  const idx = id.indexOf('__')
-  return idx === -1 ? id : id.slice(0, idx)
 }
 
 function resolveScriptRootBlueprint(blueprint, world) {
@@ -196,9 +192,95 @@ function buildUserPrompt({ mode, prompt, error, entryPath, scriptFormat, fileMap
   return header.join('\n\n')
 }
 
+function clonePlain(value) {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  return JSON.parse(JSON.stringify(value))
+}
+
+function splitBlueprintId(id) {
+  const idx = typeof id === 'string' ? id.indexOf('__') : -1
+  if (idx !== -1) {
+    return { prefix: id.slice(0, idx + 2), base: id.slice(idx + 2) }
+  }
+  return { prefix: '', base: id || 'blueprint' }
+}
+
+function stripVariantSuffix(base) {
+  if (typeof base !== 'string') return base
+  const match = base.match(/^(.*)_([1-9]\d*)$/)
+  if (!match) return base
+  const stem = match[1]
+  const index = Number.parseInt(match[2], 10)
+  if (!stem || !Number.isFinite(index) || index < 2) return base
+  return stem
+}
+
+function hasVariantFamily(world, prefix, base) {
+  const baseId = `${prefix}${base}`
+  if (world?.blueprints?.get?.(baseId)) return true
+  const items = world?.blueprints?.items
+  if (!Array.isArray(items)) return false
+  const variantPrefix = `${baseId}_`
+  for (const blueprint of items) {
+    const id = typeof blueprint?.id === 'string' ? blueprint.id : ''
+    if (!id.startsWith(variantPrefix)) continue
+    const suffix = id.slice(variantPrefix.length)
+    if (/^[1-9]\d*$/.test(suffix)) return true
+  }
+  return false
+}
+
+function normalizeVariantBase(world, prefix, base) {
+  const safe = typeof base === 'string' && base ? base : 'blueprint'
+  const stripped = stripVariantSuffix(safe)
+  if (stripped === safe) return safe
+  return hasVariantFamily(world, prefix, stripped) ? stripped : safe
+}
+
+function getNextBlueprintVariant(world, sourceBlueprint) {
+  const sourceId = typeof sourceBlueprint === 'string' ? sourceBlueprint : sourceBlueprint?.id
+  const { prefix, base } = splitBlueprintId(sourceId)
+  let safeBase = normalizeVariantBase(world, prefix, base || 'blueprint')
+  if (sourceBlueprint && typeof sourceBlueprint === 'object') {
+    const scriptKey = typeof sourceBlueprint.script === 'string' ? sourceBlueprint.script.trim() : ''
+    if (scriptKey) {
+      const groups = buildScriptGroups(world?.blueprints?.items)
+      const main = getScriptGroupMain(groups, sourceBlueprint)
+      const mainName = typeof main?.name === 'string' && main.name.trim() ? main.name.trim() : main?.id
+      if (mainName) {
+        const { base: mainBase } = splitBlueprintId(mainName)
+        safeBase = normalizeVariantBase(world, prefix, mainBase || mainName)
+      }
+    }
+  }
+  for (let n = 2; n < 10000; n += 1) {
+    const candidateId = `${prefix}${safeBase}_${n}`
+    if (!world.blueprints.get(candidateId)) {
+      return { id: candidateId, name: `${safeBase}_${n}` }
+    }
+  }
+  const fallback = Math.random().toString(36).slice(2, 10)
+  return { id: `${prefix}${safeBase}_${fallback}`, name: `${safeBase}_${fallback}` }
+}
+
+function normalizeScope(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+function getFileExtension(filePath) {
+  if (typeof filePath !== 'string') return ''
+  const idx = filePath.lastIndexOf('.')
+  if (idx === -1 || idx === filePath.length - 1) return ''
+  return filePath.slice(idx + 1).toLowerCase()
+}
+
 export class ServerAIScripts extends System {
   constructor(world) {
     super(world)
+    this.assets = null
     this.provider = process.env.AI_PROVIDER || null
     this.model = process.env.AI_MODEL || null
     this.effort = process.env.AI_EFFORT || 'low'
@@ -216,15 +298,40 @@ export class ServerAIScripts extends System {
       }
     }
     this.enabled = !!this.client
+    this.inFlightByBlueprint = new Map()
+  }
+
+  async init({ assets }) {
+    this.assets = assets || null
+  }
+
+  isBlueprintPending = blueprintId => {
+    if (typeof blueprintId !== 'string' || !blueprintId) return false
+    return this.inFlightByBlueprint.has(blueprintId)
+  }
+
+  getBusyStateForBlueprint = blueprint => {
+    const blueprintId = typeof blueprint?.id === 'string' ? blueprint.id : null
+    if (!blueprintId) return null
+    const pending = this.inFlightByBlueprint.get(blueprintId)
+    if (!pending) return null
+    return {
+      scriptRootId: pending.scriptRootId || null,
+      targetBlueprintId: blueprintId,
+      requestId: pending.requestId || null,
+      startedAt: pending.startedAt || null,
+    }
   }
 
   handleRequest = async (socket, data = {}) => {
     const requestId = data?.requestId || null
     let scriptRootId = typeof data?.scriptRootId === 'string' ? data.scriptRootId : null
+    let targetBlueprintId = typeof data?.targetBlueprintId === 'string' ? data.targetBlueprintId : null
     if (!this.enabled) {
       this.sendError(socket, {
         requestId,
         scriptRootId,
+        targetBlueprintId,
         error: 'ai_disabled',
         message: 'AI is not configured on the server.',
       })
@@ -234,38 +341,63 @@ export class ServerAIScripts extends System {
       this.sendError(socket, {
         requestId,
         scriptRootId,
+        targetBlueprintId,
         error: 'builder_required',
         message: 'Builder access required.',
       })
       return
     }
     let blueprint = null
-    if (scriptRootId) {
+    let app = null
+    if (targetBlueprintId) {
+      blueprint = this.world.blueprints.get(targetBlueprintId)
+    }
+    if (!blueprint && scriptRootId) {
       blueprint = this.world.blueprints.get(scriptRootId)
     }
     if (!blueprint && typeof data?.blueprintId === 'string') {
       blueprint = this.world.blueprints.get(data.blueprintId)
     }
     if (!blueprint && typeof data?.appId === 'string') {
-      const app = this.world.entities.get(data.appId)
+      app = this.world.entities.get(data.appId)
       blueprint = app?.blueprint || this.world.blueprints.get(app?.data?.blueprint)
     }
+    if (!app && typeof data?.appId === 'string') {
+      app = this.world.entities.get(data.appId) || null
+    }
+    const targetBlueprint = blueprint || null
+    targetBlueprintId = targetBlueprint?.id || targetBlueprintId
     const scriptRoot = resolveScriptRootBlueprint(blueprint, this.world)
     if (!scriptRoot || !hasScriptFiles(scriptRoot)) {
       this.sendError(socket, {
         requestId,
         scriptRootId,
+        targetBlueprintId,
         error: 'script_root_missing',
         message: 'No module script root found.',
       })
       return
     }
     scriptRootId = scriptRoot.id
+    if (!targetBlueprintId) {
+      targetBlueprintId = scriptRootId
+    }
+    if (this.inFlightByBlueprint.has(targetBlueprintId)) {
+      this.sendError(socket, {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        error: 'ai_request_pending',
+        message: 'AI request already in progress for this app.',
+      })
+      return
+    }
     const entryPath = scriptRoot.scriptEntry
     if (!entryPath || !isValidScriptPath(entryPath)) {
       this.sendError(socket, {
         requestId,
         scriptRootId,
+        targetBlueprintId,
         error: 'invalid_entry',
         message: 'Invalid script entry.',
       })
@@ -275,6 +407,7 @@ export class ServerAIScripts extends System {
       this.sendError(socket, {
         requestId,
         scriptRootId,
+        targetBlueprintId,
         error: 'missing_entry',
         message: 'Script entry is missing from script files.',
       })
@@ -287,6 +420,7 @@ export class ServerAIScripts extends System {
       this.sendError(socket, {
         requestId,
         scriptRootId,
+        targetBlueprintId,
         error: 'missing_prompt',
         message: 'AI edit prompt required.',
       })
@@ -296,12 +430,33 @@ export class ServerAIScripts extends System {
       this.sendError(socket, {
         requestId,
         scriptRootId,
+        targetBlueprintId,
         error: 'missing_error',
         message: 'AI fix requires an error payload.',
       })
       return
     }
+    this.inFlightByBlueprint.set(targetBlueprintId, {
+      requestId,
+      scriptRootId,
+      startedAt: Date.now(),
+      playerId: socket?.id || null,
+    })
+    this.sendEvent(socket, {
+      requestId,
+      scriptRootId,
+      targetBlueprintId,
+      type: 'session_start',
+      mode,
+    })
     try {
+      this.sendEvent(socket, {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'phase',
+        phase: 'collecting_context',
+      })
       const fileMap = await this.loadFileMap(scriptRoot.scriptFiles)
       const scriptFormat = scriptRoot.scriptFormat === 'legacy-body' ? 'legacy-body' : 'module'
       const attachments = normalizeAiAttachments(data?.attachments)
@@ -316,7 +471,21 @@ export class ServerAIScripts extends System {
         fileMap,
         attachmentMap,
       })
+      this.sendEvent(socket, {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'phase',
+        phase: 'thinking',
+      })
       const raw = await this.client.generate(systemPrompt, userPrompt)
+      this.sendEvent(socket, {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'phase',
+        phase: 'generating_patch',
+      })
       const parsed = extractJson(raw)
       const normalized = normalizeAiPatchSet(parsed)
       if (!normalized) {
@@ -333,26 +502,269 @@ export class ServerAIScripts extends System {
       if (!outputFiles.length) {
         throw new Error('empty_ai_patch')
       }
-      const source = this.model ? `${this.provider}:${this.model}` : this.provider || ''
+      this.sendEvent(socket, {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'patch_preview',
+        summary: normalized.summary || '',
+        files: outputFiles.map(file => file.path),
+      })
+      this.sendEvent(socket, {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'phase',
+        phase: 'applying',
+      })
+      const scriptUpdate = await this.buildScriptUpdate(scriptRoot, outputFiles)
+      const actor = socket?.id || socket?.player?.data?.id || 'ai'
+      const applySource = 'ai-scripts'
+      const { mode: forkMode, appEntity } = this.resolveForkPlan({
+        scriptRoot,
+        targetBlueprint: targetBlueprint || scriptRoot,
+        app,
+      })
+      let appliedScriptRootId = scriptRootId
+      let forked = false
+      if (forkMode === 'fork') {
+        const forkResult = await this.applyForkedScriptUpdate({
+          sourceBlueprint: targetBlueprint || scriptRoot,
+          scriptRoot,
+          scriptUpdate,
+          appEntity,
+          actor,
+          source: applySource,
+        })
+        appliedScriptRootId = forkResult.scriptRootId
+        forked = true
+      } else if (forkMode === 'detach') {
+        appliedScriptRootId = await this.applyScriptUpdateToTargetBlueprint(
+          targetBlueprint || scriptRoot,
+          scriptRoot,
+          scriptUpdate,
+          {
+            actor,
+            source: applySource,
+          }
+        )
+      } else {
+        appliedScriptRootId = await this.applyScriptUpdateToRoot(scriptRoot, scriptUpdate, {
+          actor,
+          source: applySource,
+        })
+      }
+      const modelSource = this.model ? `${this.provider}:${this.model}` : this.provider || ''
       socket.send('scriptAiProposal', {
         requestId,
         scriptRootId,
+        targetBlueprintId,
+        appliedScriptRootId,
         summary: normalized.summary,
-        source,
-        autoPreview: false,
-        autoApply: true,
-        files: outputFiles,
+        source: modelSource,
+        fileCount: outputFiles.length,
+        applied: true,
+        forked,
+        message: forked ? 'AI changes applied to a new fork.' : 'AI changes applied.',
+      })
+      this.sendEvent(socket, {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'apply_result',
+        ok: true,
+        fileCount: outputFiles.length,
+        forked,
+        message: forked ? 'AI changes applied to a new fork.' : 'AI changes applied.',
       })
     } catch (err) {
-      console.log(err)
       console.error('[ai-scripts] request failed', err)
+      const code = err?.code || err?.message
+      let message = 'AI request failed.'
+      const errorCode = 'ai_request_failed'
+      if (code === 'ai_apply_failed') {
+        message = 'AI generated changes but failed to apply them.'
+      } else if (code === 'fork_failed') {
+        message = 'AI generated changes but failed to fork this app.'
+      }
       this.sendError(socket, {
         requestId,
         scriptRootId,
-        error: 'ai_request_failed',
-        message: 'AI request failed.',
+        targetBlueprintId,
+        error: errorCode,
+        message,
       })
+    } finally {
+      const pending = this.inFlightByBlueprint.get(targetBlueprintId)
+      if (pending && pending.requestId === requestId) {
+        this.inFlightByBlueprint.delete(targetBlueprintId)
+      }
     }
+  }
+
+  resolveForkPlan({ scriptRoot, targetBlueprint, app }) {
+    const appEntity = app?.isApp ? app : null
+    if (!appEntity) {
+      return { mode: 'group', appEntity: null }
+    }
+    const groups = buildScriptGroups(this.world.blueprints.items)
+    const group =
+      (targetBlueprint?.id && groups.byId.get(targetBlueprint.id)) || groups.byId.get(scriptRoot?.id) || null
+    const groupSize = group?.items?.length || 0
+    const targetId = typeof targetBlueprint?.id === 'string' ? targetBlueprint.id : null
+    const rootId = typeof scriptRoot?.id === 'string' ? scriptRoot.id : null
+    if (!!targetId && !!rootId && targetId !== rootId) {
+      return { mode: 'detach', appEntity }
+    }
+    if (groupSize > 1) {
+      return { mode: 'fork', appEntity }
+    }
+    return { mode: 'group', appEntity }
+  }
+
+  async applyScriptUpdateToBlueprint(blueprintId, scriptUpdate, { actor, source, extra } = {}) {
+    const current = blueprintId ? this.world.blueprints.get(blueprintId) : null
+    if (!current) {
+      const err = new Error('ai_apply_failed')
+      err.code = 'ai_apply_failed'
+      throw err
+    }
+    const change = {
+      id: current.id,
+      version: (current.version || 0) + 1,
+      ...scriptUpdate,
+      ...(extra && typeof extra === 'object' ? extra : {}),
+    }
+    let result = this.world.network.applyBlueprintModified(change, { actor, source })
+    if (!result?.ok && result?.current) {
+      const retry = {
+        id: current.id,
+        version: (result.current.version || 0) + 1,
+        ...scriptUpdate,
+        ...(extra && typeof extra === 'object' ? extra : {}),
+      }
+      result = this.world.network.applyBlueprintModified(retry, { actor, source })
+    }
+    if (!result?.ok) {
+      const err = new Error('ai_apply_failed')
+      err.code = 'ai_apply_failed'
+      throw err
+    }
+    return current.id
+  }
+
+  async buildScriptUpdate(scriptRoot, files) {
+    if (!scriptRoot?.scriptFiles || typeof scriptRoot.scriptFiles !== 'object' || Array.isArray(scriptRoot.scriptFiles)) {
+      const err = new Error('ai_apply_failed')
+      err.code = 'ai_apply_failed'
+      throw err
+    }
+    if (!this.assets?.upload) {
+      const err = new Error('ai_apply_failed')
+      err.code = 'ai_apply_failed'
+      throw err
+    }
+    const nextScriptFiles = { ...scriptRoot.scriptFiles }
+    for (const file of files) {
+      const scriptPath = file?.path
+      if (!isValidScriptPath(scriptPath)) continue
+      const content = typeof file.content === 'string' ? file.content : ''
+      const ext = getFileExtension(scriptPath) || 'js'
+      const hash = await hashFile(Buffer.from(content, 'utf8'))
+      const assetFilename = `${hash}.${ext}`
+      const assetUrl = `asset://${assetFilename}`
+      const mime = ext === 'ts' || ext === 'tsx' ? 'text/typescript' : 'text/javascript'
+      const uploadFile = new File([content], assetFilename, { type: mime })
+      await this.assets.upload(uploadFile)
+      nextScriptFiles[scriptPath] = assetUrl
+    }
+    const entryPath = scriptRoot.scriptEntry
+    if (!entryPath || !isValidScriptPath(entryPath) || !Object.prototype.hasOwnProperty.call(nextScriptFiles, entryPath)) {
+      const err = new Error('ai_apply_failed')
+      err.code = 'ai_apply_failed'
+      throw err
+    }
+    const scriptFormat = scriptRoot.scriptFormat === 'legacy-body' ? 'legacy-body' : 'module'
+    return {
+      script: nextScriptFiles[entryPath],
+      scriptEntry: entryPath,
+      scriptFiles: nextScriptFiles,
+      scriptFormat,
+    }
+  }
+
+  async applyScriptUpdateToRoot(scriptRoot, scriptUpdate, { actor, source } = {}) {
+    return this.applyScriptUpdateToBlueprint(scriptRoot?.id, scriptUpdate, { actor, source })
+  }
+
+  async applyScriptUpdateToTargetBlueprint(targetBlueprint, scriptRoot, scriptUpdate, { actor, source } = {}) {
+    const scope = normalizeScope(targetBlueprint?.scope) || normalizeScope(scriptRoot?.scope)
+    const extra = { scriptRef: null }
+    if (scope) {
+      extra.scope = scope
+    }
+    return this.applyScriptUpdateToBlueprint(targetBlueprint?.id, scriptUpdate, { actor, source, extra })
+  }
+
+  async applyForkedScriptUpdate({ sourceBlueprint, scriptRoot, scriptUpdate, appEntity, actor, source } = {}) {
+    if (!sourceBlueprint?.id || !appEntity?.data?.id) {
+      const err = new Error('fork_failed')
+      err.code = 'fork_failed'
+      throw err
+    }
+    const nextBlueprint = getNextBlueprintVariant(this.world, sourceBlueprint)
+    const sourceScope = normalizeScope(sourceBlueprint.scope) || normalizeScope(scriptRoot?.scope)
+    const baseProps =
+      sourceBlueprint.props &&
+      typeof sourceBlueprint.props === 'object' &&
+      !Array.isArray(sourceBlueprint.props)
+        ? sourceBlueprint.props
+        : {}
+    const blueprint = {
+      id: nextBlueprint.id,
+      version: 0,
+      name: nextBlueprint.name,
+      image: sourceBlueprint.image,
+      author: sourceBlueprint.author,
+      url: sourceBlueprint.url,
+      desc: sourceBlueprint.desc,
+      model: sourceBlueprint.model,
+      script: scriptUpdate.script,
+      scriptEntry: scriptUpdate.scriptEntry,
+      scriptFiles: clonePlain(scriptUpdate.scriptFiles),
+      scriptFormat: scriptUpdate.scriptFormat,
+      scriptRef: null,
+      scope: sourceScope || nextBlueprint.id,
+      props: clonePlain(baseProps),
+      preload: sourceBlueprint.preload,
+      public: sourceBlueprint.public,
+      locked: sourceBlueprint.locked,
+      frozen: sourceBlueprint.frozen,
+      unique: sourceBlueprint.unique,
+      scene: sourceBlueprint.scene,
+      disabled: sourceBlueprint.disabled,
+    }
+    const addResult = this.world.network.applyBlueprintAdded(blueprint, { actor, source })
+    if (!addResult?.ok) {
+      const err = new Error('fork_failed')
+      err.code = 'fork_failed'
+      throw err
+    }
+    const repointResult = await this.world.network.applyEntityModified(
+      { id: appEntity.data.id, blueprint: blueprint.id },
+      { actor, source }
+    )
+    if (!repointResult?.ok) {
+      try {
+        await this.world.network.applyBlueprintRemoved({ id: blueprint.id }, { actor, source })
+      } catch (rollbackErr) {
+        // ignore rollback errors after failed repoint
+      }
+      const err = new Error('fork_failed')
+      err.code = 'fork_failed'
+      throw err
+    }
+    return { scriptRootId: blueprint.id }
   }
 
   async loadFileMap(scriptFiles) {
@@ -400,13 +812,27 @@ export class ServerAIScripts extends System {
     return map
   }
 
-  sendError(socket, { requestId, scriptRootId, error, message }) {
+  sendError(socket, { requestId, scriptRootId, targetBlueprintId, error, message }) {
     socket?.send?.('scriptAiProposal', {
       requestId,
       scriptRootId,
+      targetBlueprintId,
       error,
       message,
     })
+    this.sendEvent(socket, {
+      requestId,
+      scriptRootId,
+      targetBlueprintId,
+      type: 'error',
+      message: message || 'AI request failed.',
+      error: error || 'ai_request_failed',
+    })
+  }
+
+  sendEvent(socket, payload) {
+    if (!payload || !socket?.send) return
+    socket.send('scriptAiEvent', payload)
   }
 }
 

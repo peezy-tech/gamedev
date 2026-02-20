@@ -11,6 +11,7 @@ import { getRef } from '../nodes/Node'
 import { Layers } from '../extras/Layers'
 import { createPlayerProxy } from '../extras/createPlayerProxy'
 import { serializeError } from '../extras/serializeError'
+import { getBlueprintAppName } from '../blueprintUtils'
 
 const hotEventNames = ['fixedUpdate', 'update', 'animate', 'lateUpdate']
 
@@ -28,13 +29,6 @@ if (typeof window !== 'undefined') {
 
 function hasScriptFiles(blueprint) {
   return blueprint?.scriptFiles && typeof blueprint.scriptFiles === 'object' && !isArray(blueprint.scriptFiles)
-}
-
-function getBlueprintAppName(id) {
-  if (typeof id !== 'string' || !id) return ''
-  if (id === '$scene') return '$scene'
-  const idx = id.indexOf('__')
-  return idx === -1 ? id : id.slice(0, idx)
 }
 
 function resolveScriptRootBlueprint(blueprint, world) {
@@ -279,7 +273,13 @@ export class App extends Entity {
 
   update(delta) {
     // if someone else is moving the app, interpolate updates
-    if (this.data.mover && this.data.mover !== this.world.network.id) {
+    if (
+      this.data.mover &&
+      this.data.mover !== this.world.network.id &&
+      this.networkPos &&
+      this.networkQuat &&
+      this.networkSca
+    ) {
       this.networkPos.update(delta)
       this.networkQuat.update(delta)
       this.networkSca.update(delta)
@@ -344,7 +344,7 @@ export class App extends Entity {
     }
     if (data.hasOwnProperty('position')) {
       this.data.position = data.position
-      if (this.data.mover) {
+      if (this.data.mover && this.networkPos) {
         this.networkPos.pushArray(data.position)
       } else {
         rebuild = true
@@ -352,7 +352,7 @@ export class App extends Entity {
     }
     if (data.hasOwnProperty('quaternion')) {
       this.data.quaternion = data.quaternion
-      if (this.data.mover) {
+      if (this.data.mover && this.networkQuat) {
         this.networkQuat.pushArray(data.quaternion)
       } else {
         rebuild = true
@@ -360,7 +360,7 @@ export class App extends Entity {
     }
     if (data.hasOwnProperty('scale')) {
       this.data.scale = data.scale
-      if (this.data.mover) {
+      if (this.data.mover && this.networkSca) {
         this.networkSca.pushArray(data.scale)
       } else {
         rebuild = true

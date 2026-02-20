@@ -156,7 +156,7 @@ export class UIInput extends Node {
     input.style.color = this._color
     input.style.backgroundColor = this._backgroundColor
     input.style.outline = 'none'
-    input.style.fontFamily = 'Rubik, sans-serif'
+    input.style.fontFamily = 'Space Mono, monospace'
     input.style.pointerEvents = 'none'
 
     container.appendChild(inner)

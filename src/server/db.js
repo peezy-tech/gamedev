@@ -1,11 +1,9 @@
 import Knex from 'knex'
 import moment from 'moment'
-import fs from 'fs-extra'
 import path from 'path'
 import { uuid } from '../core/utils'
 import { defaults } from 'lodash-es'
 import { Ranks } from '../core/extras/ranks'
-import { assets } from './assets'
 
 let db
 
@@ -289,9 +287,10 @@ const migrations = [
           public: false,
           locked: false,
           frozen: false,
-          unique: false,
+          unique: true,
           scene: true,
           disabled: false,
+          keep: true,
         }),
         createdAt: now,
         updatedAt: now,
@@ -364,9 +363,10 @@ const migrations = [
           public: false,
           locked: false,
           frozen: false,
-          unique: false,
+          unique: true,
           scene: true,
           disabled: false,
+          keep: true,
         }),
         createdAt: now,
         updatedAt: now,
@@ -461,160 +461,6 @@ const migrations = [
       await trx.schema.renameTable('_config_new', 'config')
     })
   },
-  // persist worldId in config
-  async db => {
-    const existing = await db('config').where('key', 'worldId').first()
-    const envWorldId = process.env.WORLD_ID
-    if (existing) {
-      if (envWorldId && existing.value !== envWorldId) {
-        throw new Error(`[db] WORLD_ID mismatch: env=${envWorldId} db=${existing.value}`)
-      }
-      return
-    }
-    const worldId = envWorldId || uuid()
-    await db('config')
-      .insert({ key: 'worldId', value: worldId })
-      .onConflict('key')
-      .merge({ value: worldId })
-  },
-  // seed default template blueprints (Model/Image/Video/Text) if only scene exists
-  async db => {
-    const blueprintRows = await db('blueprints')
-    let hasNonScene = false
-    const existingIds = new Set()
-    for (const row of blueprintRows) {
-      const data = JSON.parse(row.data)
-      existingIds.add(row.id)
-      if (!data.scene) {
-        hasNonScene = true
-      }
-    }
-    if (hasNonScene) return
-
-    const now = moment().toISOString()
-    const templates = [
-      {
-        id: 'Model',
-        name: 'Model',
-        image: { url: 'asset://Model.png' },
-        model: 'asset://Model.glb',
-        script: 'asset://Model.js',
-        scriptEntry: 'Model.js',
-        scriptFiles: {
-          'Model.js': 'asset://Model.js',
-        },
-        scriptFormat: 'module',
-        props: { collision: true },
-      },
-      {
-        id: 'Image',
-        name: 'Image',
-        image: { url: 'asset://Image.png' },
-        model: 'asset://Image.glb',
-        script: 'asset://Image.js',
-        scriptEntry: 'Image.js',
-        scriptFiles: {
-          'Image.js': 'asset://Image.js',
-        },
-        scriptFormat: 'module',
-        props: {
-          width: 0,
-          height: 2,
-          fit: 'cover',
-          image: null,
-          transparent: false,
-          lit: false,
-          shadows: true,
-          placeholder: {
-            type: 'image',
-            url: 'asset://Image.png',
-          },
-        },
-      },
-      {
-        id: 'Video',
-        name: 'Video',
-        image: { url: 'asset://Video.png' },
-        model: 'asset://Video.glb',
-        script: 'asset://Video.js',
-        scriptEntry: 'Video.js',
-        scriptFiles: {
-          'Video.js': 'asset://Video.js',
-        },
-        scriptFormat: 'module',
-        props: {
-          width: 0,
-          height: 2,
-          fit: 'cover',
-          url: null,
-          loop: true,
-          autoplay: true,
-          transparent: false,
-          lit: false,
-          shadows: true,
-          placeholder: {
-            type: 'video',
-            url: 'asset://Video.mp4',
-          },
-        },
-      },
-      {
-        id: 'Text',
-        name: 'Text',
-        image: { url: 'asset://Text.png' },
-        model: 'asset://Text.glb',
-        script: 'asset://Text.js',
-        scriptEntry: 'Text.js',
-        scriptFiles: {
-          'Text.js': 'asset://Text.js',
-        },
-        scriptFormat: 'module',
-        props: {
-          width: 200,
-          height: 200,
-          text: 'Enter text...',
-          fontSize: 20,
-          fontWeight: 'bold',
-          color: '#ffffff',
-          transparent: false,
-          lit: false,
-          shadows: true,
-        },
-      },
-    ]
-
-    for (const template of templates) {
-      if (existingIds.has(template.id)) continue
-      const blueprint = {
-        id: template.id,
-        data: JSON.stringify({
-          id: template.id,
-          version: 0,
-          name: template.name,
-          image: template.image,
-          author: null,
-          url: null,
-          desc: null,
-          model: template.model,
-          script: template.script,
-          scriptEntry: template.scriptEntry,
-          scriptFiles: template.scriptFiles,
-          scriptFormat: template.scriptFormat,
-          props: template.props,
-          preload: false,
-          public: false,
-          locked: false,
-          frozen: false,
-          unique: false,
-          scene: false,
-          disabled: false,
-        }),
-        createdAt: now,
-        updatedAt: now,
-      }
-      await db('blueprints').insert(blueprint)
-    }
-  },
   // add deploy snapshots table
   async db => {
     await db.schema.createTable('deploy_snapshots', table => {
@@ -624,17 +470,26 @@ const migrations = [
       table.timestamp('createdAt').notNullable()
     })
   },
-  // set built-in templates to unique=true
+  // add durable sync changefeed table
   async db => {
-    const builtins = ['Model', 'Image', 'Video', 'Text']
-    const rows = await db('blueprints').whereIn('id', builtins)
-    for (const row of rows) {
-      const data = JSON.parse(row.data)
-      if (data?.unique === true) continue
-      data.unique = true
-      await db('blueprints')
-        .where('id', row.id)
-        .update({ data: JSON.stringify(data) })
-    }
+    const exists = await db.schema.hasTable('sync_changes')
+    if (exists) return
+    await db.schema.createTable('sync_changes', table => {
+      table.bigIncrements('cursor').primary()
+      table.string('opId').notNullable().unique()
+      table.timestamp('ts').notNullable()
+      table.string('actor').notNullable()
+      table.string('source').notNullable()
+      table.string('kind').notNullable()
+      table.string('objectUid').notNullable()
+      table.text('patch')
+      table.text('snapshot')
+      table.timestamp('createdAt').notNullable()
+    })
+    await db.schema.alterTable('sync_changes', table => {
+      table.index(['ts'])
+      table.index(['kind'])
+      table.index(['objectUid'])
+    })
   },
 ]

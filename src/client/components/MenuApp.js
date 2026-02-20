@@ -19,10 +19,13 @@ import { hashFile } from '../../core/utils-client'
 import { isArray, isBoolean, isEqual, merge } from 'lodash-es'
 import { css } from '@firebolt-dev/css'
 import { RotateCcwIcon } from 'lucide-react'
+import { buildScriptGroups, getScriptGroupMain } from '../../core/extras/blueprintGroups'
 
 export function MenuApp({ world, app, blur }) {
   const [pages, setPages] = useState(() => ['index'])
   const [blueprint, setBlueprint] = useState(app.blueprint)
+  const groupMain = getScriptGroupMain(buildScriptGroups(world.blueprints.items), blueprint)
+  const menuTitle = blueprint.name || groupMain?.name || blueprint.id
   useEffect(() => {
     window.app = app
   }, [app])
@@ -51,7 +54,7 @@ export function MenuApp({ world, app, blur }) {
   if (page === 'flags') Page = MenuAppFlags
   if (page === 'metadata') Page = MenuAppMetadata
   return (
-    <Menu title={blueprint.name} blur={blur}>
+    <Menu title={menuTitle} blur={blur}>
       <Page world={world} app={app} blueprint={blueprint} setBlueprint={setBlueprint} pop={pop} push={push} />
     </Menu>
   )
@@ -63,13 +66,17 @@ const extToType = {
 }
 const allowedModels = ['glb', 'vrm']
 
-function MenuAppIndex({ world, app, blueprint, pop, push }) {
+function MenuAppIndex({ world, app, blueprint, setBlueprint, pop, push }) {
   const player = world.entities.player
   const frozen = blueprint.frozen // TODO: disable code editor, model change, metadata editing, flag editing etc
+  const resolveModelUpdateMode = async () => {
+    return 'all'
+  }
   const changeModel = async file => {
     if (!file) return
     const ext = file.name.split('.').pop().toLowerCase()
     if (!allowedModels.includes(ext)) return
+    const updateMode = await resolveModelUpdateMode()
     // immutable hash the file
     const hash = await hashFile(file)
     // use hash as glb filename
@@ -79,11 +86,12 @@ function MenuAppIndex({ world, app, blueprint, pop, push }) {
     // cache file locally so this client can insta-load it
     const type = extToType[ext]
     world.loader.insert(type, url, file)
+    // upload model
+    await world.admin.upload(file)
+
     // update blueprint locally (also rebuilds apps)
     const version = blueprint.version + 1
     world.blueprints.modify({ id: blueprint.id, version, model: url })
-    // upload model
-    await world.admin.upload(file)
     // broadcast blueprint change to server + other clients
     world.admin.blueprintModify({ id: blueprint.id, version, model: url }, { ignoreNetworkId: world.network.id })
   }
@@ -118,8 +126,10 @@ function MenuAppIndex({ world, app, blueprint, pop, push }) {
 function MenuItemFields({ world, app, blueprint }) {
   const [fields, setFields] = useState(() => app.fields)
   const [templateMode, setTemplateMode] = useState(false)
-  const templateProps = blueprint.props && typeof blueprint.props === 'object' && !isArray(blueprint.props) ? blueprint.props : {}
-  const instanceProps = app.data.props && typeof app.data.props === 'object' && !isArray(app.data.props) ? app.data.props : {}
+  const templateProps =
+    blueprint.props && typeof blueprint.props === 'object' && !isArray(blueprint.props) ? blueprint.props : {}
+  const instanceProps =
+    app.data.props && typeof app.data.props === 'object' && !isArray(app.data.props) ? app.data.props : {}
   const effectiveProps = merge({}, templateProps, instanceProps)
   const activeProps = templateMode ? templateProps : effectiveProps
   useEffect(() => {
@@ -143,7 +153,8 @@ function MenuItemFields({ world, app, blueprint }) {
   const modifyInstance = (key, value) => {
     const currentProps =
       app.data.props && typeof app.data.props === 'object' && !isArray(app.data.props) ? app.data.props : {}
-    const baseProps = blueprint.props && typeof blueprint.props === 'object' && !isArray(blueprint.props) ? blueprint.props : {}
+    const baseProps =
+      blueprint.props && typeof blueprint.props === 'object' && !isArray(blueprint.props) ? blueprint.props : {}
     const nextProps = { ...currentProps }
     if (isEqual(value, baseProps[key])) {
       delete nextProps[key]
@@ -168,8 +179,8 @@ function MenuItemFields({ world, app, blueprint }) {
     <>
       {fields.length > 0 && (
         <MenuItemToggle
-          label='Template Defaults'
-          hint='Edit defaults shared by all instances of this template'
+          label='Props Scope'
+          hint='Set props on template or instance level'
           trueLabel='Template'
           falseLabel='Instance'
           value={templateMode}

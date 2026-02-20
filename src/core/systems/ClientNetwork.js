@@ -32,14 +32,55 @@ export class ClientNetwork extends System {
   }
 
   init({ wsUrl, name, avatar }) {
+    this.maxRetries = 10
+    this.maxWaitTime = 60000
+    this.retryCount = 0
+    this.retryDelay = 6000
+    this.connectStartTime = Date.now()
+    this.wsUrl = wsUrl
+    this.connectParams = { name, avatar }
+    this.wasConnected = false
+    this.connect()
+  }
+
+  connect() {
     const authToken = storage.get('authToken')
-    let url = `${wsUrl}?authToken=${authToken}`
-    if (name) url += `&name=${encodeURIComponent(name)}`
-    if (avatar) url += `&avatar=${encodeURIComponent(avatar)}`
+    let url = this.wsUrl
+    try {
+      const parsed = new URL(this.wsUrl)
+      if (authToken && !parsed.searchParams.get('authToken')) {
+        parsed.searchParams.set('authToken', authToken)
+      }
+      if (this.connectParams.name) parsed.searchParams.set('name', this.connectParams.name)
+      if (this.connectParams.avatar) parsed.searchParams.set('avatar', this.connectParams.avatar)
+      url = parsed.toString()
+    } catch {
+      const [base, query = ''] = this.wsUrl.split('?')
+      const params = new URLSearchParams(query)
+      if (authToken && !params.get('authToken')) {
+        params.set('authToken', authToken)
+      }
+      if (this.connectParams.name) params.set('name', this.connectParams.name)
+      if (this.connectParams.avatar) params.set('avatar', this.connectParams.avatar)
+      const nextQuery = params.toString()
+      url = nextQuery ? `${base}?${nextQuery}` : base
+    }
     this.ws = new WebSocket(url)
     this.ws.binaryType = 'arraybuffer'
+    this.ws.addEventListener('open', this.onOpen)
     this.ws.addEventListener('message', this.onPacket)
     this.ws.addEventListener('close', this.onClose)
+    this.ws.addEventListener('error', this.onError)
+  }
+
+  onOpen = () => {
+    this.wasConnected = true
+    this.retryCount = 0
+    this.world.emit('connectionStatus', { status: 'connected' })
+  }
+
+  onError = e => {
+    console.error('WebSocket error:', e)
   }
 
   preFixedUpdate() {
@@ -201,11 +242,11 @@ export class ClientNetwork extends System {
   }
 
   onScriptAiProposal = data => {
-    if (this.world.aiScripts?.onProposal) {
-      this.world.aiScripts.onProposal(data)
-      return
-    }
     this.world.emit?.('script-ai-proposal', data)
+  }
+
+  onScriptAiEvent = data => {
+    this.world.emit?.('script-ai-event', data)
   }
 
   onEntityRemoved = id => {
@@ -232,6 +273,14 @@ export class ClientNetwork extends System {
     this.world.livekit.setMuted(data.playerId, data.muted)
   }
 
+  onServerLog = data => {
+    this.world.logs?.add('server', data.level, data.args)
+  }
+
+  onServerLogHistory = data => {
+    this.world.logs?.addBatch('server', data)
+  }
+
   onPong = time => {
     this.world.stats?.onPong(time)
   }
@@ -241,6 +290,26 @@ export class ClientNetwork extends System {
   }
 
   onClose = code => {
+    const elapsed = Date.now() - this.connectStartTime
+    const timedOut = elapsed > this.maxWaitTime
+
+    if (!this.wasConnected && this.retryCount < this.maxRetries && !timedOut) {
+      this.retryCount++
+      this.world.emit('connectionStatus', {
+        status: 'retrying',
+        message: `Connecting to server... (attempt ${this.retryCount}/${this.maxRetries})`,
+      })
+      setTimeout(() => this.connect(), this.retryDelay)
+      return
+    }
+
+    if (!this.wasConnected && timedOut) {
+      this.world.emit('connectionStatus', {
+        status: 'error',
+        message: 'Cannot find server',
+      })
+    }
+
     this.world.chat.add({
       id: uuid(),
       from: null,
@@ -254,8 +323,10 @@ export class ClientNetwork extends System {
 
   destroy() {
     if (this.ws) {
+      this.ws.removeEventListener('open', this.onOpen)
       this.ws.removeEventListener('message', this.onPacket)
       this.ws.removeEventListener('close', this.onClose)
+      this.ws.removeEventListener('error', this.onError)
       if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
         this.ws.close()
       }

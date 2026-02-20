@@ -3,19 +3,109 @@ import { writePacket } from '../packets'
 import { Socket } from '../Socket'
 import { uuid } from '../utils'
 import { System } from './System'
-import { createJWT, readJWT } from '../utils-server'
-import { cloneDeep, isNumber } from 'lodash-es'
+import { createJWT, readJWT, verifyWorldConnectionToken } from '../utils-server'
+import { isNumber } from 'lodash-es'
 import * as THREE from '../extras/three'
 import { Ranks } from '../extras/ranks'
 import { validateBlueprintScriptFields } from '../blueprintValidation'
+import { ensureBlueprintSyncMetadata, ensureEntitySyncMetadata } from '../../server/syncMetadata.js'
 
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
 const PING_RATE = 10 // seconds
 const defaultSpawn = '{ "position": [0, 0, 0], "quaternion": [0, 0, 0, 1] }'
+const SCRIPT_BLUEPRINT_FIELDS = new Set([
+  'script',
+  'scriptEntry',
+  'scriptFiles',
+  'scriptFormat',
+  'scriptRef',
+])
 
 const HEALTH_MAX = 100
-const PUBLIC_ADMIN_URL =
-  process.env.PUBLIC_ADMIN_URL || (process.env.PUBLIC_API_URL || '').replace(/\/api\/?$/, '')
+const PUBLIC_ADMIN_URL = process.env.PUBLIC_ADMIN_URL || ''
+const WORLD_CONNECTION_AUDIENCE = 'runtime:connect'
+const EXPECTED_GAMESERVER_NAME = process.env.GAMESERVER_NAME || process.env.POD_NAME || null
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value || '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const WORLD_SERVICE_HEARTBEAT_INTERVAL_MS = parsePositiveInt(process.env.WORLD_SERVICE_HEARTBEAT_INTERVAL_MS, 15000)
+const WORLD_SERVICE_RETRY_BASE_MS = parsePositiveInt(process.env.WORLD_SERVICE_RETRY_BASE_MS, 400)
+const WORLD_SERVICE_MAX_RETRIES = parsePositiveInt(process.env.WORLD_SERVICE_MAX_RETRIES, 3)
+const WORLD_SERVICE_SERVER_ID =
+  process.env.GAMESERVER_NAME
+  || process.env.POD_NAME
+  || process.env.WORLD_ID
+  || 'runtime'
+const ROLE_TO_RANK = {
+  admin: Ranks.ADMIN,
+  builder: Ranks.BUILDER,
+  visitor: Ranks.VISITOR,
+}
+
+function rankFromWorldRole(role) {
+  if (typeof role !== 'string') return Ranks.VISITOR
+  return ROLE_TO_RANK[role] ?? Ranks.VISITOR
+}
+
+function normalizeUserName(value) {
+  if (typeof value !== 'string') return 'Anonymous'
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.startsWith('anon_')) return 'Anonymous'
+  return trimmed
+}
+
+function normalizeForwardedPrefix(value) {
+  if (typeof value !== 'string') return ''
+  const first = value.split(',')[0].trim()
+  if (!first || first === '/') return ''
+  const prefixed = first.startsWith('/') ? first : `/${first}`
+  return prefixed.replace(/\/+$/, '')
+}
+
+function extractWorldPrefixFromPath(value) {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const [pathname] = trimmed.split('?')
+  const match = pathname.match(/^(\/worlds\/[^/]+)/)
+  return match ? match[1] : ''
+}
+
+function deriveAdminUrlFromRequest(req) {
+  const headers = req?.headers || {}
+  let host = headers['x-forwarded-host'] || headers['host']
+  if (Array.isArray(host)) host = host[0]
+  if (!host) return null
+
+  let proto = headers['x-forwarded-proto']
+  if (Array.isArray(proto)) proto = proto[0]
+  if (proto) proto = String(proto).split(',')[0].trim()
+  if (proto === 'wss') proto = 'https'
+  if (proto === 'ws') proto = 'http'
+  if (!proto && req?.protocol) proto = req.protocol
+  if (!proto) proto = 'https'
+
+  let prefix = normalizeForwardedPrefix(headers['x-forwarded-prefix'])
+  if (!prefix) {
+    const forwardedUri = headers['x-forwarded-uri'] || headers['x-original-uri'] || headers['x-rewrite-url']
+    prefix = extractWorldPrefixFromPath(Array.isArray(forwardedUri) ? forwardedUri[0] : forwardedUri)
+  }
+  if (!prefix) {
+    prefix = extractWorldPrefixFromPath(req?.url)
+  }
+
+  return `${proto}://${host}${prefix}`
+}
+
+function deriveAdminUrlFromEnv() {
+  return (
+    (process.env.PUBLIC_WS_URL || '').replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/ws\/?$/, '') ||
+    (process.env.PUBLIC_API_URL || '').replace(/\/api\/?$/, '')
+  )
+}
 
 function isNumberArray(value, length) {
   return (
@@ -39,6 +129,95 @@ function serializePlayerForAdmin(player) {
   }
 }
 
+function normalizeMetadataString(value, fallback) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+  return fallback
+}
+
+function normalizeBlueprintFieldString(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+function resolveScriptRootBlueprint(scriptRef, currentBlueprint, world) {
+  if (!scriptRef) return null
+  const currentId = normalizeBlueprintFieldString(currentBlueprint?.id)
+  if (currentBlueprint && currentId === scriptRef) return currentBlueprint
+  return world?.blueprints?.get(scriptRef) || null
+}
+
+function normalizeScriptReferenceBlueprint(data, { currentBlueprint = null, world } = {}) {
+  if (!data || typeof data !== 'object') return data
+  const scriptRef = normalizeBlueprintFieldString(data.scriptRef)
+  if (!scriptRef) return data
+
+  const blueprintId = normalizeBlueprintFieldString(data.id) || normalizeBlueprintFieldString(currentBlueprint?.id)
+  if (blueprintId && blueprintId === scriptRef) {
+    return { ...data, scriptRef: null }
+  }
+
+  const normalized = {
+    ...data,
+    scriptRef,
+    scriptEntry: null,
+    scriptFiles: null,
+    scriptFormat: null,
+  }
+
+  const scriptRoot = resolveScriptRootBlueprint(scriptRef, currentBlueprint, world)
+  const rootScript = normalizeBlueprintFieldString(scriptRoot?.script)
+  if (rootScript) {
+    normalized.script = rootScript
+  }
+
+  return normalized
+}
+
+function hasScriptFields(data) {
+  if (!data || typeof data !== 'object') return false
+  for (const field of SCRIPT_BLUEPRINT_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) continue
+    if (field === 'script' && data.script === '') continue
+    return true
+  }
+  return false
+}
+
+function applySyncMetadata(target, source) {
+  if (!target || !source) return
+  target.uid = source.uid
+  target.scope = source.scope
+  target.managedBy = source.managedBy
+  target.updatedAt = source.updatedAt
+  target.updatedBy = source.updatedBy
+  target.updateSource = source.updateSource
+  target.lastOpId = source.lastOpId
+}
+
+function normalizeIsoTimestamp(value, fallback) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed) {
+      const parsed = Date.parse(trimmed)
+      if (Number.isFinite(parsed)) return new Date(parsed).toISOString()
+    }
+  }
+  return fallback
+}
+
+function cloneOperationPayload(value) {
+  if (value === undefined) return undefined
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return null
+  }
+}
+
 /**
  * Server Network System
  *
@@ -58,45 +237,68 @@ export class ServerNetwork extends System {
     this.dirtyApps = new Set()
     this.isServer = true
     this.queue = []
+    this.logSubscribers = new Set()
+    this.authMode = 'standalone'
+    this.usesLobbyIdentity = false
+    this.worldServiceClient = null
+    this.worldServiceHeartbeatTimerId = null
+    this.worldServiceHeartbeatInFlight = false
   }
 
-  init({ db }) {
+  init({ db, authConfig, worldServiceClient } = {}) {
     this.db = db
+    this.authMode = authConfig?.authMode || 'standalone'
+    this.usesLobbyIdentity = !!authConfig?.usesLobbyIdentity
+    this.worldServiceClient = worldServiceClient || null
   }
 
   async start() {
     // get spawn
-    const spawnRow = await this.db('config').where('key', 'spawn').first()
+    const spawnRow = await this.db('config').where({ key: 'spawn' }).first()
     this.spawn = JSON.parse(spawnRow?.value || defaultSpawn)
     // get worldId
-    const worldIdRow = await this.db('config').where('key', 'worldId').first()
-    let worldId = worldIdRow?.value
-    if (!worldId) {
-      worldId = process.env.WORLD_ID || uuid()
-      await this.db('config')
-        .insert({ key: 'worldId', value: worldId })
-        .onConflict('key')
-        .merge({ value: worldId })
+    const envWorldId = process.env.WORLD_ID?.trim()
+    if (!envWorldId) {
+      throw new Error('[envs] WORLD_ID not set')
     }
-    if (process.env.WORLD_ID && process.env.WORLD_ID !== worldId) {
-      throw new Error(`[envs] WORLD_ID mismatch: env=${process.env.WORLD_ID} db=${worldId}`)
+    const worldIdRow = await this.db('config').where({ key: 'worldId' }).first()
+    const dbWorldId = worldIdRow?.value?.trim()
+    if (dbWorldId && dbWorldId !== envWorldId) {
+      throw new Error(`[envs] WORLD_ID mismatch: env=${envWorldId} db=${dbWorldId}`)
     }
-    this.worldId = worldId
+    this.worldId = envWorldId
     // hydrate blueprints
     const blueprints = await this.db('blueprints')
     for (const blueprint of blueprints) {
       const data = JSON.parse(blueprint.data)
+      if (blueprint?.createdAt) data.createdAt = blueprint.createdAt
+      if (data.keep === undefined) data.keep = false
+      ensureBlueprintSyncMetadata(data, {
+        touch: false,
+        now: blueprint.updatedAt || moment().toISOString(),
+        updatedBy: 'runtime',
+        updateSource: 'runtime',
+      })
       this.world.blueprints.add(data, true)
     }
     // hydrate entities
     const entities = await this.db('entities')
     for (const entity of entities) {
       const data = JSON.parse(entity.data)
+      const blueprintScope =
+        typeof data.blueprint === 'string' ? this.world.blueprints.get(data.blueprint)?.scope : null
+      ensureEntitySyncMetadata(data, {
+        touch: false,
+        now: entity.updatedAt || moment().toISOString(),
+        updatedBy: 'runtime',
+        updateSource: 'runtime',
+        blueprintScope,
+      })
       data.state = {}
       this.world.entities.add(data, true)
     }
     // hydrate settings
-    let settingsRow = await this.db('config').where('key', 'settings').first()
+    let settingsRow = await this.db('config').where({ key: 'settings' }).first()
     try {
       const settings = JSON.parse(settingsRow?.value || '{}')
       this.world.settings.deserialize(settings)
@@ -104,11 +306,27 @@ export class ServerNetwork extends System {
     } catch (err) {
       console.error(err)
     }
+    // broadcast server logs to subscribed clients
+    this.world.logs?.on('entry', entry => {
+      if (entry.source === 'server' && this.logSubscribers.size > 0) {
+        const packet = writePacket('serverLog', { level: entry.level, args: entry.args, timestamp: entry.timestamp })
+        for (const socketId of this.logSubscribers) {
+          const socket = this.sockets.get(socketId)
+          socket?.sendPacket(packet)
+        }
+      }
+    })
     // watch settings changes
     this.world.settings.on('change', this.saveSettings)
     // queue first save
     if (SAVE_INTERVAL) {
       this.saveTimerId = setTimeout(this.save, SAVE_INTERVAL * 1000)
+    }
+    if (this.authMode === 'platform' && this.worldServiceClient?.heartbeat) {
+      this.worldServiceHeartbeatTimerId = setInterval(() => {
+        void this.flushWorldServiceHeartbeat()
+      }, WORLD_SERVICE_HEARTBEAT_INTERVAL_MS)
+      void this.flushWorldServiceHeartbeat()
     }
   }
 
@@ -162,6 +380,36 @@ export class ServerNetwork extends System {
     return performance.now() / 1000 // seconds
   }
 
+  createOperationMetadata({ actor, source, lastOpId } = {}, now = moment().toISOString()) {
+    return {
+      opId: normalizeMetadataString(lastOpId, uuid()),
+      ts: normalizeIsoTimestamp(now, moment().toISOString()),
+      actor: normalizeMetadataString(actor, 'runtime'),
+      source: normalizeMetadataString(source, 'runtime'),
+    }
+  }
+
+  emitOperation({ kind, objectUid, patch, snapshot, opId, actor, source, ts } = {}) {
+    const normalizedKind = normalizeMetadataString(kind, null)
+    const normalizedObjectUid = normalizeMetadataString(objectUid, null)
+    if (!normalizedKind || !normalizedObjectUid) return
+    const payload = {
+      opId: normalizeMetadataString(opId, uuid()),
+      ts: normalizeIsoTimestamp(ts, moment().toISOString()),
+      actor: normalizeMetadataString(actor, 'runtime'),
+      source: normalizeMetadataString(source, 'runtime'),
+      kind: normalizedKind,
+      objectUid: normalizedObjectUid,
+    }
+    if (patch !== undefined) {
+      payload.patch = cloneOperationPayload(patch)
+    }
+    if (snapshot !== undefined) {
+      payload.snapshot = cloneOperationPayload(snapshot)
+    }
+    this.emit('operation', payload)
+  }
+
   save = async () => {
     const counts = {
       upsertedBlueprints: 0,
@@ -173,12 +421,21 @@ export class ServerNetwork extends System {
     for (const id of this.dirtyBlueprints) {
       const blueprint = this.world.blueprints.get(id)
       try {
+        const createdAt = blueprint.createdAt || now
+        if (!blueprint.createdAt) blueprint.createdAt = createdAt
+        if (blueprint.keep === undefined) blueprint.keep = false
+        ensureBlueprintSyncMetadata(blueprint, {
+          touch: true,
+          now,
+          updatedBy: normalizeMetadataString(blueprint.updatedBy, 'runtime'),
+          updateSource: normalizeMetadataString(blueprint.updateSource, 'runtime'),
+        })
         const record = {
           id: blueprint.id,
           data: JSON.stringify(blueprint),
         }
         await this.db('blueprints')
-          .insert({ ...record, createdAt: now, updatedAt: now })
+          .insert({ ...record, createdAt, updatedAt: now })
           .onConflict('id')
           .merge({ ...record, updatedAt: now })
         counts.upsertedBlueprints++
@@ -197,8 +454,15 @@ export class ServerNetwork extends System {
           continue // ignore while uploading or moving
         }
         try {
-          const data = cloneDeep(entity.data)
-          data.state = null
+          const blueprintScope =
+            typeof entity.data.blueprint === 'string' ? this.world.blueprints.get(entity.data.blueprint)?.scope : null
+          ensureEntitySyncMetadata(entity.data, {
+            touch: true,
+            now,
+            updatedBy: normalizeMetadataString(entity.data.updatedBy, 'runtime'),
+            updateSource: normalizeMetadataString(entity.data.updateSource, 'runtime'),
+            blueprintScope,
+          })
           const record = {
             id: entity.data.id,
             data: JSON.stringify(entity.data),
@@ -215,7 +479,7 @@ export class ServerNetwork extends System {
         }
       } else {
         // it was removed
-        await this.db('entities').where('id', id).delete()
+        await this.db('entities').where({ id }).delete()
         counts.deletedApps++
         this.dirtyApps.delete(id)
       }
@@ -245,7 +509,76 @@ export class ServerNetwork extends System {
       })
   }
 
-  async onConnection(ws, params) {
+  hasWorldServiceIntegration() {
+    return this.authMode === 'platform' && !!this.worldServiceClient
+  }
+
+  sleep(ms) {
+    return new Promise(resolve => {
+      setTimeout(resolve, ms)
+    })
+  }
+
+  runWorldServiceWithRetry = async (
+    label,
+    operation,
+    { maxRetries = WORLD_SERVICE_MAX_RETRIES, baseDelayMs = WORLD_SERVICE_RETRY_BASE_MS } = {}
+  ) => {
+    if (!this.hasWorldServiceIntegration()) return false
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        await operation()
+        return true
+      } catch (err) {
+        const done = attempt >= maxRetries
+        console.warn('[world-service] request failed', {
+          label,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
+          error: err?.message || String(err),
+        })
+        if (done) return false
+        const delayMs = baseDelayMs * 2 ** attempt
+        await this.sleep(delayMs)
+      }
+    }
+    return false
+  }
+
+  notifyWorldServicePlayerJoin(userId) {
+    if (!this.hasWorldServiceIntegration()) return
+    if (!userId || !this.worldServiceClient?.playerJoin) return
+    void this.runWorldServiceWithRetry('player_join', () => this.worldServiceClient.playerJoin(userId))
+  }
+
+  notifyWorldServicePlayerLeave(userId) {
+    if (!this.hasWorldServiceIntegration()) return
+    if (!userId || !this.worldServiceClient?.playerLeave) return
+    void this.runWorldServiceWithRetry('player_leave', () => this.worldServiceClient.playerLeave(userId))
+  }
+
+  flushWorldServiceHeartbeat = async () => {
+    if (!this.hasWorldServiceIntegration()) return
+    if (!this.worldServiceClient?.heartbeat) return
+    if (this.worldServiceHeartbeatInFlight) return
+    this.worldServiceHeartbeatInFlight = true
+    try {
+      await this.runWorldServiceWithRetry(
+        'heartbeat',
+        () =>
+          this.worldServiceClient.heartbeat({
+            playerCount: this.sockets.size,
+            address: process.env.PUBLIC_WS_URL,
+            serverId: WORLD_SERVICE_SERVER_ID,
+          }),
+        { maxRetries: 2 }
+      )
+    } finally {
+      this.worldServiceHeartbeatInFlight = false
+    }
+  }
+
+  async onConnection(ws, params, req) {
     try {
       // check player limit
       const playerLimit = this.world.settings.playerLimit
@@ -260,18 +593,131 @@ export class ServerNetwork extends System {
       let authToken = params.authToken
       let name = params.name
       let avatar = params.avatar
+      if (typeof authToken === 'string') {
+        authToken = authToken.trim()
+      } else {
+        authToken = ''
+      }
 
       // get or create user
       let user
-      if (authToken) {
+      let invalidStandaloneToken = false
+      if (this.authMode === 'platform') {
+        const claims = verifyWorldConnectionToken(authToken, {
+          worldId: this.worldId,
+          gameServer: EXPECTED_GAMESERVER_NAME,
+          audience: WORLD_CONNECTION_AUDIENCE,
+        })
+        const userId = claims?.userId
+        if (!userId || typeof userId !== 'string') {
+          const packet = writePacket('kick', 'invalid_auth')
+          ws.send(packet)
+          ws.close()
+          return
+        }
+        if (!this.worldServiceClient?.getUserAccess) {
+          console.error('[auth] platform mode is missing world-service internal client')
+          const packet = writePacket('kick', 'invalid_auth')
+          ws.send(packet)
+          ws.close()
+          return
+        }
+        let worldUser
         try {
-          const { userId } = await readJWT(authToken)
-          user = await this.db('users').where('id', userId).first()
+          worldUser = await this.worldServiceClient.getUserAccess(userId)
         } catch (err) {
+          const status = err?.status
+          const reason =
+            status === 401 || status === 403 || status === 404
+              ? 'invalid_auth'
+              : 'auth_unavailable'
+          console.error('[auth] failed to resolve user from world-service', {
+            userId,
+            status: status || null,
+            error: err?.message || String(err),
+          })
+          const packet = writePacket('kick', reason)
+          ws.send(packet)
+          ws.close()
+          return
+        }
+        if (!worldUser?.access) {
+          const packet = writePacket('kick', 'access_denied')
+          ws.send(packet)
+          ws.close()
+          return
+        }
+        if (!worldUser?.user || worldUser.user.id !== userId) {
+          const packet = writePacket('kick', 'invalid_auth')
+          ws.send(packet)
+          ws.close()
+          return
+        }
+
+        const projectedUser = {
+          id: worldUser.user.id,
+          name: normalizeUserName(worldUser.user.name),
+          avatar: worldUser.user.avatar || null,
+          rank: rankFromWorldRole(worldUser.role),
+          createdAt: moment().toISOString(),
+        }
+        await this.db('users')
+          .insert(projectedUser)
+          .onConflict('id')
+          .merge({
+            name: projectedUser.name,
+            avatar: projectedUser.avatar,
+            rank: projectedUser.rank,
+          })
+        user = await this.db('users').where('id', projectedUser.id).first()
+        if (!user) {
+          user = projectedUser
+        }
+      } else if (authToken) {
+        try {
+          const tokenData = await readJWT(authToken, {
+            worldId: this.usesLobbyIdentity ? this.worldId : undefined,
+          })
+          const userId = tokenData?.userId
+          if (!userId) {
+            throw new Error('invalid_auth_token')
+          }
+          user = await this.db('users').where('id', userId).first()
+          if (!user && this.usesLobbyIdentity) {
+            user = {
+              id: userId,
+              name: 'Anonymous',
+              avatar: null,
+              rank: 0,
+              createdAt: moment().toISOString(),
+            }
+            await this.db('users').insert(user).onConflict('id').ignore()
+          }
+        } catch (err) {
+          invalidStandaloneToken = true
           console.error('failed to read authToken:', authToken)
         }
       }
+      if (!user && this.authMode === 'platform') {
+        const packet = writePacket('kick', 'invalid_auth')
+        ws.send(packet)
+        ws.close()
+        return
+      }
+      if (
+        !user &&
+        this.authMode === 'standalone' &&
+        this.usesLobbyIdentity &&
+        invalidStandaloneToken
+      ) {
+        const packet = writePacket('kick', 'invalid_auth')
+        ws.send(packet)
+        ws.close()
+        return
+      }
       if (!user) {
+        const isStandaloneLobbyGuest =
+          this.authMode === 'standalone' && this.usesLobbyIdentity
         user = {
           id: uuid(),
           name: 'Anonymous',
@@ -279,8 +725,12 @@ export class ServerNetwork extends System {
           rank: 0,
           createdAt: moment().toISOString(),
         }
-        await this.db('users').insert(user)
-        authToken = await createJWT({ userId: user.id })
+        if (!isStandaloneLobbyGuest) {
+          await this.db('users').insert(user)
+          authToken = await createJWT({ userId: user.id, worldId: this.worldId })
+        } else {
+          authToken = null
+        }
       }
 
       // disconnect if user already in this world
@@ -296,6 +746,10 @@ export class ServerNetwork extends System {
 
       // create socket
       const socket = new Socket({ id: user.id, ws, network: this })
+      const playerName =
+        this.authMode === 'platform'
+          ? user.name
+          : name || user.name
 
       // spawn player
       socket.player = this.world.entities.add(
@@ -306,7 +760,7 @@ export class ServerNetwork extends System {
           quaternion: this.spawn.quaternion.slice(),
           owner: socket.id, // deprecated, same as userId
           userId: user.id, // deprecated, same as userId
-          name: name || user.name,
+          name: playerName,
           health: HEALTH_MAX,
           avatar: user.avatar || this.world.settings.avatar?.url || 'asset://avatar.vrm',
           sessionAvatar: avatar || null,
@@ -317,12 +771,13 @@ export class ServerNetwork extends System {
       )
 
       // send snapshot
+      const adminUrl = deriveAdminUrlFromRequest(req) || PUBLIC_ADMIN_URL || deriveAdminUrlFromEnv()
       socket.send('snapshot', {
         id: socket.id,
         serverTime: performance.now(),
         assetsUrl: process.env.ASSETS_BASE_URL,
         apiUrl: process.env.PUBLIC_API_URL,
-        adminUrl: PUBLIC_ADMIN_URL,
+        adminUrl,
         maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
         settings: this.world.settings.serialize(),
         chat: this.world.chat.serialize(),
@@ -343,6 +798,8 @@ export class ServerNetwork extends System {
       if (joined) {
         this.emit('playerJoined', joined)
       }
+      this.notifyWorldServicePlayerJoin(socket.id)
+      void this.flushWorldServiceHeartbeat()
     } catch (err) {
       console.error(err)
     }
@@ -361,6 +818,16 @@ export class ServerNetwork extends System {
     const [cmd, arg1, arg2] = args
     // become admin command
     if (cmd === 'admin') {
+      if (this.authMode === 'platform') {
+        socket.send('chatAdded', {
+          id: uuid(),
+          from: null,
+          fromId: null,
+          body: 'Admin code escalation is disabled in platform mode.',
+          createdAt: moment().toISOString(),
+        })
+        return
+      }
       const code = arg1
       if (process.env.ADMIN_CODE && process.env.ADMIN_CODE === code) {
         const id = player.data.id
@@ -480,31 +947,92 @@ export class ServerNetwork extends System {
     return { ok: true }
   }
 
-  applyBlueprintAdded(blueprint, { ignoreNetworkId } = {}) {
-    const validation = validateBlueprintScriptFields(blueprint)
+  applyBlueprintAdded(blueprint, { ignoreNetworkId, actor, source, lastOpId } = {}) {
+    const now = moment().toISOString()
+    const operation = this.createOperationMetadata({ actor, source, lastOpId }, now)
+    const nextBlueprint = normalizeScriptReferenceBlueprint(blueprint, { world: this.world })
+    if (!nextBlueprint.createdAt) {
+      nextBlueprint.createdAt = now
+    }
+    if (nextBlueprint.keep === undefined) {
+      nextBlueprint.keep = false
+    }
+    ensureBlueprintSyncMetadata(nextBlueprint, {
+      touch: true,
+      now,
+      updatedBy: normalizeMetadataString(actor, 'runtime'),
+      updateSource: normalizeMetadataString(source, 'runtime'),
+      lastOpId: operation.opId,
+    })
+    const validation = validateBlueprintScriptFields(nextBlueprint)
     if (!validation.ok) return validation
-    this.world.blueprints.add(blueprint)
-    this.send('blueprintAdded', blueprint, ignoreNetworkId)
-    this.dirtyBlueprints.add(blueprint.id)
-    this.emit('blueprintAdded', blueprint)
+    this.world.blueprints.add(nextBlueprint)
+    this.send('blueprintAdded', nextBlueprint, ignoreNetworkId)
+    this.dirtyBlueprints.add(nextBlueprint.id)
+    const added = this.world.blueprints.get(nextBlueprint.id) || nextBlueprint
+    this.emit('blueprintAdded', added)
+    this.emitOperation({
+      ...operation,
+      kind: 'blueprint.add',
+      objectUid: added?.uid || added?.id || nextBlueprint.id,
+      snapshot: added,
+    })
     return { ok: true }
   }
 
-  applyBlueprintModified(change, { ignoreNetworkId } = {}) {
-    const validation = validateBlueprintScriptFields(change)
-    if (!validation.ok) return validation
+  applyBlueprintModified(change, { ignoreNetworkId, actor, source, lastOpId } = {}) {
     const blueprint = this.world.blueprints.get(change.id)
     if (!blueprint) {
       return { ok: false, error: 'not_found' }
     }
+    const normalizedChange = normalizeScriptReferenceBlueprint(change, { currentBlueprint: blueprint, world: this.world })
+    const validation = validateBlueprintScriptFields(normalizedChange)
+    if (!validation.ok) return validation
+    const hasScriptChange = hasScriptFields(normalizedChange)
+    if (hasScriptChange && source !== 'ai-scripts') {
+      const busy = this.world.aiScripts?.getBusyStateForBlueprint?.(blueprint)
+      if (busy?.scriptRootId) {
+        return {
+          ok: false,
+          error: 'ai_request_pending',
+          scriptRootId: busy.scriptRootId,
+          targetBlueprintId: busy.targetBlueprintId || blueprint.id,
+          requestId: busy.requestId || null,
+        }
+      }
+    }
     // if new version is greater than current version, allow it
-    if (change.version > blueprint.version) {
-      this.world.blueprints.modify(change)
-      this.send('blueprintModified', change, ignoreNetworkId)
-      this.dirtyBlueprints.add(change.id)
-      const updated = this.world.blueprints.get(change.id)
+    if (normalizedChange.version > blueprint.version) {
+      const now = moment().toISOString()
+      const operation = this.createOperationMetadata({ actor, source, lastOpId }, now)
+      const createdAt = blueprint.createdAt || normalizedChange.createdAt || moment().toISOString()
+      const nextChange = { ...normalizedChange, createdAt }
+      if (blueprint.keep === undefined && nextChange.keep === undefined) {
+        nextChange.keep = false
+      }
+      const merged = { ...blueprint, ...nextChange }
+      ensureBlueprintSyncMetadata(merged, {
+        touch: true,
+        now,
+        updatedBy: normalizeMetadataString(actor, 'runtime'),
+        updateSource: normalizeMetadataString(source, 'runtime'),
+        lastOpId: operation.opId,
+      })
+      const nextChangeWithSync = { ...nextChange }
+      applySyncMetadata(nextChangeWithSync, merged)
+      this.world.blueprints.modify(nextChangeWithSync)
+      this.send('blueprintModified', nextChangeWithSync, ignoreNetworkId)
+      this.dirtyBlueprints.add(normalizedChange.id)
+      const updated = this.world.blueprints.get(normalizedChange.id)
       if (updated) {
         this.emit('blueprintModified', updated)
+        this.emitOperation({
+          ...operation,
+          kind: 'blueprint.update',
+          objectUid: updated.uid || updated.id || normalizedChange.id,
+          patch: nextChangeWithSync,
+          snapshot: updated,
+        })
       }
       return { ok: true }
     }
@@ -515,7 +1043,7 @@ export class ServerNetwork extends System {
     return { ok: false, error: 'version_mismatch', current: blueprint }
   }
 
-  applyBlueprintRemoved = async ({ id }, { ignoreNetworkId } = {}) => {
+  applyBlueprintRemoved = async ({ id }, { ignoreNetworkId, actor, source, lastOpId } = {}) => {
     if (!id) return { ok: false, error: 'invalid_payload' }
     const blueprint = this.world.blueprints.get(id)
     if (!blueprint) return { ok: false, error: 'not_found' }
@@ -524,18 +1052,48 @@ export class ServerNetwork extends System {
         return { ok: false, error: 'in_use' }
       }
     }
+    const operation = this.createOperationMetadata({ actor, source, lastOpId })
     this.world.blueprints.remove(id)
     this.send('blueprintRemoved', { id }, ignoreNetworkId)
     this.dirtyBlueprints.delete(id)
-    await this.db('blueprints').where('id', id).delete()
+    await this.db('blueprints').where({ id }).delete()
+    this.emit('blueprintRemoved', { id })
+    this.emitOperation({
+      ...operation,
+      kind: 'blueprint.remove',
+      objectUid: blueprint.uid || blueprint.id || id,
+      patch: { id },
+      snapshot: blueprint,
+    })
     return { ok: true }
   }
 
-  applyEntityAdded(data, { ignoreNetworkId } = {}) {
-    const entity = this.world.entities.add(data)
-    this.send('entityAdded', data, ignoreNetworkId)
+  applyEntityAdded(data, { ignoreNetworkId, actor, source, lastOpId } = {}) {
+    const nextData = data && typeof data === 'object' ? { ...data } : data
+    const operation =
+      nextData?.type === 'app' ? this.createOperationMetadata({ actor, source, lastOpId }, moment().toISOString()) : null
+    if (nextData?.type === 'app') {
+      const blueprintScope =
+        typeof nextData.blueprint === 'string' ? this.world.blueprints.get(nextData.blueprint)?.scope : null
+      ensureEntitySyncMetadata(nextData, {
+        touch: true,
+        now: moment().toISOString(),
+        updatedBy: normalizeMetadataString(actor, 'runtime'),
+        updateSource: normalizeMetadataString(source, 'runtime'),
+        lastOpId: operation?.opId,
+        blueprintScope,
+      })
+    }
+    const entity = this.world.entities.add(nextData)
+    this.send('entityAdded', nextData, ignoreNetworkId)
     if (entity?.isApp) {
       this.dirtyApps.add(entity.data.id)
+      this.emitOperation({
+        ...operation,
+        kind: 'entity.add',
+        objectUid: entity.data.uid || entity.data.id,
+        snapshot: entity.data,
+      })
     }
     if (entity) {
       this.emit('entityAdded', entity.data)
@@ -543,7 +1101,7 @@ export class ServerNetwork extends System {
     return { ok: true }
   }
 
-  applyEntityModified = async (data, { ignoreNetworkId } = {}) => {
+  applyEntityModified = async (data, { ignoreNetworkId, actor, source, lastOpId } = {}) => {
     const entity = this.world.entities.get(data.id)
     if (!entity) return { ok: false, error: 'not_found' }
     if (data.hasOwnProperty('props')) {
@@ -552,20 +1110,54 @@ export class ServerNetwork extends System {
         return { ok: false, error: 'invalid_payload' }
       }
     }
-    entity.modify(data)
-    this.send('entityModified', data, ignoreNetworkId)
+    let nextData = data
+    const operation = entity.isApp ? this.createOperationMetadata({ actor, source, lastOpId }, moment().toISOString()) : null
+    if (entity.isApp) {
+      const merged = { ...entity.data, ...data }
+      const blueprintId =
+        typeof merged.blueprint === 'string'
+          ? merged.blueprint
+          : typeof entity.data.blueprint === 'string'
+            ? entity.data.blueprint
+            : null
+      const blueprintScope = blueprintId ? this.world.blueprints.get(blueprintId)?.scope : null
+      ensureEntitySyncMetadata(merged, {
+        touch: true,
+        now: moment().toISOString(),
+        updatedBy: normalizeMetadataString(actor, 'runtime'),
+        updateSource: normalizeMetadataString(source, 'runtime'),
+        lastOpId: operation?.opId,
+        blueprintScope,
+      })
+      nextData = { ...data }
+      applySyncMetadata(nextData, merged)
+    }
+
+    entity.modify(nextData)
+    if (entity.isApp) {
+      applySyncMetadata(entity.data, nextData)
+    }
+
+    this.send('entityModified', nextData, ignoreNetworkId)
     if (entity.isApp) {
       this.dirtyApps.add(entity.data.id)
+      this.emitOperation({
+        ...operation,
+        kind: 'entity.update',
+        objectUid: entity.data.uid || entity.data.id,
+        patch: nextData,
+        snapshot: entity.data,
+      })
     }
     if (entity.isPlayer) {
       const changes = {}
       let changed
-      if (data.hasOwnProperty('name')) {
-        changes.name = data.name
+      if (nextData.hasOwnProperty('name')) {
+        changes.name = nextData.name
         changed = true
       }
-      if (data.hasOwnProperty('avatar')) {
-        changes.avatar = data.avatar
+      if (nextData.hasOwnProperty('avatar')) {
+        changes.avatar = nextData.avatar
         changed = true
       }
       if (changed) {
@@ -575,19 +1167,19 @@ export class ServerNetwork extends System {
         id: entity.data.id,
       }
       let hasPlayerUpdate
-      if (data.hasOwnProperty('p')) {
+      if (nextData.hasOwnProperty('p')) {
         playerUpdate.position = entity.data.position
         hasPlayerUpdate = true
       }
-      if (data.hasOwnProperty('q')) {
+      if (nextData.hasOwnProperty('q')) {
         playerUpdate.quaternion = entity.data.quaternion
         hasPlayerUpdate = true
       }
-      if (data.hasOwnProperty('name')) {
+      if (nextData.hasOwnProperty('name')) {
         playerUpdate.name = entity.data.name
         hasPlayerUpdate = true
       }
-      if (data.hasOwnProperty('avatar') || data.hasOwnProperty('sessionAvatar')) {
+      if (nextData.hasOwnProperty('avatar') || nextData.hasOwnProperty('sessionAvatar')) {
         playerUpdate.avatar = entity.data.avatar
         playerUpdate.sessionAvatar = entity.data.sessionAvatar
         hasPlayerUpdate = true
@@ -600,25 +1192,40 @@ export class ServerNetwork extends System {
     return { ok: true }
   }
 
-  applyEntityRemoved(id, { ignoreNetworkId } = {}) {
+  applyEntityRemoved(id, { ignoreNetworkId, actor, source, lastOpId } = {}) {
     const entity = this.world.entities.get(id)
+    const operation = entity?.isApp ? this.createOperationMetadata({ actor, source, lastOpId }) : null
     this.world.entities.remove(id)
     this.send('entityRemoved', id, ignoreNetworkId)
     if (entity?.isApp) {
       this.dirtyApps.add(id)
+      this.emitOperation({
+        ...operation,
+        kind: 'entity.remove',
+        objectUid: entity.data.uid || entity.data.id || id,
+        patch: { id },
+        snapshot: entity.data,
+      })
     }
     this.emit('entityRemoved', id)
     return { ok: true }
   }
 
-  applySettingsModified(data, { ignoreNetworkId } = {}) {
+  applySettingsModified(data, { ignoreNetworkId, actor, source, lastOpId } = {}) {
     this.world.settings.set(data.key, data.value)
     this.send('settingsModified', data, ignoreNetworkId)
     this.emit('settingsModified', data)
+    const operation = this.createOperationMetadata({ actor, source, lastOpId })
+    this.emitOperation({
+      ...operation,
+      kind: 'settings.update',
+      objectUid: `world:settings:${data.key}`,
+      patch: data,
+    })
     return { ok: true }
   }
 
-  applySpawnSet = async ({ position, quaternion }) => {
+  applySpawnSet = async ({ position, quaternion }, { actor, source, lastOpId } = {}) => {
     if (!isNumberArray(position, 3) || !isNumberArray(quaternion, 4)) {
       return { ok: false, error: 'invalid_payload' }
     }
@@ -634,10 +1241,17 @@ export class ServerNetwork extends System {
         value,
       })
     this.send('spawnModified', this.spawn)
+    const operation = this.createOperationMetadata({ actor, source, lastOpId })
+    this.emitOperation({
+      ...operation,
+      kind: 'spawn.update',
+      objectUid: 'world:spawn',
+      snapshot: this.spawn,
+    })
     return { ok: true, spawn: this.spawn }
   }
 
-  applySpawnModified = async ({ op, networkId }) => {
+  applySpawnModified = async ({ op, networkId }, { actor, source, lastOpId } = {}) => {
     if (op === 'set') {
       const player = this.world.entities.get(networkId)
       if (!player || !player.isPlayer) return { ok: false, error: 'player_not_found' }
@@ -659,6 +1273,14 @@ export class ServerNetwork extends System {
       })
     this.send('spawnModified', this.spawn)
     this.emit('spawnModified', this.spawn)
+    const operation = this.createOperationMetadata({ actor, source, lastOpId })
+    this.emitOperation({
+      ...operation,
+      kind: 'spawn.update',
+      objectUid: 'world:spawn',
+      patch: { op },
+      snapshot: this.spawn,
+    })
     return { ok: true }
   }
 
@@ -735,17 +1357,57 @@ export class ServerNetwork extends System {
     this.sendTo(data.networkId, 'playerSessionAvatar', data.avatar)
   }
 
+  onPlayerAvatar = async (socket, data) => {
+    const player = socket.player
+    if (!player) return
+    await this.applyEntityModified(
+      { id: player.data.id, avatar: data.avatar, sessionAvatar: null },
+      { ignoreNetworkId: socket.id }
+    )
+  }
+
+  onSubscribeLogs = (socket) => {
+    if (!socket.player?.isBuilder()) return
+    this.logSubscribers.add(socket.id)
+    const history = this.world.logs?.entries || []
+    if (history.length > 0) {
+      socket.send('serverLogHistory', history.map(e => ({ level: e.level, args: e.args, timestamp: e.timestamp })))
+    }
+  }
+
+  onUnsubscribeLogs = (socket) => {
+    this.logSubscribers.delete(socket.id)
+  }
+
   onPing = (socket, time) => {
     socket.send('pong', time)
   }
 
+  destroy() {
+    if (this.socketIntervalId) {
+      clearInterval(this.socketIntervalId)
+      this.socketIntervalId = null
+    }
+    if (this.saveTimerId) {
+      clearTimeout(this.saveTimerId)
+      this.saveTimerId = null
+    }
+    if (this.worldServiceHeartbeatTimerId) {
+      clearInterval(this.worldServiceHeartbeatTimerId)
+      this.worldServiceHeartbeatTimerId = null
+    }
+  }
+
   onDisconnect = (socket, code) => {
+    this.logSubscribers.delete(socket.id)
     this.world.livekit.clearModifiers(socket.id)
     socket.player.destroy(true)
     this.sockets.delete(socket.id)
     const playerId = socket.player?.data?.id
     if (playerId) {
       this.emit('playerLeft', { id: playerId })
+      this.notifyWorldServicePlayerLeave(playerId)
     }
+    void this.flushWorldServiceHeartbeat()
   }
 }

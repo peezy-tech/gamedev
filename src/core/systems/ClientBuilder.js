@@ -11,6 +11,8 @@ import { ControlPriorities } from '../extras/ControlPriorities'
 import { DEG2RAD, RAD2DEG } from '../extras/general'
 import { createNode } from '../extras/createNode'
 import { importApp } from '../extras/appTools'
+import { buildScriptGroups, getScriptGroupMain } from '../extras/blueprintGroups'
+import { BUILTIN_APP_TEMPLATES } from '../../client/builtinApps'
 
 const FORWARD = new THREE.Vector3(0, 0, -1)
 const SNAP_DISTANCE = 1
@@ -33,9 +35,54 @@ function splitBlueprintId(id) {
   return { prefix: '', base: id || 'blueprint' }
 }
 
-function getNextBlueprintVariant(world, sourceId) {
+function stripVariantSuffix(base) {
+  if (typeof base !== 'string') return base
+  const match = base.match(/^(.*)_([1-9]\d*)$/)
+  if (!match) return base
+  const stem = match[1]
+  const index = Number.parseInt(match[2], 10)
+  if (!stem || !Number.isFinite(index) || index < 2) return base
+  return stem
+}
+
+function hasVariantFamily(world, prefix, base) {
+  const baseId = `${prefix}${base}`
+  if (world?.blueprints?.get?.(baseId)) return true
+  const items = world?.blueprints?.items
+  if (!Array.isArray(items)) return false
+  const variantPrefix = `${baseId}_`
+  for (const blueprint of items) {
+    const id = typeof blueprint?.id === 'string' ? blueprint.id : ''
+    if (!id.startsWith(variantPrefix)) continue
+    const suffix = id.slice(variantPrefix.length)
+    if (/^[1-9]\d*$/.test(suffix)) return true
+  }
+  return false
+}
+
+function normalizeVariantBase(world, prefix, base) {
+  const safe = typeof base === 'string' && base ? base : 'blueprint'
+  const stripped = stripVariantSuffix(safe)
+  if (stripped === safe) return safe
+  return hasVariantFamily(world, prefix, stripped) ? stripped : safe
+}
+
+function getNextBlueprintVariant(world, sourceBlueprint) {
+  const sourceId = typeof sourceBlueprint === 'string' ? sourceBlueprint : sourceBlueprint?.id
   const { prefix, base } = splitBlueprintId(sourceId)
-  const safeBase = base || 'blueprint'
+  let safeBase = normalizeVariantBase(world, prefix, base || 'blueprint')
+  if (sourceBlueprint && typeof sourceBlueprint === 'object') {
+    const scriptKey = typeof sourceBlueprint.script === 'string' ? sourceBlueprint.script.trim() : ''
+    if (scriptKey) {
+      const groups = buildScriptGroups(world?.blueprints?.items)
+      const main = getScriptGroupMain(groups, sourceBlueprint)
+      const mainName = typeof main?.name === 'string' && main.name.trim() ? main.name.trim() : main?.id
+      if (mainName) {
+        const { base: mainBase } = splitBlueprintId(mainName)
+        safeBase = normalizeVariantBase(world, prefix, mainBase || mainName)
+      }
+    }
+  }
   for (let n = 2; n < 10000; n += 1) {
     const candidateId = `${prefix}${safeBase}_${n}`
     if (!world.blueprints.get(candidateId)) {
@@ -61,6 +108,12 @@ const SCRIPT_BLUEPRINT_FIELDS = new Set([
   'scriptRef',
 ])
 
+const DEFAULT_MODULE_SCRIPT_ENTRY = 'index.js'
+const DEFAULT_MODULE_SCRIPT_SOURCE = `export default (world, app, fetch, props, setTimeout) => {
+
+}
+`
+
 function hasScriptFields(data) {
   if (!data || typeof data !== 'object') return false
   for (const field of SCRIPT_BLUEPRINT_FIELDS) {
@@ -69,6 +122,12 @@ function hasScriptFields(data) {
     return true
   }
   return false
+}
+
+function normalizeScope(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
 }
 
 /**
@@ -101,6 +160,10 @@ export class ClientBuilder extends System {
     this.file = null
   }
 
+  get isGizmoMode() {
+    return this.mode === 'translate' || this.mode === 'rotate' || this.mode === 'scale'
+  }
+
   async init({ viewport }) {
     this.viewport = viewport
     this.viewport.addEventListener('dragover', this.onDragOver)
@@ -116,7 +179,7 @@ export class ClientBuilder extends System {
     this.control.mouseLeft.onPress = () => {
       // pointer lock requires user-gesture in safari
       // so this can't be done during update cycle
-      if (!this.control.pointer.locked) {
+      if (!this.control.pointer.locked && (!this.isGizmoMode || !this.selected)) {
         this.control.pointer.lock()
         this.justPointerLocked = true
         return true // capture
@@ -180,9 +243,21 @@ export class ClientBuilder extends System {
       this.world.emit('toast', 'Deploy lock required.')
       return
     }
+    if (code === 'scope_unknown') {
+      this.world.emit('toast', 'Scope metadata missing for deploy operation.')
+      return
+    }
+    if (code === 'scope_mismatch' || code === 'multi_scope_not_supported') {
+      this.world.emit('toast', 'Scope metadata mismatch for deploy operation.')
+      return
+    }
     if (code === 'locked' || code === 'deploy_locked') {
       const owner = err?.lock?.owner
       this.world.emit('toast', owner ? `Deploy locked by ${owner}.` : 'Deploy locked by another session.')
+      return
+    }
+    if (code === 'ai_request_pending') {
+      this.world.emit('toast', 'AI request already in progress for this script.')
       return
     }
     if (code === 'admin_url_missing') {
@@ -265,6 +340,19 @@ export class ClientBuilder extends System {
 
   async forkTemplateFromBlueprint(sourceBlueprint, actionLabel = 'Template fork', mergedProps, overrides) {
     if (!this.ensureAdminReady(actionLabel)) return null
+    const sourceScope = normalizeScope(sourceBlueprint.scope)
+    const sourceId =
+      typeof sourceBlueprint?.id === 'string' && sourceBlueprint.id.trim() ? sourceBlueprint.id.trim() : null
+    const sourceInWorld = sourceId ? this.world.blueprints.get(sourceId) : null
+    const sourceScriptRef =
+      typeof sourceBlueprint.scriptRef === 'string' && sourceBlueprint.scriptRef.trim()
+        ? sourceBlueprint.scriptRef.trim()
+        : null
+    const scriptRootId = sourceScriptRef || (sourceInWorld ? sourceId : null)
+    const scriptRoot =
+      (scriptRootId && this.world.blueprints.get(scriptRootId)) || sourceInWorld || sourceBlueprint
+    const shouldUseScriptRef = !!(scriptRootId && this.world.blueprints.get(scriptRootId))
+    const sharedScript = typeof scriptRoot?.script === 'string' ? scriptRoot.script : sourceBlueprint.script
     const baseProps =
       sourceBlueprint.props &&
       typeof sourceBlueprint.props === 'object' &&
@@ -273,21 +361,58 @@ export class ClientBuilder extends System {
         : {}
     const props =
       mergedProps && typeof mergedProps === 'object' && !Array.isArray(mergedProps) ? mergedProps : baseProps
-    const nextBlueprint = getNextBlueprintVariant(this.world, sourceBlueprint.id)
+    let nextId, nextName
+    if (overrides?.skipNamePrompt) {
+      const nextBlueprint = getNextBlueprintVariant(this.world, sourceBlueprint)
+      nextId = nextBlueprint.id
+      nextName = nextBlueprint.name
+    } else {
+      const placeholderName = sourceBlueprint.name || sourceBlueprint.id || 'my_blueprint'
+      const prompted = await this.world.ui.prompt({
+        title: 'Name this blueprint',
+        placeholder: placeholderName,
+        defaultValue: placeholderName,
+        validate: v => {
+          const candidateId = v.replace(/\s+/g, '_').toLowerCase()
+          if (this.world.blueprints.get(candidateId)) return 'A blueprint with that name already exists'
+          return null
+        },
+      })
+      if (!prompted) return null
+      const { prefix } = splitBlueprintId(typeof sourceBlueprint === 'string' ? sourceBlueprint : sourceBlueprint?.id)
+      const sanitized = prompted.replace(/[^a-zA-Z0-9_\- ]/g, '').trim()
+      const baseId = sanitized.replace(/\s+/g, '_').toLowerCase()
+      let candidateId = `${prefix}${baseId}`
+      if (this.world.blueprints.get(candidateId)) {
+        for (let n = 2; n < 10000; n++) {
+          const attempt = `${prefix}${baseId}_${n}`
+          if (!this.world.blueprints.get(attempt)) {
+            candidateId = attempt
+            break
+          }
+        }
+      }
+      nextId = candidateId
+      nextName = sanitized
+    }
     const blueprint = {
-      id: nextBlueprint.id,
+      id: nextId,
       version: 0,
-      name: nextBlueprint.name,
+      name: nextName,
       image: sourceBlueprint.image,
       author: sourceBlueprint.author,
       url: sourceBlueprint.url,
       desc: sourceBlueprint.desc,
       model: sourceBlueprint.model,
-      script: sourceBlueprint.script,
-      scriptEntry: sourceBlueprint.scriptEntry,
-      scriptFiles: sourceBlueprint.scriptFiles ? cloneDeep(sourceBlueprint.scriptFiles) : sourceBlueprint.scriptFiles,
-      scriptFormat: sourceBlueprint.scriptFormat,
-      scriptRef: sourceBlueprint.scriptRef,
+      script: sharedScript,
+      scriptEntry: shouldUseScriptRef ? null : scriptRoot?.scriptEntry ?? null,
+      scriptFiles:
+        shouldUseScriptRef || !scriptRoot?.scriptFiles || Array.isArray(scriptRoot.scriptFiles)
+          ? null
+          : cloneDeep(scriptRoot.scriptFiles),
+      scriptFormat: shouldUseScriptRef ? null : scriptRoot?.scriptFormat ?? null,
+      scriptRef: shouldUseScriptRef ? scriptRootId : null,
+      scope: sourceScope,
       props: cloneDeep(props),
       preload: sourceBlueprint.preload,
       public: sourceBlueprint.public,
@@ -298,17 +423,31 @@ export class ClientBuilder extends System {
       disabled: sourceBlueprint.disabled,
     }
     if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
-      const { id: _id, version: _version, ...rest } = overrides
+      const { id: _id, version: _version, name: _name, skipNamePrompt: _skip, ...rest } = overrides
       Object.assign(blueprint, rest)
+    }
+    if (hasScriptFields(blueprint) && !normalizeScope(blueprint.scope)) {
+      blueprint.scope = blueprint.id
     }
     this.world.blueprints.add(blueprint)
     let lockToken
+    let lockScope = null
+    let releaseLock = false
     try {
       if (hasScriptFields(blueprint)) {
-        const scope =
-          typeof blueprint.scriptRef === 'string' && blueprint.scriptRef.trim() ? blueprint.scriptRef.trim() : blueprint.id
-        const result = await this.world.admin.acquireDeployLock({ owner: this.world.network.id, scope })
-        lockToken = result?.token || this.world.admin.deployLockToken
+        lockScope = normalizeScope(blueprint.scope)
+        if (!lockScope) {
+          throw new Error('scope_unknown')
+        }
+        const admin = this.world.admin
+        const currentScope = admin?.deployLockScope || 'global'
+        if (admin?.deployLockToken && (currentScope === 'global' || currentScope === lockScope)) {
+          lockToken = admin.deployLockToken
+        } else {
+          const result = await admin.acquireDeployLock({ owner: this.world.network.id, scope: lockScope })
+          lockToken = result?.token || admin.deployLockToken
+          releaseLock = !!lockToken
+        }
       }
       await this.world.admin.blueprintAdd(blueprint, {
         ignoreNetworkId: this.world.network.id,
@@ -320,6 +459,14 @@ export class ClientBuilder extends System {
       this.world.blueprints.remove(blueprint.id)
       this.handleAdminError(err, `${actionLabel} failed.`)
       return null
+    } finally {
+      if (releaseLock && lockToken && this.world.admin?.releaseDeployLock) {
+        try {
+          await this.world.admin.releaseDeployLock(lockToken, lockScope)
+        } catch (releaseErr) {
+          console.error('failed to release deploy lock', releaseErr)
+        }
+      }
     }
   }
 
@@ -334,6 +481,10 @@ export class ClientBuilder extends System {
     // deselect if dead
     if (this.selected?.destroyed) {
       this.select(null)
+    }
+    // clear UI app if destroyed externally
+    if (this.world.ui.state.app?.destroyed) {
+      this.world.ui.setApp(null)
     }
     // deselect if stolen
     if (this.selected && this.selected?.data.mover !== this.world.network.id) {
@@ -401,7 +552,7 @@ export class ClientBuilder extends System {
     // inspect in pointer-lock
     if (this.beam.active && this.control.mouseRight.pressed) {
       const entity = this.getEntityAtBeam()
-      if (entity?.isApp) {
+      if (entity?.isApp && !entity.blueprint.scene) {
         this.select(null)
         this.control.pointer.unlock()
         this.world.ui.setApp(entity)
@@ -413,9 +564,9 @@ export class ClientBuilder extends System {
       }
     }
     // inspect out of pointer-lock
-    else if (!this.selected && !this.beam.active && this.control.mouseRight.pressed) {
+    else if (!this.beam.active && this.control.mouseRight.pressed) {
       const entity = this.getEntityAtCursor()
-      if (entity?.isApp) {
+      if (entity?.isApp && !entity.blueprint.scene) {
         this.select(null)
         this.control.pointer.unlock()
         this.world.ui.setApp(entity)
@@ -427,8 +578,8 @@ export class ClientBuilder extends System {
       }
     }
     // fork template from instance
-    if (this.control.keyU.pressed && this.beam.active) {
-      const entity = this.selected || this.getEntityAtBeam()
+    if (this.control.keyU.pressed && (this.beam.active || this.isGizmoMode)) {
+      const entity = this.selected || (this.beam.active ? this.getEntityAtBeam() : this.getEntityAtCursor())
       if (entity?.isApp && !entity.blueprint.scene) {
         void (async () => {
           const blueprint = await this.forkTemplateFromEntity(entity, 'Template fork')
@@ -446,8 +597,8 @@ export class ClientBuilder extends System {
       }
     }
     // pin/unpin
-    if (this.control.keyP.pressed && this.beam.active) {
-      const entity = this.selected || this.getEntityAtBeam()
+    if (this.control.keyP.pressed && (this.beam.active || this.isGizmoMode)) {
+      const entity = this.selected || (this.beam.active ? this.getEntityAtBeam() : this.getEntityAtCursor())
       if (entity?.isApp) {
         entity.data.pinned = !entity.data.pinned
         this.world.admin.entityModify(
@@ -512,8 +663,22 @@ export class ClientBuilder extends System {
         else this.select(null)
       }
     }
-    // deselect on pointer unlock
-    if (this.selected && !this.beam.active) {
+    // cursor-based selection in gizmo mode (pointer unlocked)
+    if (
+      this.isGizmoMode &&
+      !this.beam.active &&
+      this.control.mouseLeft.pressed &&
+      !this.gizmoActive
+    ) {
+      const entity = this.getEntityAtCursor()
+      if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
+        this.select(entity)
+      } else if (this.selected) {
+        this.select(null)
+      }
+    }
+    // deselect on pointer unlock (but not in gizmo mode where pointer is intentionally unlocked)
+    if (this.selected && !this.beam.active && !this.isGizmoMode) {
       this.select(null)
     }
     // duplicate
@@ -523,7 +688,7 @@ export class ClientBuilder extends System {
       duplicate = true
     } else if (
       !this.justPointerLocked &&
-      this.beam.active &&
+      (this.beam.active || this.isGizmoMode) &&
       this.control.keyR.pressed &&
       !this.control.metaLeft.down &&
       !this.control.controlLeft.down
@@ -531,7 +696,7 @@ export class ClientBuilder extends System {
       duplicate = true
     }
     if (duplicate) {
-      const entity = this.selected || this.getEntityAtBeam()
+      const entity = this.selected || (this.beam.active ? this.getEntityAtBeam() : this.getEntityAtCursor())
       if (entity?.isApp && !entity.blueprint.scene) {
         if (entity.blueprint.unique) {
           void (async () => {
@@ -597,11 +762,21 @@ export class ClientBuilder extends System {
     if (destroy) {
       const entity = this.selected || this.getEntityAtBeam()
       if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
+        // Reset keep so blueprint returns to trash tab
+        const bp = this.world.blueprints.items.get(entity.data.blueprint)
+        if (bp?.keep) {
+          const version = bp.version + 1
+          this.world.blueprints.modify({ id: bp.id, version, keep: false })
+          this.world.admin.blueprintModify({ id: bp.id, version, keep: false }, { ignoreNetworkId: this.world.network.id })
+        }
         // Destroy first to avoid any rebuilds triggered by deselection
         this.addUndo({
           name: 'add-entity',
           data: cloneDeep(entity.data),
         })
+        if (this.world.ui.state.app === entity) {
+          this.world.ui.setApp(null)
+        }
         entity?.destroy(true)
         // Then clear selection without sending mover updates/rebuilds
         this.select(null)
@@ -827,11 +1002,13 @@ export class ClientBuilder extends System {
         this.target.quaternion.copy(app.root.quaternion)
         this.target.scale.copy(app.root.scale)
         this.target.limit = PROJECT_MAX
+        this.control.pointer.lock()
       }
     }
-    if (this.mode === 'translate' || this.mode === 'rotate' || this.mode === 'scale') {
+    if (this.isGizmoMode) {
       if (this.selected) {
         this.attachGizmo(this.selected, this.mode)
+        this.control.pointer.unlock()
       }
     }
     this.updateActions()
@@ -868,8 +1045,9 @@ export class ClientBuilder extends System {
         this.control.keyC.capture = false
         this.control.scrollDelta.capture = false
       }
-      if (this.mode === 'translate' || this.mode === 'rotate' || this.mode === 'scale') {
+      if (this.isGizmoMode) {
         this.detachGizmo()
+        this.control.pointer.lock()
       }
     }
     // select new (if any)
@@ -898,8 +1076,9 @@ export class ClientBuilder extends System {
         this.target.scale.copy(app.root.scale)
         this.target.limit = PROJECT_MAX
       }
-      if (this.mode === 'translate' || this.mode === 'rotate' || this.mode === 'scale') {
+      if (this.isGizmoMode) {
         this.attachGizmo(app, this.mode)
+        this.control.pointer.unlock()
       }
     }
     // update actions
@@ -1245,7 +1424,7 @@ export class ClientBuilder extends System {
   }
 
   async addApp(file, transform) {
-    if (!this.ensureAdminReady('Import')) return
+    if (typeof this.ensureAdminReady === 'function' && !this.ensureAdminReady('Import')) return
     let lockToken = null
     let blueprint = null
     let app = null
@@ -1293,6 +1472,7 @@ export class ClientBuilder extends System {
         const change = {
           id: scene.id,
           version: scene.version + 1,
+          scope: normalizeScope(scene?.scope) || '$scene',
           name: info.blueprint.name,
           image: info.blueprint.image,
           author: info.blueprint.author,
@@ -1316,7 +1496,7 @@ export class ClientBuilder extends System {
         if (hasScriptFields(change)) {
           const result = await this.world.admin.acquireDeployLock({
             owner: this.world.network.id,
-            scope: '$scene',
+            scope: change.scope,
           })
           lockToken = result?.token || this.world.admin.deployLockToken
         }
@@ -1337,6 +1517,7 @@ export class ClientBuilder extends System {
       blueprint = {
         id: uuid(),
         version: 0,
+        scope: normalizeScope(info.blueprint.scope),
         name: info.blueprint.name,
         image: info.blueprint.image,
         author: info.blueprint.author,
@@ -1358,9 +1539,12 @@ export class ClientBuilder extends System {
         disabled: info.blueprint.disabled,
       }
       if (hasScriptFields(blueprint)) {
+        if (!normalizeScope(blueprint.scope)) {
+          blueprint.scope = blueprint.id
+        }
         const result = await this.world.admin.acquireDeployLock({
           owner: this.world.network.id,
-          scope: blueprint.id,
+          scope: blueprint.scope,
         })
         lockToken = result?.token || this.world.admin.deployLockToken
       }
@@ -1423,34 +1607,17 @@ export class ClientBuilder extends System {
     const url = `asset://${filename}`
     // cache file locally so this client can insta-load it
     this.world.loader.insert('model', url, file)
-    // make blueprint
-    const blueprint = {
-      id: uuid(),
-      version: 0,
-      name: file.name.split('.')[0],
-      image: null,
-      author: null,
-      url: null,
-      desc: null,
-      model: url,
-      props: {},
-      preload: false,
-      public: false,
-      locked: false,
+    // fork from the builtin Model template
+    const modelTemplate = BUILTIN_APP_TEMPLATES.find(t => t.name === 'Model')
+    const defaultName = file.name.replace(/\.glb$/i, '')
+    const blueprint = await this.forkTemplateFromBlueprint({ ...modelTemplate, name: defaultName }, 'Build', null, {
       unique: false,
-      scene: false,
-      disabled: false,
-    }
+      model: url,
+    })
+    if (!blueprint) return
     let app = null
     try {
-      // register blueprint
-      this.world.blueprints.add(blueprint)
-      await this.world.admin.blueprintAdd(blueprint, {
-        ignoreNetworkId: this.world.network.id,
-        request: true,
-      })
-      // spawn the app moving
-      // - mover: follows this clients cursor until placed
+      // spawn the app
       // - uploader: other clients see a loading indicator until its fully uploaded
       const data = {
         id: uuid(),
@@ -1467,7 +1634,7 @@ export class ClientBuilder extends System {
       }
       app = this.world.entities.add(data)
       await this.world.admin.entityAdd(data, { ignoreNetworkId: this.world.network.id, request: true })
-      // upload the glb
+      // upload the model
       await this.world.admin.upload(file)
       // mark as uploaded so other clients can load it in
       app.onUploaded()
@@ -1475,12 +1642,10 @@ export class ClientBuilder extends System {
       if (app) {
         app.destroy(true)
       }
-      if (blueprint) {
-        this.world.blueprints.remove(blueprint.id)
-        this.world.admin
-          ?.blueprintRemove?.(blueprint.id)
-          .catch(removeErr => console.error('failed to remove blueprint', removeErr))
-      }
+      this.world.blueprints.remove(blueprint.id)
+      this.world.admin
+        ?.blueprintRemove?.(blueprint.id)
+        .catch(removeErr => console.error('failed to remove blueprint', removeErr))
       this.handleAdminError(err, 'Import failed')
     }
   }
@@ -1595,12 +1760,12 @@ export class ClientBuilder extends System {
   }
 
   getSpawnTransform(atReticle) {
+    this.world.camera.updateMatrixWorld()
     const hit = atReticle
       ? this.world.stage.raycastReticle()[0]
       : this.world.stage.raycastPointer(this.control.pointer.position)[0]
-    const position = hit ? hit.point.toArray() : [0, 0, 0]
-    let quaternion
     if (hit) {
+      const position = hit.point.toArray()
       e1.copy(this.world.rig.rotation).reorder('YXZ')
       e1.x = 0
       e1.z = 0
@@ -1608,11 +1773,15 @@ export class ClientBuilder extends System {
       const snappedDegrees = Math.round(degrees / SNAP_DEGREES) * SNAP_DEGREES
       e1.y = snappedDegrees * DEG2RAD
       q1.setFromEuler(e1)
-      quaternion = q1.toArray()
-    } else {
-      quaternion = [0, 0, 0, 1]
+      return { position, quaternion: q1.toArray() }
     }
-    return { position, quaternion }
+    // No hit — spawn in front of camera
+    const worldPos = v2
+    const worldQuat = q1
+    this.world.camera.getWorldPosition(worldPos)
+    this.world.camera.getWorldQuaternion(worldQuat)
+    v1.set(0, 0, -5).applyQuaternion(worldQuat).add(worldPos)
+    return { position: v1.toArray(), quaternion: [0, 0, 0, 1] }
   }
 
   destroy() {
