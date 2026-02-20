@@ -1,5 +1,6 @@
 import { getRef } from '../nodes/Node'
 import { clamp, uuid } from '../utils'
+import { syncLobbyProfilePatch } from '../profileSync'
 import * as THREE from './three'
 
 const HEALTH_MAX = 100
@@ -72,11 +73,16 @@ export function createPlayerProxy(entity, player) {
     getBoneTransform(boneName) {
       return player.avatar?.getBoneTransform?.(boneName)
     },
-    setAvatar(url) {
+    async setAvatar(url) {
       const avatar = url || null
       if (world.network.isServer) {
         world.network.applyEntityModified({ id: player.data.id, avatar, sessionAvatar: null })
       } else if (player.data.owner === world.network.id) {
+        const result = await syncLobbyProfilePatch({ avatar })
+        if (!result.ok) {
+          world.emit('toast', result.error?.message || 'Unable to update profile')
+          return
+        }
         player.modify({ avatar, sessionAvatar: null })
         world.network.send('playerAvatar', { avatar })
       } else {

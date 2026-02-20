@@ -6,6 +6,7 @@ import moment from 'moment'
 import { AvatarPane } from './AvatarPane'
 import { useElemSize } from './useElemSize'
 import { cls, isTouch } from '../utils'
+import { theme } from './theme'
 import { uuid } from '../../core/utils'
 import { ControlPriorities } from '../../core/extras/ControlPriorities'
 // import { AppsPane } from './AppsPane'
@@ -84,6 +85,7 @@ export function CoreUI({ world, connectionStatus }) {
       world.prefs.off('change', onChange)
     }
   }, [])
+
   return (
     <div
       ref={ref}
@@ -724,7 +726,10 @@ function LoadingOverlay({ world, connectionStatus }) {
   const [wsStatus, setWsStatus] = useState(null)
   const { title, desc, image } = world.settings
   const activeStatus = wsStatus || connectionStatus
-  const isWaiting = activeStatus?.status === 'waiting' || activeStatus?.status === 'retrying'
+  const isWaiting =
+    activeStatus?.status === 'waiting' ||
+    activeStatus?.status === 'retrying' ||
+    activeStatus?.status === 'auth'
   const isError = activeStatus?.status === 'error'
   const statusMessage = activeStatus?.message
   useEffect(() => {
@@ -854,6 +859,8 @@ function LoadingOverlay({ world, connectionStatus }) {
 const kickMessages = {
   duplicate_user: 'Player already active on another device or window.',
   player_limit: 'Player limit reached.',
+  wallet_changed: 'Wallet changed. You have been signed out.',
+  wallet_disconnected: 'Wallet disconnected. You have been signed out.',
   unknown: 'You were kicked.',
 }
 function KickedOverlay({ code }) {

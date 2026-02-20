@@ -1735,6 +1735,9 @@ export function ScriptFilesEditor({ world, scriptRoot, onHandle, aiLocked = fals
       } else if (code === 'locked' || code === 'deploy_locked' || code === 'deploy_lock_required') {
         const owner = err?.lock?.owner
         setError(owner ? `Deploy locked by ${owner}.` : 'Deploy locked by another session.')
+      } else if (code === 'upload_too_large') {
+        const max = Number.parseInt(String(err?.maxUploadSize ?? ''), 10)
+        setError(Number.isFinite(max) && max > 0 ? `Upload exceeds ${max} MB limit.` : 'Upload is too large.')
       } else if (code === 'upload_failed') {
         setError('Upload failed.')
       } else {
@@ -1940,6 +1943,9 @@ export function ScriptFilesEditor({ world, scriptRoot, onHandle, aiLocked = fals
         } else if (code === 'locked' || code === 'deploy_locked' || code === 'deploy_lock_required') {
           const owner = err?.lock?.owner
           setError(owner ? `Deploy locked by ${owner}.` : 'Deploy locked by another session.')
+        } else if (code === 'upload_too_large') {
+          const max = Number.parseInt(String(err?.maxUploadSize ?? ''), 10)
+          setError(Number.isFinite(max) && max > 0 ? `Upload exceeds ${max} MB limit.` : 'Upload is too large.')
         } else if (code === 'upload_failed') {
           setError('Upload failed.')
         } else {

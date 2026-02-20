@@ -14,6 +14,7 @@ import { sortBy } from 'lodash-es'
 import * as THREE from '../../core/extras/three'
 import { Ranks } from '../../core/extras/ranks'
 import { storage } from '../../core/storage'
+import { syncLobbyProfilePatch } from '../../core/profileSync'
 
 const shadowOptions = [
   { label: 'None', value: 'none' },
@@ -49,9 +50,15 @@ export function MainMenu({ world, open, onClose }) {
   const [actions, setActions] = useState(world.prefs.actions)
   const [stats, setStats] = useState(world.prefs.stats)
   const [tab, setTab] = useState('settings')
-  const changeName = name => {
+  const changeName = async name => {
     if (!name) return setName(player.data.name)
+    const result = await syncLobbyProfilePatch({ name })
+    if (!result.ok) {
+      world.emit('toast', result.error?.message || 'Unable to update profile')
+      return setName(player.data.name)
+    }
     player.setName(name)
+    setName(name)
   }
   const dprOptions = useMemo(() => {
     const dpr = window.devicePixelRatio
