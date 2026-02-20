@@ -12,6 +12,7 @@ import { DEG2RAD, RAD2DEG } from '../extras/general'
 import { createNode } from '../extras/createNode'
 import { importApp } from '../extras/appTools'
 import { buildScriptGroups, getScriptGroupMain } from '../extras/blueprintGroups'
+import { syncLobbyProfilePatch } from '../profileSync'
 import { BUILTIN_APP_TEMPLATES } from '../../client/builtinApps'
 
 const FORWARD = new THREE.Vector3(0, 0, -1)
@@ -270,6 +271,16 @@ export class ClientBuilder extends System {
     }
     if (code === 'upload_failed') {
       this.world.emit('toast', 'Upload failed.')
+      return
+    }
+    if (code === 'upload_too_large') {
+      const max = Number.parseInt(String(err?.maxUploadSize ?? ''), 10)
+      this.world.emit('toast', Number.isFinite(max) && max > 0 ? `Upload exceeds ${max} MB limit.` : 'Upload is too large.')
+      return
+    }
+    if (code === 'player_limit_max') {
+      const max = Number.parseInt(String(err?.max ?? ''), 10)
+      this.world.emit('toast', Number.isFinite(max) && max > 0 ? `Player limit max is ${max}.` : 'Player limit exceeds world maximum.')
       return
     }
     if (fallbackMessage) {
@@ -1735,21 +1746,24 @@ export class ClientBuilder extends System {
         // prep new user data
         const player = this.world.entities.player
         const prevUrl = player.data.avatar
-        // update locally
-        player.modify({ avatar: url, sessionAvatar: null })
         // upload
         try {
           await this.world.admin.upload(file)
         } catch (err) {
           console.error(err)
-          // revert
-          player.modify({ avatar: prevUrl })
           this.handleAdminError(err, 'Avatar upload failed')
           return
         }
-        if (player.data.avatar !== url) {
-          return // player equipped a new vrm while this one was uploading >.>
+        if (player.data.avatar !== prevUrl) {
+          return // player avatar changed while this one was uploading
         }
+        const result = await syncLobbyProfilePatch({ avatar: url })
+        if (!result.ok) {
+          this.world.emit('toast', result.error?.message || 'Unable to update profile')
+          return
+        }
+        // update locally
+        player.modify({ avatar: url, sessionAvatar: null })
         // update for everyone
         this.world.network.send('entityModified', {
           id: player.data.id,

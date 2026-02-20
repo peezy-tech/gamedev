@@ -2,6 +2,7 @@ import 'ses'
 import '../core/lockdown'
 import './bootstrap'
 
+import crypto from 'crypto'
 import fs from 'fs-extra'
 import path from 'path'
 import Fastify from 'fastify'
@@ -19,14 +20,14 @@ import { cleaner } from './cleaner'
 import { admin } from './admin'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
-import { createWorldServiceInternalClient } from './worldServiceClient'
+import { getMaxUploadSizeBytes } from './worldLimits.js'
 import { createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
+import { Ranks } from '../core/extras/ranks'
 
 const rootDir = path.join(__dirname, '../')
 // Resolve world directory relative to the consumer project (cwd), not the package root
 const worldDir = path.resolve(process.cwd(), process.env.WORLD)
 const port = process.env.PORT
-const authConfig = resolveAuthRuntimeConfig(process.env)
 
 function formatUserName(name) {
   if (!name || name.startsWith('anon_')) return 'Anonymous'
@@ -91,6 +92,146 @@ function derivePublicWsUrlFromApiUrl(apiUrl) {
     .replace(/^https:/, 'wss:')
 }
 
+function hasValue(value) {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
+  if (!hasValue(worldId) || !hasValue(jwtSecret)) return null
+  return crypto
+    .createHmac('sha256', jwtSecret.trim())
+    .update(`runtime-internal:${worldId.trim()}`)
+    .digest('hex')
+}
+
+function normalizePublicUrl(value) {
+  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
+}
+
+function resolveLobbyInternalEndpoint(pathname) {
+  const authBaseUrl = process.env.PUBLIC_AUTH_URL?.trim()
+  if (!hasValue(authBaseUrl)) return null
+  try {
+    const url = new URL(authBaseUrl)
+    let basePath = url.pathname.replace(/\/+$/, '')
+    basePath = basePath.replace(/\/identity$/, '')
+    const suffix = pathname.startsWith('/') ? pathname : `/${pathname}`
+    url.pathname = `${basePath}${suffix}`
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function resolveLobbyInternalUserUrl(userId) {
+  if (!hasValue(userId)) return null
+  return resolveLobbyInternalEndpoint(`/internal/users/${encodeURIComponent(userId.trim())}`)
+}
+
+function resolveLobbyRuntimeBootstrapUrl() {
+  return resolveLobbyInternalEndpoint('/internal/runtime/bootstrap')
+}
+
+async function syncRuntimePublicConfigFromLobby() {
+  if (!hasValue(process.env.PUBLIC_AUTH_URL)) return
+
+  const endpoint = resolveLobbyRuntimeBootstrapUrl()
+  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
+  if (!endpoint || !apiKey) return
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 4000)
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      console.warn(`[startup] runtime bootstrap metadata request failed (${response.status})`)
+      return
+    }
+
+    const payload = await response.json().catch(() => null)
+    const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl || '')
+    const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl || '')
+    const authUrl = normalizePublicUrl(payload?.auth?.publicAuthUrl || '')
+    const privyAppId = typeof payload?.auth?.publicPrivyAppId === 'string' ? payload.auth.publicPrivyAppId.trim() : ''
+
+    const appliedKeys = []
+
+    if (runtimeApiUrl) {
+      process.env.PUBLIC_API_URL = runtimeApiUrl
+      appliedKeys.push('PUBLIC_API_URL')
+    }
+
+    const runtimeWsUrl = runtimeWsUrlRaw || (runtimeApiUrl ? derivePublicWsUrlFromApiUrl(runtimeApiUrl) || '' : '')
+    if (runtimeWsUrl && runtimeWsUrl.startsWith('ws')) {
+      process.env.PUBLIC_WS_URL = runtimeWsUrl
+      appliedKeys.push('PUBLIC_WS_URL')
+    }
+
+    if (authUrl) {
+      process.env.PUBLIC_AUTH_URL = authUrl
+      appliedKeys.push('PUBLIC_AUTH_URL')
+    }
+
+    if (privyAppId) {
+      process.env.PUBLIC_PRIVY_APP_ID = privyAppId
+      appliedKeys.push('PUBLIC_PRIVY_APP_ID')
+    }
+
+    if (appliedKeys.length) {
+      console.info(`[startup] runtime bootstrap metadata applied: ${appliedKeys.join(', ')}`)
+    }
+  } catch (err) {
+    const message = err?.name === 'AbortError' ? 'timeout' : err?.message || String(err)
+    console.warn(`[startup] runtime bootstrap metadata request failed (${message})`)
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+function mapLobbyRoleToRank(role) {
+  if (role === 'admin') return Ranks.ADMIN
+  if (role === 'builder') return Ranks.BUILDER
+  return Ranks.VISITOR
+}
+
+async function resolveLobbyRoleRank(userId) {
+  const endpoint = resolveLobbyInternalUserUrl(userId)
+  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
+  if (!endpoint || !apiKey) return Ranks.VISITOR
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 4000)
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+    })
+    if (!response.ok) return Ranks.VISITOR
+    const payload = await response.json().catch(() => null)
+    const role = typeof payload?.role === 'string' ? payload.role.trim() : ''
+    return mapLobbyRoleToRank(role)
+  } catch {
+    return Ranks.VISITOR
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 // check envs
 if (!process.env.WORLD) {
   throw new Error('[envs] WORLD not set')
@@ -104,11 +245,11 @@ if (!process.env.PORT) {
 if (!process.env.JWT_SECRET) {
   throw new Error('[envs] JWT_SECRET not set')
 }
-if (authConfig.isPlatformMode && !process.env.WORLD_SERVICE_API_KEY) {
-  throw new Error('[envs] WORLD_SERVICE_API_KEY must be set when AUTH_MODE=platform')
+if (hasValue(process.env.PUBLIC_AUTH_URL)) {
+  await syncRuntimePublicConfigFromLobby()
 }
-if (!process.env.ADMIN_CODE && !authConfig.isPlatformMode) {
-  console.warn('[envs] ADMIN_CODE not set - all users will have admin permissions!')
+if (!process.env.ADMIN_CODE) {
+  console.warn('[envs] ADMIN_CODE not set - admin privileges are open to all players')
 }
 if (!process.env.SAVE_INTERVAL) {
   throw new Error('[envs] SAVE_INTERVAL not set')
@@ -123,21 +264,12 @@ if (process.env.PUBLIC_WS_URL) {
   if (!process.env.PUBLIC_WS_URL.startsWith('ws')) {
     throw new Error('[envs] PUBLIC_WS_URL must start with ws:// or wss://')
   }
-} else if (authConfig.isStandaloneMode) {
+} else {
   const derivedPublicWsUrl = derivePublicWsUrlFromApiUrl(process.env.PUBLIC_API_URL)
   if (!derivedPublicWsUrl) {
     throw new Error('[envs] PUBLIC_WS_URL could not be derived from PUBLIC_API_URL')
   }
   process.env.PUBLIC_WS_URL = derivedPublicWsUrl
-}
-const worldServiceInternalUrl =
-  (typeof process.env.WORLD_SERVICE_INTERNAL_URL === 'string' && process.env.WORLD_SERVICE_INTERNAL_URL.trim()) ||
-  process.env.PUBLIC_API_URL
-if (authConfig.isPlatformMode && !worldServiceInternalUrl) {
-  throw new Error('[envs] WORLD_SERVICE_INTERNAL_URL could not be resolved')
-}
-if (!process.env.WORLD_SERVICE_INTERNAL_URL && worldServiceInternalUrl) {
-  process.env.WORLD_SERVICE_INTERNAL_URL = worldServiceInternalUrl
 }
 if (!process.env.ASSETS) {
   throw new Error(`[envs] ASSETS must be set to 'local' or 's3'`)
@@ -149,12 +281,7 @@ if (process.env.ASSETS === 's3' && !process.env.ASSETS_S3_URI) {
   throw new Error(`[envs] ASSETS_S3_URI must be set when using ASSETS=s3`)
 }
 
-const worldServiceClient = authConfig.isPlatformMode
-  ? createWorldServiceInternalClient({
-      baseUrl: worldServiceInternalUrl,
-      apiKey: process.env.WORLD_SERVICE_API_KEY,
-    })
-  : null
+const authConfig = resolveAuthRuntimeConfig(process.env)
 
 const tlsConfig =
   process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH
@@ -166,6 +293,11 @@ const tlsConfig =
 const directWssPort = process.env.DIRECT_WSS_PORT
 const useDualPort = !!(tlsConfig && directWssPort)
 const mainServerTls = tlsConfig && !directWssPort ? tlsConfig : undefined
+const multipartOptions = {
+  limits: {
+    fileSize: getMaxUploadSizeBytes(),
+  },
+}
 
 const fastify = Fastify({
   logger: { level: 'error' },
@@ -190,17 +322,102 @@ const storage = new Storage(path.join(worldDir, '/storage.json'))
 // create world
 const world = createServerWorld()
 await world.init({
-  assetsDir: assets.dir,
-  assetsUrl: assets.url,
-  db,
-  assets,
-  storage,
-  authConfig,
-  worldServiceClient,
-})
+    assetsDir: assets.dir,
+    assetsUrl: assets.url,
+    db,
+    assets,
+    storage,
+    authConfig,
+  })
 
 const registryState = createRegistryState()
 let clientHtmlTemplateCache = null
+const AGONES_IDLE_TIMEOUT_MS = 60 * 1000
+const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
+const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
+const AGONES_SDK_HTTP_PORT =
+  Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
+const agonesIdleControllerEnabled = hasValue(process.env.PUBLIC_AUTH_URL)
+const agonesShutdownUrl = `http://127.0.0.1:${AGONES_SDK_HTTP_PORT}/shutdown`
+const adminConnectionCounts = {
+  main: 0,
+  wss: 0,
+}
+let idleShutdownTimerId = null
+let idleShutdownRequested = false
+
+function getAdminConnectionCount() {
+  return adminConnectionCounts.main + adminConnectionCounts.wss
+}
+
+function getActiveSessionCount() {
+  return (world?.network?.sockets?.size || 0) + getAdminConnectionCount()
+}
+
+function formatErrorMessage(err) {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
+function clearIdleShutdownTimer(reason = 'active_session') {
+  if (!idleShutdownTimerId) return
+  clearTimeout(idleShutdownTimerId)
+  idleShutdownTimerId = null
+  console.info(`[agones-idle] cancelled idle shutdown (${reason})`)
+}
+
+function scheduleIdleShutdown(reason = 'idle') {
+  if (!agonesIdleControllerEnabled || idleShutdownRequested || idleShutdownTimerId) return
+  idleShutdownTimerId = setTimeout(() => {
+    idleShutdownTimerId = null
+    void requestAgonesShutdown('idle_timeout_elapsed')
+  }, AGONES_IDLE_TIMEOUT_MS)
+  console.info(`[agones-idle] scheduling shutdown in ${AGONES_IDLE_TIMEOUT_MS / 1000}s (${reason})`)
+}
+
+async function requestAgonesShutdown(reason = 'idle') {
+  if (!agonesIdleControllerEnabled || idleShutdownRequested) return
+  const activeSessions = getActiveSessionCount()
+  if (activeSessions > 0) {
+    return
+  }
+  try {
+    const response = await fetch(agonesShutdownUrl, { method: 'POST' })
+    if (!response.ok) {
+      throw new Error(`agones_sdk_status_${response.status}`)
+    }
+    idleShutdownRequested = true
+    console.info(`[agones-idle] requested Agones shutdown (${reason})`)
+  } catch (err) {
+    console.warn(`[agones-idle] failed to request Agones shutdown (${formatErrorMessage(err)})`)
+    scheduleIdleShutdown('retry_after_failed_shutdown')
+  }
+}
+
+function reconcileIdleShutdown(reason = 'state_change') {
+  if (!agonesIdleControllerEnabled || idleShutdownRequested) return
+  if (getActiveSessionCount() === 0) {
+    scheduleIdleShutdown(reason)
+  } else {
+    clearIdleShutdownTimer(reason)
+  }
+}
+
+function updateAdminConnectionCount(channel, count) {
+  const normalized = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+  if (adminConnectionCounts[channel] === normalized) return
+  adminConnectionCounts[channel] = normalized
+  reconcileIdleShutdown(`admin_${channel}`)
+}
+
+if (agonesIdleControllerEnabled) {
+  world.network.on('playerJoined', () => {
+    reconcileIdleShutdown('player_joined')
+  })
+  world.network.on('playerLeft', () => {
+    reconcileIdleShutdown('player_left')
+  })
+}
 
 function loadClientHtmlTemplate() {
   const candidates = [
@@ -275,15 +492,16 @@ if (world.assetsDir) {
     },
   })
 }
-fastify.register(multipart, {
-  limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB
-  },
-})
+fastify.register(multipart, multipartOptions)
 fastify.register(ws)
 fastify.register(worldNetwork)
 const adminHtmlPath = path.join(__dirname, 'public', 'admin.html')
-fastify.register(admin, { world, assets, adminHtmlPath })
+fastify.register(admin, {
+  world,
+  assets,
+  adminHtmlPath,
+  onConnectionCountChanged: count => updateAdminConnectionCount('main', count),
+})
 
 const publicEnvs = {}
 for (const key in process.env) {
@@ -291,9 +509,6 @@ for (const key in process.env) {
     const value = process.env[key]
     publicEnvs[key] = value
   }
-}
-if (!publicEnvs.PUBLIC_AUTH_MODE) {
-  publicEnvs.PUBLIC_AUTH_MODE = authConfig.authMode
 }
 const envsCode = `
   if (!globalThis.env) globalThis.env = {}
@@ -311,8 +526,8 @@ fastify.get('/api/upload-check', async (req, reply) => {
   return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload-check' })
 })
 
-fastify.post('/api/auth/exchange', async (req, reply) => {
-  if (!authConfig.isStandaloneMode || !authConfig.usesLobbyIdentity) {
+async function handleAuthExchange(req, reply) {
+  if (!authConfig.usesLobbyIdentity) {
     return reply.code(404).send({ error: 'not_found' })
   }
 
@@ -321,30 +536,47 @@ fastify.post('/api/auth/exchange', async (req, reply) => {
     return reply.code(400).send({ error: 'invalid_payload', message: 'token is required' })
   }
 
-  const claims = await verifyIdentityExchangeTokenWithLobby(identityToken)
+  const verification = await verifyIdentityExchangeTokenWithLobby(identityToken)
+  if (!verification?.ok) {
+    if (verification?.reason === 'unreachable') {
+      return reply.code(503).send({ error: 'identity_verifier_unreachable' })
+    }
+    return reply.code(401).send({ error: 'invalid_exchange_token' })
+  }
+
+  const claims = verification.claims
   const userId = typeof claims?.userId === 'string' ? claims.userId.trim() : ''
   if (!userId) {
     return reply.code(401).send({ error: 'invalid_exchange_token' })
   }
+  const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
+  const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
+  const rank = await resolveLobbyRoleRank(userId)
 
   await db('users')
     .insert({
       id: userId,
-      name: 'Anonymous',
-      avatar: null,
-      rank: 0,
+      name: claimName,
+      avatar,
+      rank,
       createdAt: new Date().toISOString(),
     })
     .onConflict('id')
-    .ignore()
+    .merge({
+      name: claimName,
+      avatar,
+      rank,
+    })
 
   const runtimeToken = await createJWT({ userId, worldId: process.env.WORLD_ID })
   return reply.code(200).send({
     token: runtimeToken,
     token_type: 'runtime_session',
-    user: { id: userId },
+    user: { id: userId, name: claimName, avatar },
   })
-})
+}
+
+fastify.post('/api/auth/exchange', handleAuthExchange)
 
 fastify.get('/health', async (request, reply) => {
   try {
@@ -466,9 +698,16 @@ if (useDualPort) {
       updatedAt: new Date().toISOString(),
     })
   })
+  wssServer.post('/api/auth/exchange', handleAuthExchange)
+  wssServer.register(multipart, multipartOptions)
   wssServer.register(ws)
   const adminHtmlPathDirect = path.join(__dirname, 'public', 'admin.html')
-  wssServer.register(admin, { world, assets, adminHtmlPath: adminHtmlPathDirect })
+  wssServer.register(admin, {
+    world,
+    assets,
+    adminHtmlPath: adminHtmlPathDirect,
+    onConnectionCountChanged: count => updateAdminConnectionCount('wss', count),
+  })
   wssServer.register(async function wssWorldNetwork(app) {
     app.get('/ws', { websocket: true }, (wsConn, req) => {
       world.network.onConnection(wsConn, req.query, req)
@@ -489,6 +728,11 @@ if (useDualPort) {
   }
 }
 
+if (agonesIdleControllerEnabled) {
+  console.info(`[agones-idle] enabled with timeout=${AGONES_IDLE_TIMEOUT_MS / 1000}s`)
+  reconcileIdleShutdown('startup')
+}
+
 void registerWithRegistry(registryState, {
   worldId: world?.network?.worldId || null,
   commitHash: process.env.COMMIT_HASH || null,
@@ -502,6 +746,7 @@ async function worldNetwork(fastify) {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
+  clearIdleShutdownTimer('sigint')
   await world.network.save()
   await fastify.close()
   if (wssServer) await wssServer.close()
@@ -509,6 +754,7 @@ process.on('SIGINT', async () => {
 })
 
 process.on('SIGTERM', async () => {
+  clearIdleShutdownTimer('sigterm')
   await world.network.save()
   await fastify.close()
   if (wssServer) await wssServer.close()

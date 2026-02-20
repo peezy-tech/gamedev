@@ -8,7 +8,9 @@ App-server is the dev server that syncs local files to a world via `/admin`. It 
 
 - Run a world server with `/admin` enabled.
 - Set these env vars for the app-server process (via `.env` or `.lobby/targets.json`):
-  - `WORLD_URL` (e.g. `http://localhost:3000`)
+  - `WORLD_URL`:
+    - direct runtime: `http://localhost:3000`
+    - platform slug proxy: `https://<host>/worlds/<slug>`
   - `WORLD_ID` (must match the target worldId)
   - `ADMIN_CODE` (must match the world server, if set)
 
@@ -42,7 +44,7 @@ Define targets in `.lobby/targets.json` and pass `--target <name>` to the CLI or
 ```json
 {
   "dev": {
-    "worldUrl": "http://localhost:3000",
+    "worldUrl": "https://dev.lobby.ws/worlds/my-world",
     "worldId": "dev-world",
     "adminCode": "secret",
   },
@@ -104,6 +106,7 @@ What’s watched by the server
 Tips
 - On `version_mismatch`, app-server fast-forwards and reapplies local changes, overwriting world state.
 - Downloaded assets live in the shared `assets/` folder and are referenced from blueprint JSON.
+- `WORLD_URL` should point to the world base URL (not `/admin`). If `/admin` is included, app-server normalizes it automatically.
 
 ---
 

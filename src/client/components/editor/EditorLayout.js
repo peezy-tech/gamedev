@@ -2,11 +2,13 @@ import { css } from '@firebolt-dev/css'
 import { useContext, useEffect, useState } from 'react'
 import { editorTheme as theme } from './editorTheme'
 import { EditorToolbar } from './EditorToolbar'
+import { EditorUserMenu } from './EditorUserMenu'
 import { LeftPanel } from './LeftPanel'
 import { RightPanel } from './RightPanel'
 import { BottomPanel } from './BottomPanel'
 import { HintContext, HintProvider } from '../Hint'
 import { useRank } from '../useRank'
+import { useWalletAuth } from '../useWalletAuth'
 
 export function EditorLayout({ world, ui, children }) {
   const [ready, setReady] = useState(false)
@@ -14,6 +16,8 @@ export function EditorLayout({ world, ui, children }) {
   const { isBuilder } = useRank(world, player)
   const [open, setOpen] = useState(true)
   const [buildMode, setBuildMode] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const { walletAuth, connectWallet, disconnectWallet } = useWalletAuth(world)
   const hasApp = !!ui.app
 
   useEffect(() => {
@@ -45,9 +49,23 @@ export function EditorLayout({ world, ui, children }) {
     if (ui.app && !open) setOpen(true)
   }, [ui.app])
 
+  useEffect(() => {
+    if (!walletAuth.connected && userMenuOpen) {
+      setUserMenuOpen(false)
+    }
+  }, [walletAuth.connected, userMenuOpen])
+
   const showEditor = ready && isBuilder && open && buildMode
   const showRight = showEditor && hasApp
   const showBottom = showEditor && hasApp
+  const onUserClick = () => {
+    if (walletAuth.pending) return
+    if (walletAuth.connected) {
+      setUserMenuOpen(true)
+      return
+    }
+    void connectWallet()
+  }
 
   return (
     <HintProvider>
@@ -93,8 +111,16 @@ export function EditorLayout({ world, ui, children }) {
                 world={world}
                 open={open}
                 onToggle={() => setOpen(!open)}
-                isBuilder={isBuilder}
                 buildMode={buildMode}
+                auth={walletAuth}
+                onUserClick={onUserClick}
+              />
+            )}
+            {ready && (
+              <EditorUserMenu
+                open={userMenuOpen}
+                onClose={() => setUserMenuOpen(false)}
+                onDisconnectWallet={disconnectWallet}
               />
             )}
           </div>

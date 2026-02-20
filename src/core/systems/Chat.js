@@ -1,5 +1,6 @@
 import moment from 'moment'
 import { uuid } from '../utils'
+import { syncLobbyProfilePatch } from '../profileSync'
 import { System } from './System'
 
 /**
@@ -59,6 +60,10 @@ export class Chat extends System {
     if (callback) {
       return callback({ playerId, cmd, value, args })
     }
+    if (cmd === 'name') {
+      void this.handleNameCommand(value)
+      return
+    }
     if (cmd === 'admin' && value) {
       this.world.admin?.setCode?.(value)
     }
@@ -111,6 +116,30 @@ export class Chat extends System {
       this.world.events.emit('command', { playerId, cmd, value, args })
     }
     this.world.network.send('command', { cmd, value, args })
+  }
+
+  async handleNameCommand(value) {
+    const name = typeof value === 'string' ? value.trim() : ''
+    if (!name) {
+      this.add(
+        {
+          id: uuid(),
+          from: null,
+          fromId: null,
+          body: 'Usage: /name <display-name>',
+          createdAt: moment().toISOString(),
+        },
+        false
+      )
+      return
+    }
+
+    const result = await syncLobbyProfilePatch({ name })
+    if (!result.ok) {
+      this.world.emit('toast', result.error?.message || 'Unable to update profile')
+      return
+    }
+    this.world.entities.player?.setName(name)
   }
 
   clear(broadcast) {

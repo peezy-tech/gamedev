@@ -79,6 +79,21 @@ export function normalizeBaseUrl(url) {
   return url.replace(/\/+$/, '')
 }
 
+export function normalizeWorldAdminBaseUrl(url) {
+  const base = normalizeBaseUrl(url)
+  if (!base) return ''
+
+  try {
+    const parsed = new URL(base)
+    parsed.search = ''
+    parsed.hash = ''
+    parsed.pathname = parsed.pathname.replace(/\/admin\/?$/, '') || '/'
+    return normalizeBaseUrl(parsed.toString())
+  } catch {
+    return base.replace(/\/admin\/?$/, '')
+  }
+}
+
 export function toWsUrl(httpUrl) {
   const url = normalizeBaseUrl(httpUrl)
   if (url.startsWith('ws://') || url.startsWith('wss://')) return url

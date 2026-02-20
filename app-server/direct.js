@@ -27,7 +27,7 @@ import {
   DEFAULT_SYNC_POLICY,
   sha256,
   sleep,
-  normalizeBaseUrl,
+  normalizeWorldAdminBaseUrl,
   toWsUrl,
   joinUrl,
   normalizePacketData,
@@ -94,7 +94,7 @@ import { uuid } from './utils.js'
 export class DirectAppServer {
   constructor({ worldUrl, adminCode, rootDir = process.cwd() }) {
     this.rootDir = rootDir
-    this.worldUrl = normalizeBaseUrl(worldUrl)
+    this.worldUrl = normalizeWorldAdminBaseUrl(worldUrl)
     this.adminCode = adminCode || null
     this.lobbyDir = path.join(this.rootDir, '.lobby')
     this.appsDir = path.join(this.rootDir, 'apps')

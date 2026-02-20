@@ -12,9 +12,61 @@ const voiceChatOptions = [
   { label: 'Global', value: 'global' },
 ]
 
+function parsePositiveInt(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function getWorldPlayerLimitCap() {
+  const fromProcess = parsePositiveInt(globalThis?.process?.env?.PUBLIC_WORLD_MAX_PLAYERS)
+  if (fromProcess > 0) return fromProcess
+  return parsePositiveInt(globalThis?.env?.PUBLIC_WORLD_MAX_PLAYERS)
+}
+
+function normalizeCredentialValue(value) {
+  if (typeof value !== 'string') return ''
+  return value.trim()
+}
+
+function resolveWorldUrl() {
+  const href = typeof globalThis?.location?.href === 'string' ? globalThis.location.href : ''
+  if (!href) return ''
+  try {
+    const url = new URL(href)
+    let path = url.pathname.replace(/\/admin\/?$/, '') || '/'
+    if (path !== '/') path = path.replace(/\/$/, '')
+    return path === '/' ? url.origin : `${url.origin}${path}`
+  } catch {
+    return ''
+  }
+}
+
+function buildCredentialsEnvBlock({ worldId, adminCode, worldUrl }) {
+  return `WORLD_ID=${normalizeCredentialValue(worldId)}
+ADMIN_CODE=${normalizeCredentialValue(adminCode)}
+WORLD_URL=${normalizeCredentialValue(worldUrl)}`
+}
+
+function formatCredentialError(code) {
+  if (code === 'admin_required') return 'Deploy access is required to view runtime credentials.'
+  if (code === 'admin_url_missing') return 'Admin endpoint is unavailable for this world.'
+  if (code === 'admin_code_missing') return 'Enter an admin code before requesting runtime credentials.'
+  if (code === 'clipboard_unavailable') return 'Clipboard access is unavailable in this browser context.'
+  if (code === 'timeout') return 'Timed out requesting runtime credentials.'
+  return 'Failed to load runtime credentials.'
+}
+
+async function copyToClipboard(value) {
+  if (value === null || value === undefined || !navigator?.clipboard?.writeText) return false
+  await navigator.clipboard.writeText(String(value))
+  return true
+}
+
 export function World({ world, hidden }) {
   const player = world.entities.player
   const { isAdmin } = useRank(world, player)
+  const worldPlayerLimitCap = getWorldPlayerLimitCap()
+  const hasPlayerLimitCap = worldPlayerLimitCap > 0
   const [title, setTitle] = useState(world.settings.title)
   const [desc, setDesc] = useState(world.settings.desc)
   const [image, setImage] = useState(world.settings.image)
@@ -24,6 +76,11 @@ export function World({ world, hidden }) {
   const [playerLimit, setPlayerLimit] = useState(world.settings.playerLimit)
   const [ao, setAO] = useState(world.settings.ao)
   const [rank, setRank] = useState(world.settings.rank)
+  const [runtimeCredentials, setRuntimeCredentials] = useState(null)
+  const [credentialsLoading, setCredentialsLoading] = useState(false)
+  const [credentialsError, setCredentialsError] = useState(null)
+  const [copiedCredentials, setCopiedCredentials] = useState(false)
+
   useEffect(() => {
     const onChange = changes => {
       if (changes.title) setTitle(changes.title.value)
@@ -41,6 +98,87 @@ export function World({ world, hidden }) {
       world.settings.off('change', onChange)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isAdmin || !world.admin?.getRuntimeCredentials) {
+      setRuntimeCredentials(null)
+      setCredentialsLoading(false)
+      setCredentialsError(null)
+      return
+    }
+    let active = true
+    setCredentialsLoading(true)
+    setCredentialsError(null)
+    world.admin
+      .getRuntimeCredentials()
+      .then(credentials => {
+        if (!active) return
+        setRuntimeCredentials(credentials)
+      })
+      .catch(err => {
+        if (!active) return
+        setRuntimeCredentials(null)
+        setCredentialsError(err?.code || 'request_failed')
+      })
+      .finally(() => {
+        if (!active) return
+        setCredentialsLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [isAdmin, world])
+
+  useEffect(() => {
+    if (!copiedCredentials) return
+    const timer = setTimeout(() => setCopiedCredentials(false), 1250)
+    return () => clearTimeout(timer)
+  }, [copiedCredentials])
+
+  const loadRuntimeCredentials = async ({ forceRefresh = false } = {}) => {
+    if (!world.admin?.getRuntimeCredentials) return
+    setCredentialsLoading(true)
+    setCredentialsError(null)
+    try {
+      const credentials = await world.admin.getRuntimeCredentials({ forceRefresh })
+      setRuntimeCredentials(credentials)
+      return credentials
+    } catch (err) {
+      setRuntimeCredentials(null)
+      setCredentialsError(err?.code || 'request_failed')
+      return null
+    } finally {
+      setCredentialsLoading(false)
+    }
+  }
+
+  const copyCredentials = async () => {
+    const credentials = runtimeCredentials || (await loadRuntimeCredentials({ forceRefresh: true }))
+    if (!credentials) return
+    const payload = buildCredentialsEnvBlock({
+      worldId: credentials.worldId,
+      adminCode: credentials.adminCode,
+      worldUrl: resolveWorldUrl(),
+    })
+    try {
+      const copied = await copyToClipboard(payload)
+      if (!copied) {
+        setCredentialsError('clipboard_unavailable')
+        return
+      }
+      setCopiedCredentials(true)
+    } catch {
+      setCredentialsError('clipboard_unavailable')
+    }
+  }
+
+  const hasAdminCode = !!runtimeCredentials?.hasAdminCode
+  const canRevealAdminCode = !!runtimeCredentials?.canRevealAdminCode
+  const adminCodeValue = normalizeCredentialValue(runtimeCredentials?.adminCode)
+  const adminCodeDisplay = adminCodeValue || (hasAdminCode ? '••••••••' : 'Not set')
+  const worldIdValue = runtimeCredentials?.worldId || 'Unavailable'
+  const worldUrlValue = resolveWorldUrl() || 'Unavailable'
+
   return (
     <Pane hidden={hidden}>
       <div
@@ -68,6 +206,49 @@ export function World({ world, hidden }) {
             flex: 1;
             padding: 0.5rem 0;
             overflow-y: auto;
+          }
+          .world-credentials {
+            margin: 0.75rem 1rem 0.5rem;
+            padding: 0.625rem 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid ${theme.borderLight};
+            background: rgba(255, 255, 255, 0.02);
+            display: flex;
+            flex-direction: column;
+            gap: 0.375rem;
+          }
+          .world-credentials-title {
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.72);
+          }
+          .world-credentials-note {
+            font-size: 0.78125rem;
+            color: rgba(255, 255, 255, 0.5);
+          }
+          .world-credentials-note.error {
+            color: rgba(255, 122, 122, 0.95);
+          }
+          .world-credentials-row {
+            min-height: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          .world-credentials-label {
+            width: 4.75rem;
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.46);
+          }
+          .world-credentials-value {
+            flex: 1;
+            min-width: 0;
+            font-size: 0.8125rem;
+            text-align: right;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: rgba(255, 255, 255, 0.9);
           }
         `}
       >
@@ -123,7 +304,13 @@ export function World({ world, hidden }) {
           />
           <FieldNumber
             label='Player Limit'
-            hint='Set a maximum number of players that can be in the world at one time. Zero means unlimited.'
+            hint={
+              hasPlayerLimitCap
+                ? `Set a maximum number of players that can be in the world at one time (1 to ${worldPlayerLimitCap} for this world).`
+                : 'Set a maximum number of players that can be in the world at one time. Zero means unlimited.'
+            }
+            min={hasPlayerLimitCap ? 1 : 0}
+            max={hasPlayerLimitCap ? worldPlayerLimitCap : Infinity}
             value={playerLimit}
             onChange={value => world.settings.set('playerLimit', value, true)}
           />
@@ -144,6 +331,34 @@ export function World({ world, hidden }) {
               value={rank >= Ranks.BUILDER}
               onChange={value => world.settings.set('rank', value ? Ranks.BUILDER : Ranks.VISITOR, true)}
             />
+          )}
+          {isAdmin && (
+            <>
+              {credentialsError && <div className='world-credentials-note error'>{formatCredentialError(credentialsError)}</div>}
+              {!runtimeCredentials && credentialsLoading && (
+                <div className='world-credentials-note'>Loading runtime credentials...</div>
+              )}
+              {runtimeCredentials && (
+                <>
+                  {hasAdminCode && !canRevealAdminCode && !adminCodeValue && (
+                    <div className='world-credentials-note'>
+                      Admin code reveal is disabled by operator (`ADMIN_CREDENTIAL_REVEAL_ENABLED=false`).
+                    </div>
+                  )}
+                </>
+              )}
+              <FieldToggle
+                label='Copy Credentials'
+                hint='Copy WORLD_ID, ADMIN_CODE, and WORLD_URL as .env variables.'
+                trueLabel='Copied'
+                falseLabel={credentialsLoading ? 'Loading...' : 'Copy'}
+                value={copiedCredentials}
+                onChange={() => {
+                  if (credentialsLoading) return
+                  void copyCredentials()
+                }}
+              />
+            </>
           )}
         </div>
       </div>

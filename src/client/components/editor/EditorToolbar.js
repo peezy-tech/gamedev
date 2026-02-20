@@ -1,8 +1,8 @@
 import { css } from '@firebolt-dev/css'
-import { HammerIcon } from 'lucide-react'
+import { HammerIcon, LoaderIcon, UserIcon } from 'lucide-react'
 import { editorTheme as theme } from './editorTheme'
 
-export function EditorToolbar({ world, open, onToggle, isBuilder, buildMode }) {
+export function EditorToolbar({ world, open, onToggle, buildMode, auth, onUserClick }) {
   return (
     <div
       className='editor-toolbar'
@@ -41,6 +41,7 @@ export function EditorToolbar({ world, open, onToggle, isBuilder, buildMode }) {
           <HammerIcon size='1.125rem' />
         </div>
       )}
+      <UserBtn auth={auth} onClick={onUserClick} />
     </div>
   )
 }
@@ -71,6 +72,35 @@ function LogoBtn({ onClick }) {
       onClick={onClick}
     >
       <img src='/logo.png' />
+    </div>
+  )
+}
+
+function UserBtn({ auth, onClick }) {
+  const pending = !!auth?.pending
+  return (
+    <div
+      className='editor-user'
+      css={css`
+        width: 2.75rem;
+        height: 2.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid ${theme.border};
+        border-radius: ${theme.radius};
+        color: rgba(255, 255, 255, 0.9);
+        cursor: pointer;
+        user-select: none;
+        position: relative;
+        &:hover {
+          background: ${theme.bgHover};
+        }
+      `}
+      onClick={() => onClick?.()}
+    >
+      {pending ? <LoaderIcon size='1.1rem' /> : <UserIcon size='1.1rem' />}
     </div>
   )
 }
