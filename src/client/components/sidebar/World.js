@@ -28,15 +28,14 @@ function normalizeCredentialValue(value) {
   return value.trim()
 }
 
-function resolveWorldUrl(world) {
-  const adminUrl = normalizeCredentialValue(world?.admin?.adminUrl)
-  if (adminUrl) return adminUrl
+function resolveWorldUrl() {
   const href = typeof globalThis?.location?.href === 'string' ? globalThis.location.href : ''
   if (!href) return ''
   try {
     const url = new URL(href)
-    const path = url.pathname.replace(/\/admin\/?$/, '') || '/'
-    return `${url.origin}${path}`.replace(/\/$/, '') || url.origin
+    let path = url.pathname.replace(/\/admin\/?$/, '') || '/'
+    if (path !== '/') path = path.replace(/\/$/, '')
+    return path === '/' ? url.origin : `${url.origin}${path}`
   } catch {
     return ''
   }
@@ -159,7 +158,7 @@ export function World({ world, hidden }) {
     const payload = buildCredentialsEnvBlock({
       worldId: credentials.worldId,
       adminCode: credentials.adminCode,
-      worldUrl: resolveWorldUrl(world),
+      worldUrl: resolveWorldUrl(),
     })
     try {
       const copied = await copyToClipboard(payload)
@@ -178,7 +177,7 @@ export function World({ world, hidden }) {
   const adminCodeValue = normalizeCredentialValue(runtimeCredentials?.adminCode)
   const adminCodeDisplay = adminCodeValue || (hasAdminCode ? '••••••••' : 'Not set')
   const worldIdValue = runtimeCredentials?.worldId || 'Unavailable'
-  const worldUrlValue = resolveWorldUrl(world) || 'Unavailable'
+  const worldUrlValue = resolveWorldUrl() || 'Unavailable'
 
   return (
     <Pane hidden={hidden}>
