@@ -337,7 +337,7 @@ const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
 const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
 const AGONES_SDK_HTTP_PORT =
   Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
-const agonesIdleControllerEnabled = hasValue(process.env.PUBLIC_AUTH_URL)
+const agonesIdleControllerEnabled = hasValue(process.env.PUBLIC_AUTH_URL) && process.env.SHUTDOWN_IDLE
 const agonesShutdownUrl = `http://127.0.0.1:${AGONES_SDK_HTTP_PORT}/shutdown`
 const adminConnectionCounts = {
   main: 0,
