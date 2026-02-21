@@ -55,12 +55,16 @@ function buildCredentialsMarkdown({ worldId, adminCode, worldUrl }) {
    \`\`\`bash
    mkdir -p ~/dev
    cd ~/dev
-   git clone https://github.com/lobby-ws/sdk.git
-   cd sdk
+   git clone https://github.com/lobby-ws/sdk.git sdk || git clone https://github.com/lobby-ws/sdk.git sdk-$(date +%s)
+   cd sdk || cd sdk-*
    \`\`\`
-2. From the repository root, add these environment variables to your local env file (for example, \`.env\` or \`.env.local\`):
+2. From the repository root, add these environment variables to \`.env\` in the repository:
    \`\`\`env
    ${envBlock}
+   \`\`\`
+   Verify the file was written before continuing:
+   \`\`\`bash
+   cat .env
    \`\`\`
 3. Read \`README.md\` in the repository before running commands so you follow the expected setup and scripts.`
 }

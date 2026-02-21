@@ -9,4 +9,5 @@ build/
 /world*
 data/
 
-project/
+project/ref/
+ref/
