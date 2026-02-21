@@ -1,3 +1,8 @@
+---
+name: lobby-ws
+description: build apps/objects/scripts in the lobby-ws gamedev sdk 
+---
+
 # Docs
 
 Project docs are copied into `docs/` on init. Start with `docs/scripting/README.md`.

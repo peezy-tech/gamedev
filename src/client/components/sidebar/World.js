@@ -47,6 +47,24 @@ ADMIN_CODE=${normalizeCredentialValue(adminCode)}
 WORLD_URL=${normalizeCredentialValue(worldUrl)}`
 }
 
+function buildCredentialsMarkdown({ worldId, adminCode, worldUrl }) {
+  const envBlock = buildCredentialsEnvBlock({ worldId, adminCode, worldUrl })
+  return `# Runtime Credentials Setup
+
+1. Choose a development directory and clone \`github.com/lobby-ws/sdk\` there:
+   \`\`\`bash
+   mkdir -p ~/dev
+   cd ~/dev
+   git clone https://github.com/lobby-ws/sdk.git
+   cd sdk
+   \`\`\`
+2. From the repository root, add these environment variables to your local env file (for example, \`.env\` or \`.env.local\`):
+   \`\`\`env
+   ${envBlock}
+   \`\`\`
+3. Read \`README.md\` in the repository before running commands so you follow the expected setup and scripts.`
+}
+
 function formatCredentialError(code) {
   if (code === 'admin_required') return 'Deploy access is required to view runtime credentials.'
   if (code === 'admin_url_missing') return 'Admin endpoint is unavailable for this world.'
@@ -155,7 +173,7 @@ export function World({ world, hidden }) {
   const copyCredentials = async () => {
     const credentials = runtimeCredentials || (await loadRuntimeCredentials({ forceRefresh: true }))
     if (!credentials) return
-    const payload = buildCredentialsEnvBlock({
+    const payload = buildCredentialsMarkdown({
       worldId: credentials.worldId,
       adminCode: credentials.adminCode,
       worldUrl: resolveWorldUrl(),
@@ -334,7 +352,9 @@ export function World({ world, hidden }) {
           )}
           {isAdmin && (
             <>
-              {credentialsError && <div className='world-credentials-note error'>{formatCredentialError(credentialsError)}</div>}
+              {credentialsError && (
+                <div className='world-credentials-note error'>{formatCredentialError(credentialsError)}</div>
+              )}
               {!runtimeCredentials && credentialsLoading && (
                 <div className='world-credentials-note'>Loading runtime credentials...</div>
               )}
@@ -348,8 +368,8 @@ export function World({ world, hidden }) {
                 </>
               )}
               <FieldToggle
-                label='Copy Credentials'
-                hint='Copy WORLD_ID, ADMIN_CODE, and WORLD_URL as .env variables.'
+                label='Copy Setup Prompt'
+                hint='Copy a Markdown setup guide for the SDK repo and runtime env vars.'
                 trueLabel='Copied'
                 falseLabel={credentialsLoading ? 'Loading...' : 'Copy'}
                 value={copiedCredentials}
