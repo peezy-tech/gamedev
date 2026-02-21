@@ -8,7 +8,7 @@ Apps live in `apps/` and each app folder contains blueprint JSON plus a script e
 
 Local-first (project files):
 
-- Run `pnpm run apps:new <AppName>` (creates `apps/<AppName>/` with `index.js` + blueprint)
+- Run `npm run apps:new <AppName>` (creates `apps/<AppName>/` with `index.js` + blueprint)
 - Put assets in top-level `assets/` and reference them from blueprint JSON for app.config props
 - Run `npm run dev` for hot reload
 

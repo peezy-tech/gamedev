@@ -15,6 +15,7 @@ const CLAUDE_MD_TEMPLATE = path.join(TEMPLATES_DIR, 'claude', 'CLAUDE.md')
 const CLAUDE_SKILL_TEMPLATE = path.join(TEMPLATES_DIR, 'claude', 'skills', 'hyperfy-app-scripting', 'SKILL.md')
 const AGENTS_MD_TEMPLATE = path.join(TEMPLATES_DIR, 'openai', 'AGENTS.md')
 const CURSOR_RULES_TEMPLATE = path.join(TEMPLATES_DIR, 'cursor', 'rules.md')
+const LOBBY_WS_SKILL_TEMPLATE = path.join(TEMPLATES_DIR, 'skills', 'lobby-ws', 'SKILL.md')
 const PROJECT_BUILTIN_TEMPLATES = [SCENE_TEMPLATE]
 
 const DEFAULT_GITIGNORE = `# Dependencies
@@ -414,6 +415,17 @@ export function scaffoldBaseProject({
       writeFileWithPolicy(
         path.join(rootDir, '.cursor', 'rules.md'),
         cursorContent.endsWith('\n') ? cursorContent : `${cursorContent}\n`,
+        { force, writeFile, report }
+      )
+    }
+  }
+
+  if (fs.existsSync(LOBBY_WS_SKILL_TEMPLATE)) {
+    const lobbyWsSkillContent = readText(LOBBY_WS_SKILL_TEMPLATE)
+    if (lobbyWsSkillContent != null) {
+      writeFileWithPolicy(
+        path.join(rootDir, 'skills', 'lobby-ws', 'SKILL.md'),
+        lobbyWsSkillContent.endsWith('\n') ? lobbyWsSkillContent : `${lobbyWsSkillContent}\n`,
         { force, writeFile, report }
       )
     }
