@@ -365,6 +365,12 @@ export function scaffoldBaseProject({
     report,
   })
 
+  writeFileWithPolicy(path.join(rootDir, 'tmp', '.gitkeep'), '', {
+    force,
+    writeFile,
+    report,
+  })
+
   if (fs.existsSync(README_TEMPLATE)) {
     const readmeContent = readText(README_TEMPLATE)
     if (readmeContent != null) {
