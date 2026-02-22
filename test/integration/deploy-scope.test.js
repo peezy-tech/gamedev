@@ -203,7 +203,6 @@ test('direct app-server falls back to global deploy scope for mixed blueprint sc
     scriptFiles: { 'index.js': 'asset://script.js' },
     scriptFormat: 'module',
   })
-  server._resolveScriptRootId = () => 'Mixed'
   server._deployBlueprint = async () => {}
 
   await server._deployBlueprintsForAppInternal('Mixed', infos, index)
@@ -264,4 +263,153 @@ test('direct app-server includes explicit scope in deploy add payloads', async (
   assert.equal(calls.length, 1)
   assert.equal(calls[0].type, 'blueprint_add')
   assert.equal(calls[0].payload?.blueprint?.scope, 'ScopeApp')
+})
+
+test('direct app-server resolves script roots per scope in mixed-scope apps', async () => {
+  const rootDir = await createTempDir('hyperfy-deploy-scope-script-roots-')
+  const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })
+
+  const appDir = path.join(rootDir, 'apps', 'MixedScope')
+  fs.mkdirSync(appDir, { recursive: true })
+  const writeConfig = (filename, data) => {
+    fs.writeFileSync(path.join(appDir, filename), JSON.stringify(data, null, 2), 'utf8')
+  }
+  writeConfig('main.json', { id: 'MixedScope', scope: 'scope-a', props: {} })
+  writeConfig('variant.json', { id: 'MixedScope__variant', scope: 'scope-a', props: {} })
+  writeConfig('round.json', { id: 'MixedScope__round', scope: 'scope-b', props: {} })
+
+  server.snapshot = {
+    worldId: 'test',
+    assetsUrl: 'http://example.com/assets',
+    settings: {},
+    spawn: { position: [0, 0, 0], quaternion: [0, 0, 0, 1] },
+    blueprints: new Map(),
+    entities: new Map(),
+  }
+  server._resolveLocalBlueprintToAssetUrls = async payload => payload
+  server._safeUploadScriptForApp = async () => ({
+    mode: 'module',
+    scriptUrl: 'asset://entry.js',
+    scriptEntry: 'index.js',
+    scriptFiles: { 'index.js': 'asset://entry.js' },
+    scriptFormat: 'module',
+  })
+
+  const infos = [
+    {
+      id: 'MixedScope',
+      appName: 'MixedScope',
+      fileBase: 'main',
+      configPath: path.join(appDir, 'main.json'),
+      scriptPath: path.join(appDir, 'index.js'),
+    },
+    {
+      id: 'MixedScope__variant',
+      appName: 'MixedScope',
+      fileBase: 'variant',
+      configPath: path.join(appDir, 'variant.json'),
+      scriptPath: path.join(appDir, 'index.js'),
+    },
+    {
+      id: 'MixedScope__round',
+      appName: 'MixedScope',
+      fileBase: 'round',
+      configPath: path.join(appDir, 'round.json'),
+      scriptPath: path.join(appDir, 'index.js'),
+    },
+  ]
+  const index = new Map(infos.map(info => [info.id, info]))
+  const plan = await server._buildDeployPlan('MixedScope', infos, { index })
+  const desiredById = new Map(plan.changes.map(item => [item.info.id, item.desired]))
+
+  assert.equal(desiredById.get('MixedScope').scriptRef, null)
+  assert.equal(desiredById.get('MixedScope__variant').scriptRef, 'MixedScope')
+  assert.equal(desiredById.get('MixedScope__round').scriptRef, null)
+})
+
+test('direct app-server aligns scope before script modify when current scope differs', async () => {
+  const rootDir = await createTempDir('hyperfy-deploy-scope-preflight-')
+  const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })
+
+  const appDir = path.join(rootDir, 'apps', 'ScopeFix')
+  fs.mkdirSync(appDir, { recursive: true })
+  const configPath = path.join(appDir, 'main.json')
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        id: 'ScopeFix',
+        scope: 'scope-a',
+        props: {},
+      },
+      null,
+      2
+    ),
+    'utf8'
+  )
+
+  const remote = {
+    id: 'ScopeFix',
+    version: 2,
+    name: 'ScopeFix',
+    scope: 'scope-b',
+    script: 'asset://old.js',
+    scriptEntry: 'index.js',
+    scriptFiles: { 'index.js': 'asset://old.js' },
+    scriptFormat: 'module',
+    props: {},
+  }
+  const calls = []
+  server.snapshot = {
+    worldId: 'test',
+    assetsUrl: 'http://example.com/assets',
+    settings: {},
+    spawn: { position: [0, 0, 0], quaternion: [0, 0, 0, 1] },
+    blueprints: new Map([[remote.id, { ...remote }]]),
+    entities: new Map(),
+  }
+  server._resolveLocalBlueprintToAssetUrls = async payload => payload
+  server.client = {
+    request: async (type, payload) => {
+      calls.push({ type, payload })
+      if (type === 'blueprint_modify') {
+        remote.version = payload.change.version
+        remote.scope = payload.change.scope ?? remote.scope
+        if (typeof payload.change.script === 'string') {
+          remote.script = payload.change.script
+          remote.scriptEntry = payload.change.scriptEntry
+          remote.scriptFiles = payload.change.scriptFiles
+          remote.scriptFormat = payload.change.scriptFormat
+          remote.scriptRef = payload.change.scriptRef
+        }
+      }
+      return { ok: true }
+    },
+    getBlueprint: async id => (id === remote.id ? { ...remote } : null),
+  }
+
+  const info = {
+    id: 'ScopeFix',
+    appName: 'ScopeFix',
+    fileBase: 'main',
+    configPath,
+    scriptPath: path.join(appDir, 'index.js'),
+  }
+  const scriptInfo = {
+    mode: 'module',
+    scriptUrl: 'asset://new.js',
+    scriptEntry: 'index.js',
+    scriptFiles: { 'index.js': 'asset://new.js' },
+    scriptFormat: 'module',
+    scriptRootId: 'ScopeFix',
+  }
+
+  await server._deployBlueprint(info, scriptInfo, { lockToken: 'lock-token' })
+
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].type, 'blueprint_modify')
+  assert.deepEqual(Object.keys(calls[0].payload.change).sort(), ['id', 'scope', 'version'])
+  assert.equal(calls[1].type, 'blueprint_modify')
+  assert.equal(calls[1].payload.change.scope, 'scope-a')
+  assert.equal(calls[1].payload.change.script, 'asset://new.js')
 })
