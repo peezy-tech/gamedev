@@ -1258,7 +1258,7 @@ export class DirectAppServer {
         allowMissing: true,
       })
       if (scriptInfo?.mode === 'module') {
-        scriptInfo.scriptRootId = this._resolveScriptRootId(appName, infos, localIndex)
+        this._assignScriptRootsForApp(appName, infos, scriptInfo, localIndex)
       }
       for (const info of infos) {
         const desired = await this._prepareBlueprintPayload(info, scriptInfo, { uploadAssets: false })
@@ -3352,18 +3352,59 @@ export class DirectAppServer {
     return process.env.HYPERFY_TARGET || null
   }
 
-  _resolveScriptRootId(appName, infos, index = null) {
+  _resolveScriptRootsByScope(appName, infos, index = null) {
     const candidates = index ? Array.from(index.values()).filter(item => item.appName === appName) : infos
-    if (!candidates || !candidates.length) return null
+    if (!candidates || !candidates.length) {
+      return {
+        fallbackRootId: null,
+        byScope: new Map(),
+      }
+    }
+    const grouped = new Map()
+    for (const info of candidates) {
+      const cfg = readJson(info.configPath)
+      const current = this.snapshot?.blueprints?.get(info.id) || null
+      const scope = this._resolveBlueprintPayloadScope(info, cfg, current)
+      if (!scope) continue
+      if (!grouped.has(scope)) grouped.set(scope, [])
+      grouped.get(scope).push(info)
+    }
+    const byScope = new Map()
+    for (const [scope, items] of grouped.entries()) {
+      const sorted = items.slice().sort(compareBlueprintsForMain)
+      const rootId = sorted[0]?.id || items[0]?.id || null
+      if (rootId) byScope.set(scope, rootId)
+    }
     const sorted = candidates.slice().sort(compareBlueprintsForMain)
-    return sorted[0]?.id || candidates[0]?.id || null
+    const fallbackRootId = sorted[0]?.id || candidates[0]?.id || null
+    return { fallbackRootId, byScope }
   }
 
-  _buildScriptPayload(info, scriptInfo) {
+  _assignScriptRootsForApp(appName, infos, scriptInfo, index = null) {
+    if (!scriptInfo || scriptInfo.mode !== 'module') return scriptInfo
+    const roots = this._resolveScriptRootsByScope(appName, infos, index)
+    scriptInfo.scriptRootId = roots.fallbackRootId
+    scriptInfo.scriptRootIdsByScope = roots.byScope
+    return scriptInfo
+  }
+
+  _resolveScriptRootIdForBlueprint(info, cfg, current, scriptInfo) {
+    const scopedRoots = scriptInfo?.scriptRootIdsByScope
+    if (scopedRoots && typeof scopedRoots.get === 'function') {
+      const scope = this._resolveBlueprintPayloadScope(info, cfg, current)
+      if (scope) {
+        const scopedRootId = scopedRoots.get(scope)
+        if (scopedRootId) return scopedRootId
+      }
+    }
+    return scriptInfo?.scriptRootId || info.appName || info.id || null
+  }
+
+  _buildScriptPayload(info, cfg, current, scriptInfo) {
     if (!scriptInfo || scriptInfo.mode !== 'module') return {}
     const payload = {}
-    const rootId = scriptInfo.scriptRootId || info.appName || info.id
-    if (info.id === rootId) {
+    const rootId = this._resolveScriptRootIdForBlueprint(info, cfg, current, scriptInfo)
+    if (!rootId || info.id === rootId) {
       payload.scriptEntry = scriptInfo.scriptEntry
       payload.scriptFiles = scriptInfo.scriptFiles
       payload.scriptFormat = scriptInfo.scriptFormat
@@ -3399,7 +3440,7 @@ export class DirectAppServer {
     if (scriptInfo && scriptInfo.mode === 'module') {
       return {
         script: scriptInfo.scriptUrl,
-        ...this._buildScriptPayload(info, scriptInfo),
+        ...this._buildScriptPayload(info, cfg, current, scriptInfo),
       }
     }
 
@@ -3468,7 +3509,7 @@ export class DirectAppServer {
       allowMissing: true,
     })
     if (scriptInfo?.mode === 'module') {
-      scriptInfo.scriptRootId = this._resolveScriptRootId(appName, infos, index)
+      this._assignScriptRootsForApp(appName, infos, scriptInfo, index)
     }
     const changes = []
     for (const info of infos) {
@@ -3636,7 +3677,7 @@ export class DirectAppServer {
           allowMissing: true,
         })
         if (scriptInfo?.mode === 'module') {
-          scriptInfo.scriptRootId = this._resolveScriptRootId(appName, list, blueprintIndex)
+          this._assignScriptRootsForApp(appName, list, scriptInfo, blueprintIndex)
         }
         for (const info of list) {
           await this._deployBlueprint(info, scriptInfo, { lockToken: lock.token })
@@ -3757,7 +3798,7 @@ export class DirectAppServer {
       console.error(`❌ Invalid blueprint config: ${info.configPath}`)
       return
     }
-    const current = this.snapshot?.blueprints?.get(info.id) || null
+    let current = this.snapshot?.blueprints?.get(info.id) || null
 
     const scriptPayload = this._resolveBlueprintPayloadScript(info, cfg, current, scriptInfo)
     const payload = {
@@ -3780,26 +3821,51 @@ export class DirectAppServer {
       resolved.version = 0
       await this.client.request('blueprint_add', { blueprint: resolved, lockToken })
     } else {
+      const resolvedScope = getBlueprintScopeValue(resolved)
+      const currentScope = getBlueprintScopeValue(current)
+      if (resolvedScope && currentScope && resolvedScope !== currentScope) {
+        await this._modifyBlueprintWithVersionRetry(
+          {
+            id: info.id,
+            scope: resolvedScope,
+          },
+          current,
+          { lockToken }
+        )
+        const scoped = await this.client.getBlueprint(info.id)
+        if (scoped?.id) {
+          current = scoped
+        }
+      }
       const nextCompare = normalizeBlueprintForCompare(resolved)
       const currentCompare = normalizeBlueprintForCompare(current)
       if (isEqual(nextCompare, currentCompare)) return
-      const attempt = async version => {
-        resolved.version = version
-        await this.client.request('blueprint_modify', { change: resolved, lockToken })
-      }
-      try {
-        await attempt((current.version || 0) + 1)
-      } catch (err) {
-        if (err?.code !== 'version_mismatch') throw err
-        const latest = err.current || (await this.client.getBlueprint(info.id))
-        await attempt((latest?.version || 0) + 1)
-      }
+      await this._modifyBlueprintWithVersionRetry(resolved, current, { lockToken })
     }
 
     const updated = await this.client.getBlueprint(info.id)
     if (updated?.id) {
       this.snapshot.blueprints.set(updated.id, updated)
       this._refreshSyncState()
+    }
+  }
+
+  async _modifyBlueprintWithVersionRetry(change, currentBlueprint, { lockToken } = {}) {
+    const payload = change && typeof change === 'object' ? { ...change } : {}
+    const id = normalizeSyncString(payload.id)
+    if (!id) {
+      throw new Error('invalid_blueprint_id')
+    }
+    const attempt = async version => {
+      payload.version = version
+      await this.client.request('blueprint_modify', { change: payload, lockToken })
+    }
+    try {
+      await attempt((currentBlueprint?.version || 0) + 1)
+    } catch (err) {
+      if (err?.code !== 'version_mismatch') throw err
+      const latest = err.current || (await this.client.getBlueprint(id))
+      await attempt((latest?.version || 0) + 1)
     }
   }
 

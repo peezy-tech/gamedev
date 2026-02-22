@@ -66,7 +66,12 @@ function buildCredentialsMarkdown({ worldId, adminCode, worldUrl }) {
    \`\`\`bash
    cat .env
    \`\`\`
-3. Read \`README.md\` in the repository before running commands so you follow the expected setup and scripts.`
+3. Before any coding agent does work in this SDK repo, require this pre-read from the repository root:
+   - Codex: read \`AGENTS.md\`
+   - Claude Code: read \`CLAUDE.md\`
+   - OpenClaw: read \`skills/lobby-ws/SKILL.md\`
+   - Do not start work until the required file is read.
+4. Read \`README.md\` in the repository before running commands so you follow the expected setup and scripts.`
 }
 
 function formatCredentialError(code) {

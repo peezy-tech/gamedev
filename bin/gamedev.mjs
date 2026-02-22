@@ -841,12 +841,23 @@ async function connectAdminServer({ worldUrl, adminCode, rootDir }) {
 }
 
 async function worldCommand(args) {
-  if (!args.length || ['help', '--help', '-h'].includes(args[0])) {
+  let actionArgs = args
+  let target = null
+  try {
+    const parsed = parseTargetArgs(args)
+    actionArgs = parsed.args
+    target = parsed.target ? resolveTarget(projectDir, parsed.target) : null
+  } catch (err) {
+    console.error(`Error: ${err?.message || err}`)
+    return 1
+  }
+
+  if (!actionArgs.length || ['help', '--help', '-h'].includes(actionArgs[0])) {
     printHelp()
     return 0
   }
 
-  const action = args[0]
+  const action = actionArgs[0]
 
   if (action === 'export' || action === 'import') {
     const env = readDotEnv(envPath)
@@ -855,9 +866,17 @@ async function worldCommand(args) {
       return 1
     }
     applyEnvToProcess(env)
+    if (target) {
+      applyTargetEnv(target)
+      process.env.WORLD_URL = target.worldUrl || process.env.WORLD_URL
+      process.env.WORLD_ID = target.worldId || process.env.WORLD_ID
+      if (typeof target.adminCode === 'string') {
+        process.env.ADMIN_CODE = target.adminCode
+      }
+    }
 
-    const worldUrl = env.WORLD_URL
-    const worldId = env.WORLD_ID
+    const worldUrl = process.env.WORLD_URL
+    const worldId = process.env.WORLD_ID
     if (!worldUrl || !worldId) {
       console.error('Error: Missing WORLD_URL or WORLD_ID in .env')
       return 1
@@ -865,9 +884,9 @@ async function worldCommand(args) {
 
     let server
     try {
-      server = await connectAdminServer({ worldUrl, adminCode: env.ADMIN_CODE, rootDir: projectDir })
+      server = await connectAdminServer({ worldUrl, adminCode: process.env.ADMIN_CODE, rootDir: projectDir })
       if (action === 'export') {
-        const includeBuiltScripts = args.includes('--include-built-scripts')
+        const includeBuiltScripts = actionArgs.includes('--include-built-scripts')
         await server.exportWorldToDisk(undefined, { includeBuiltScripts })
         console.log('✅ World export complete')
       } else {
@@ -885,7 +904,7 @@ async function worldCommand(args) {
     }
   }
 
-  console.error(`Error: Unknown world command: ${args[0]}`)
+  console.error(`Error: Unknown world command: ${actionArgs[0]}`)
   printHelp()
   return 1
 }
