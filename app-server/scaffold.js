@@ -78,7 +78,7 @@ function normalizePackageName(name, fallback) {
 function buildPackageJson({ packageName, sdkName, sdkVersion }) {
   const resolvedVersion = sdkVersion || resolveSdkVersion()
   const devDependencies = {
-    [sdkName]: resolvedVersion ? `^${resolvedVersion}` : 'latest',
+    [sdkName]: 'latest',
     typescript: '^5.6.3',
   }
   const pkg = {
