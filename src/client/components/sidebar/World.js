@@ -51,14 +51,11 @@ function buildCredentialsMarkdown({ worldId, adminCode, worldUrl }) {
   const envBlock = buildCredentialsEnvBlock({ worldId, adminCode, worldUrl })
   return `# Runtime Credentials Setup
 
-1. Choose a development directory and clone \`github.com/lobby-ws/sdk\` there:
+1. In your current directory, initialize the project:
    \`\`\`bash
-   mkdir -p ~/dev
-   cd ~/dev
-   git clone https://github.com/lobby-ws/sdk.git sdk || git clone https://github.com/lobby-ws/sdk.git sdk-$(date +%s)
-   cd sdk || cd sdk-*
+   npx gamedev@latest init
    \`\`\`
-2. From the repository root, add these environment variables to \`.env\` in the repository:
+2. From the project root, add these environment variables to \`.env\`:
    \`\`\`env
    ${envBlock}
    \`\`\`
@@ -66,12 +63,12 @@ function buildCredentialsMarkdown({ worldId, adminCode, worldUrl }) {
    \`\`\`bash
    cat .env
    \`\`\`
-3. Before any coding agent does work in this SDK repo, require this pre-read from the repository root:
+3. Before any coding agent does work in this project, require this pre-read from the project root:
    - Codex: read \`AGENTS.md\`
    - Claude Code: read \`CLAUDE.md\`
    - OpenClaw: read \`skills/lobby-ws/SKILL.md\`
    - Do not start work until the required file is read.
-4. Read \`README.md\` in the repository before running commands so you follow the expected setup and scripts.`
+4. Read \`README.md\` in the project before running commands so you follow the expected setup and scripts.`
 }
 
 function formatCredentialError(code) {
@@ -378,7 +375,7 @@ export function World({ world, hidden }) {
               )}
               <FieldToggle
                 label='Copy Setup Prompt'
-                hint='Copy a Markdown setup guide for the SDK repo and runtime env vars.'
+                hint='Copy a Markdown setup guide for this project and runtime env vars.'
                 trueLabel='Copied'
                 falseLabel={credentialsLoading ? 'Loading...' : 'Copy'}
                 value={copiedCredentials}

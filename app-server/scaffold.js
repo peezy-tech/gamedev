@@ -98,6 +98,7 @@ function buildPackageJson({ packageName, sdkName, sdkVersion }) {
       'update:engine': 'bash scripts/update-engine.sh',
       typecheck: 'tsc --noEmit',
       'hyp:extract': 'node scripts/extract-hyp.mjs',
+      'world:entities': 'node scripts/world-entities.mjs',
     },
     devDependencies,
   }
