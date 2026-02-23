@@ -238,7 +238,7 @@ export function FieldSwitch({ label, hint, options, value, onChange }) {
   )
 }
 
-export function FieldToggle({ label, hint, trueLabel = 'Yes', falseLabel = 'No', value, onChange }) {
+export function FieldToggle({ label, hint, trueLabel = 'Yes', falseLabel = 'No', value, onChange, disabled = false }) {
   const { setHint } = useContext(HintContext)
   return (
     <div
@@ -260,14 +260,18 @@ export function FieldToggle({ label, hint, trueLabel = 'Yes', falseLabel = 'No',
         .fieldtoggle-text {
           font-size: 0.9375rem;
         }
+        opacity: ${disabled ? 0.55 : 1};
         &:hover {
-          cursor: pointer;
-          background: rgba(255, 255, 255, 0.03);
+          cursor: ${disabled ? 'default' : 'pointer'};
+          background: ${disabled ? 'transparent' : 'rgba(255, 255, 255, 0.03)'};
         }
       `}
       onPointerEnter={() => setHint(hint)}
       onPointerLeave={() => setHint(null)}
-      onClick={() => onChange(!value)}
+      onClick={() => {
+        if (disabled) return
+        onChange(!value)
+      }}
     >
       <div className='fieldtoggle-label'>{label}</div>
       <div className='fieldtoggle-text'>{value ? trueLabel : falseLabel}</div>

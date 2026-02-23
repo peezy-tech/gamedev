@@ -23,6 +23,24 @@ const shadowOptions = [
   { label: 'High', value: 'high' },
 ]
 
+function getMicEnableErrorMessage(err) {
+  if (!err) return 'Unable to access your microphone.'
+  if (err.message === 'muted_by_moderator') return 'You are muted by a moderator.'
+  if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+    return 'Microphone access was denied. Check browser site permissions.'
+  }
+  if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+    return 'No microphone was found.'
+  }
+  if (err.name === 'NotReadableError') {
+    return 'Microphone is unavailable. It may be in use by another app.'
+  }
+  if (err.name === 'SecurityError') {
+    return 'Microphone access requires HTTPS.'
+  }
+  return 'Unable to access your microphone.'
+}
+
 export function MainMenu({ world, open, onClose }) {
   const player = world.entities.player
   const { isAdmin, isBuilder } = useRank(world, player)
@@ -72,6 +90,13 @@ export function MainMenu({ world, open, onClose }) {
     if (dpr >= 3) add('3x', dpr)
     return options
   }, [])
+  const changeMicrophone = async value => {
+    try {
+      await world.livekit.setMicrophoneEnabled(value)
+    } catch (err) {
+      world.emit('toast', getMicEnableErrorMessage(err))
+    }
+  }
   useEffect(() => {
     const onPrefsChange = changes => {
       if (changes.dpr) setDPR(changes.dpr.value)
@@ -220,6 +245,15 @@ export function MainMenu({ world, open, onClose }) {
             overflow-y: auto;
             padding: 0.6rem 0;
           }
+          .mainmenu-note {
+            padding: 0.05rem 1rem 0.65rem;
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.55);
+            line-height: 1.35;
+          }
+          .mainmenu-note.warn {
+            color: #ffb4b4;
+          }
         `}
       >
         <div className='mainmenu-backdrop' onClick={onClose} />
@@ -229,14 +263,6 @@ export function MainMenu({ world, open, onClose }) {
               <img className='mainmenu-logo' src={assetPath('/logo.png')} />
               <div className='mainmenu-head-spacer' />
               <div className='mainmenu-actions'>
-                {livekit.enabled && (
-                  <div
-                    className={cls('mainmenu-action', { muted: livekit.muted })}
-                    onClick={() => world.livekit.toggleMuted()}
-                  >
-                    {livekit.muted ? <MicOffIcon size='1rem' /> : <MicIcon size='1rem' />}
-                  </div>
-                )}
                 {world.xr.isSupported && (
                   <div className='mainmenu-action' onClick={() => world.xr.start()}>
                     <VRIcon size='1.125rem' />
@@ -380,6 +406,26 @@ export function MainMenu({ world, open, onClose }) {
                   value={voice}
                   onChange={voice => world.prefs.setVoice(voice)}
                 />
+                {livekit.connected && (
+                  <>
+                    <FieldToggle
+                      label='Microphone'
+                      hint={
+                        livekit.muted
+                          ? 'You are muted by a moderator and cannot enable your microphone.'
+                          : 'Toggle your microphone for voice chat.'
+                      }
+                      trueLabel='On'
+                      falseLabel='Off'
+                      value={livekit.mic}
+                      disabled={livekit.muted}
+                      onChange={changeMicrophone}
+                    />
+                    {livekit.muted && (
+                      <div className='mainmenu-note warn'>A moderator muted your voice chat. Mic cannot be enabled.</div>
+                    )}
+                  </>
+                )}
               </>
             )}
             {tab === 'players' && isAdmin && <PlayersSection world={world} />}
