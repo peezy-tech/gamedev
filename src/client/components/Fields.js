@@ -452,6 +452,12 @@ export const fileKinds = {
     exts: ['mp3'],
     placeholder: 'mp3',
   },
+  splat: {
+    type: 'splat',
+    accept: '.spz',
+    exts: ['spz'],
+    placeholder: 'spz',
+  },
 }
 
 export function FieldFile({ world, label, hint, kind: kindName, value, onChange }) {
