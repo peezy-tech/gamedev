@@ -3,10 +3,7 @@ import '../core/lockdown'
 import { getAddress } from 'ethers'
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import {
-  PrivyProvider,
-  usePrivy,
-} from '@privy-io/react-auth'
+import { PrivyProvider, usePrivy } from '@privy-io/react-auth'
 
 import { storage } from '../core/storage'
 import { Client } from './world-client'
@@ -167,10 +164,7 @@ async function verifySiweMessage(authBaseUrl, message, signature, { onStatus } =
   })
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Unable to verify SIWE signature' }))
-    const statusError = createAuthError(
-      error.message || error.error || 'Unable to verify SIWE signature',
-      res.status
-    )
+    const statusError = createAuthError(error.message || error.error || 'Unable to verify SIWE signature', res.status)
     if (res.status === 401) statusError.skipAuth = true
     throw statusError
   }
@@ -632,12 +626,14 @@ function App() {
     })
   }, [])
 
-  return <Client
-    wsUrl={wsUrl}
-    connectionStatus={connectionStatus}
-    apiUrl={env.PUBLIC_API_URL}
-    authUrl={env.PUBLIC_AUTH_URL || null}
-  />
+  return (
+    <Client
+      wsUrl={wsUrl}
+      connectionStatus={connectionStatus}
+      apiUrl={env.PUBLIC_API_URL}
+      authUrl={env.PUBLIC_AUTH_URL || null}
+    />
+  )
 }
 
 function RootApp() {
@@ -645,7 +641,18 @@ function RootApp() {
     return <App />
   }
   return (
-    <PrivyProvider appId={privyAppId}>
+    <PrivyProvider
+      appId={privyAppId}
+      config={{
+        appearance: {
+          walletChainType: 'ethereum-and-solana',
+        },
+        embeddedWallets: {
+          ethereum: { createOnLogin: 'all-users' },
+          solana: { createOnLogin: 'all-users' },
+        },
+      }}
+    >
       <PrivyRuntimeAuthSync state={privyBridgeState}>
         <App />
       </PrivyRuntimeAuthSync>
