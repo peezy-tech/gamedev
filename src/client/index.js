@@ -568,6 +568,49 @@ function PrivyRuntimeAuthSync({ state, children }) {
     state.getAccessToken = getAccessToken
   }, [state, ready, authenticated, login, logout, getAccessToken])
 
+  useEffect(() => {
+    if (!state.authBaseUrl || !ready) return
+
+    let cancelled = false
+
+    const syncSession = async () => {
+      const hasSession = await fetchAuthMe(state.authBaseUrl)
+        .then(() => true)
+        .catch(err => {
+          if (err?.status === 401) return false
+          return null
+        })
+
+      if (authenticated) {
+        if (hasSession !== false) return
+        let restored = false
+        for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
+          restored = await ensurePrivySession(state, { allowLogin: false }).catch(() => false)
+          if (restored) break
+          await sleep(150)
+        }
+        if (restored && !cancelled) {
+          window.location.reload()
+        }
+        return
+      }
+
+      if (hasSession !== true) return
+      const didLogout = await logoutAuthSession(state.authBaseUrl)
+        .then(() => true)
+        .catch(() => false)
+      if (didLogout && !cancelled) {
+        window.location.reload()
+      }
+    }
+
+    void syncSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [state, ready, authenticated])
+
   return children
 }
 
@@ -602,17 +645,7 @@ function RootApp() {
     return <App />
   }
   return (
-    <PrivyProvider
-      appId={privyAppId}
-      config={{
-        appearance: {
-          walletChainType: 'ethereum-only',
-        },
-        embeddedWallets: {
-          ethereum: { createOnLogin: 'users-without-wallets' },
-        },
-      }}
-    >
+    <PrivyProvider appId={privyAppId}>
       <PrivyRuntimeAuthSync state={privyBridgeState}>
         <App />
       </PrivyRuntimeAuthSync>

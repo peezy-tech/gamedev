@@ -18,6 +18,7 @@ export function EditorLayout({ world, ui, children }) {
   const [buildMode, setBuildMode] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const { walletAuth, connectWallet, disconnectWallet } = useWalletAuth(world)
+  const isPrivyAuth = walletAuth.mode === 'privy'
   const hasApp = !!ui.app
 
   useEffect(() => {
@@ -50,17 +51,18 @@ export function EditorLayout({ world, ui, children }) {
   }, [ui.app])
 
   useEffect(() => {
+    if (isPrivyAuth) return
     if (!walletAuth.connected && userMenuOpen) {
       setUserMenuOpen(false)
     }
-  }, [walletAuth.connected, userMenuOpen])
+  }, [isPrivyAuth, walletAuth.connected, userMenuOpen])
 
   const showEditor = ready && isBuilder && open && buildMode
   const showRight = showEditor && hasApp
   const showBottom = showEditor && hasApp
   const onUserClick = () => {
     if (walletAuth.pending) return
-    if (walletAuth.connected) {
+    if (isPrivyAuth || walletAuth.connected) {
       setUserMenuOpen(true)
       return
     }
@@ -119,6 +121,7 @@ export function EditorLayout({ world, ui, children }) {
             {ready && (
               <EditorUserMenu
                 open={userMenuOpen}
+                auth={walletAuth}
                 onClose={() => setUserMenuOpen(false)}
                 onDisconnectWallet={disconnectWallet}
               />
