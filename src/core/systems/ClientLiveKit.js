@@ -19,6 +19,7 @@ export class ClientLiveKit extends System {
       mic: false,
       screenshare: null,
       level: null,
+      muted: false,
     }
     this.defaultLevel = null
     this.levels = {}
@@ -76,9 +77,16 @@ export class ClientLiveKit extends System {
       player.setSpeaking(speaking)
     })
     this.world.audio.ready(async () => {
-      await this.room.connect(opts.wsUrl, opts.token)
-      this.status.connected = true
-      this.emit('status', this.status)
+      try {
+        await this.room.connect(opts.wsUrl, opts.token)
+        this.status.connected = true
+        this.status.mic = false
+        this.emit('status', this.status)
+        // Always join voice with microphone off.
+        await this.room.localParticipant.setMicrophoneEnabled(false)
+      } catch (err) {
+        console.error('[livekit] connection failed', err)
+      }
     })
   }
 
@@ -96,6 +104,11 @@ export class ClientLiveKit extends System {
     if (playerId === this.world.network.id) {
       this.status.muted = muted
       this.emit('status', this.status)
+      if (muted && this.status.mic) {
+        void this.setMicrophoneEnabled(false).catch(err => {
+          console.error('[livekit] failed to turn off microphone after moderator mute', err)
+        })
+      }
     }
   }
 
@@ -123,11 +136,17 @@ export class ClientLiveKit extends System {
     })
   }
 
-  setMicrophoneEnabled(value) {
-    if (!this.room) return console.error('[livekit] setMicrophoneEnabled failed (not connected)')
+  async setMicrophoneEnabled(value) {
+    if (!this.room || !this.status.connected) {
+      console.error('[livekit] setMicrophoneEnabled failed (not connected)')
+      throw new Error('livekit_not_connected')
+    }
     value = isBoolean(value) ? value : !this.room.localParticipant.isMicrophoneEnabled
+    if (value && this.status.muted) {
+      throw new Error('muted_by_moderator')
+    }
     if (this.status.mic === value) return
-    this.room.localParticipant.setMicrophoneEnabled(value)
+    return this.room.localParticipant.setMicrophoneEnabled(value)
   }
 
   setScreenShareTarget(targetId = null) {

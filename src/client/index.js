@@ -3,10 +3,7 @@ import '../core/lockdown'
 import { getAddress } from 'ethers'
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import {
-  PrivyProvider,
-  usePrivy,
-} from '@privy-io/react-auth'
+import { PrivyProvider, usePrivy } from '@privy-io/react-auth'
 
 import { storage } from '../core/storage'
 import { Client } from './world-client'
@@ -167,10 +164,7 @@ async function verifySiweMessage(authBaseUrl, message, signature, { onStatus } =
   })
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Unable to verify SIWE signature' }))
-    const statusError = createAuthError(
-      error.message || error.error || 'Unable to verify SIWE signature',
-      res.status
-    )
+    const statusError = createAuthError(error.message || error.error || 'Unable to verify SIWE signature', res.status)
     if (res.status === 401) statusError.skipAuth = true
     throw statusError
   }
@@ -568,6 +562,49 @@ function PrivyRuntimeAuthSync({ state, children }) {
     state.getAccessToken = getAccessToken
   }, [state, ready, authenticated, login, logout, getAccessToken])
 
+  useEffect(() => {
+    if (!state.authBaseUrl || !ready) return
+
+    let cancelled = false
+
+    const syncSession = async () => {
+      const hasSession = await fetchAuthMe(state.authBaseUrl)
+        .then(() => true)
+        .catch(err => {
+          if (err?.status === 401) return false
+          return null
+        })
+
+      if (authenticated) {
+        if (hasSession !== false) return
+        let restored = false
+        for (let attempt = 0; attempt < 20 && !cancelled; attempt++) {
+          restored = await ensurePrivySession(state, { allowLogin: false }).catch(() => false)
+          if (restored) break
+          await sleep(150)
+        }
+        if (restored && !cancelled) {
+          window.location.reload()
+        }
+        return
+      }
+
+      if (hasSession !== true) return
+      const didLogout = await logoutAuthSession(state.authBaseUrl)
+        .then(() => true)
+        .catch(() => false)
+      if (didLogout && !cancelled) {
+        window.location.reload()
+      }
+    }
+
+    void syncSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [state, ready, authenticated])
+
   return children
 }
 
@@ -589,12 +626,14 @@ function App() {
     })
   }, [])
 
-  return <Client
-    wsUrl={wsUrl}
-    connectionStatus={connectionStatus}
-    apiUrl={env.PUBLIC_API_URL}
-    authUrl={env.PUBLIC_AUTH_URL || null}
-  />
+  return (
+    <Client
+      wsUrl={wsUrl}
+      connectionStatus={connectionStatus}
+      apiUrl={env.PUBLIC_API_URL}
+      authUrl={env.PUBLIC_AUTH_URL || null}
+    />
+  )
 }
 
 function RootApp() {
@@ -606,10 +645,11 @@ function RootApp() {
       appId={privyAppId}
       config={{
         appearance: {
-          walletChainType: 'ethereum-only',
+          walletChainType: 'ethereum-and-solana',
         },
         embeddedWallets: {
-          ethereum: { createOnLogin: 'users-without-wallets' },
+          ethereum: { createOnLogin: 'all-users' },
+          solana: { createOnLogin: 'all-users' },
         },
       }}
     >
