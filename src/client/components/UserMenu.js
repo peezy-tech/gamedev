@@ -1,0 +1,1001 @@
+import { css } from '@firebolt-dev/css'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { LoaderIcon, LogOutIcon, UserIcon, XIcon } from 'lucide-react'
+import { useLinkAccount, useLogin, usePrivy } from '@privy-io/react-auth'
+import { editorTheme as theme } from './editor/editorTheme'
+import { cls } from './cls'
+
+const WORLD_SLUG_REGEX = /^[a-z0-9-]+$/
+
+const PRIVY_METHOD_LABELS = {
+  email: 'Email',
+  phone: 'Phone',
+  wallet: 'Wallet',
+  google: 'Google',
+  google_oauth: 'Google',
+  twitter: 'Twitter / X',
+  twitter_oauth: 'Twitter / X',
+  discord: 'Discord',
+  discord_oauth: 'Discord',
+  github: 'Github',
+  github_oauth: 'Github',
+  custom: 'Custom',
+}
+
+function resolveWorldServiceApiBase() {
+  const configuredAuthUrl = typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''
+  if (configuredAuthUrl) {
+    return configuredAuthUrl.replace(/\/+$/, '').replace(/\/identity$/, '')
+  }
+  if (typeof window === 'undefined') return ''
+  return `${window.location.origin}/api`
+}
+
+function getErrorMessage(body, fallback) {
+  const message = typeof body?.message === 'string' ? body.message : ''
+  if (message) return message
+  const error = typeof body?.error === 'string' ? body.error : ''
+  if (error) return error
+  return fallback
+}
+
+function slugify(value) {
+  if (typeof value !== 'string') return ''
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+}
+
+async function requestJson(url, options = {}) {
+  const hasBody = typeof options.body === 'string'
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      accept: 'application/json',
+      ...(hasBody ? { 'content-type': 'application/json' } : null),
+      ...(options.headers || null),
+    },
+    ...options,
+  })
+  const body = await response.json().catch(() => null)
+  return { ok: response.ok, status: response.status, body }
+}
+
+function toPrivyErrorMessage(error, fallback) {
+  if (typeof error === 'string' && error.trim()) return error
+  if (error && typeof error === 'object' && typeof error.message === 'string' && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
+function hasLinkedAccountType(user, linkedType) {
+  if (!user || typeof user !== 'object') return false
+  const linkedAccounts = Array.isArray(user.linkedAccounts) ? user.linkedAccounts : []
+  return linkedAccounts.some(account => account?.type === linkedType)
+}
+
+function humanizePrivyMethod(method, fallback = 'Account') {
+  if (typeof method !== 'string') return fallback
+  const normalized = method.trim().toLowerCase()
+  if (!normalized) return fallback
+  return PRIVY_METHOD_LABELS[normalized] || normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function getDisplayName(user) {
+  return (
+    user?.google?.name ||
+    user?.twitter?.name ||
+    user?.discord?.username ||
+    user?.github?.name ||
+    user?.github?.username ||
+    user?.email?.address ||
+    'Privy user'
+  )
+}
+
+function getPrimaryEmail(user) {
+  return (
+    user?.email?.address ||
+    user?.google?.email ||
+    user?.discord?.email ||
+    user?.github?.email ||
+    null
+  )
+}
+
+function truncateAddress(address) {
+  if (typeof address !== 'string' || !address) return ''
+  if (address.length <= 12) return address
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
+function getWalletChainLabel(chainType) {
+  if (chainType === 'ethereum') return 'EVM'
+  if (chainType === 'solana') return 'Solana'
+  if (typeof chainType === 'string' && chainType) return chainType
+  return 'Wallet'
+}
+
+export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
+  const apiBaseUrl = useMemo(resolveWorldServiceApiBase, [])
+  const isPrivyMode = auth?.mode === 'privy'
+  const canManageWorld = !!auth?.connected
+
+  const [loadingWorld, setLoadingWorld] = useState(false)
+  const [ownedWorld, setOwnedWorld] = useState(null)
+  const [worldError, setWorldError] = useState('')
+  const [worldName, setWorldName] = useState('My World')
+  const [worldSlug, setWorldSlug] = useState('my-world')
+  const [worldDescription, setWorldDescription] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [creatingWorld, setCreatingWorld] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const [feedback, setFeedback] = useState(null)
+  const [pendingAction, setPendingAction] = useState('')
+
+  const setFeedbackError = useCallback(message => setFeedback({ type: 'error', message }), [])
+  const setFeedbackSuccess = useCallback(message => setFeedback({ type: 'success', message }), [])
+  const clearFeedback = useCallback(() => setFeedback(null), [])
+
+  const { ready, authenticated, user, logout } = usePrivy()
+
+  const { login } = useLogin({
+    onError: error => {
+      setPendingAction('')
+      setFeedbackError(toPrivyErrorMessage(error, 'Unable to open Privy login.'))
+    },
+  })
+
+  const { linkGoogle, linkTwitter, linkDiscord, linkWallet } = useLinkAccount({
+    onSuccess: ({ linkMethod }) => {
+      setPendingAction('')
+      setFeedbackSuccess(`Linked ${humanizePrivyMethod(linkMethod)}.`)
+    },
+    onError: (error, details) => {
+      setPendingAction('')
+      const methodLabel = humanizePrivyMethod(details?.linkMethod, 'account')
+      const reason = toPrivyErrorMessage(error, 'Unknown error')
+      setFeedbackError(`Unable to link ${methodLabel}: ${reason}`)
+    },
+  })
+
+  useEffect(() => {
+    if (authenticated) setPendingAction('')
+  }, [authenticated])
+
+  const linkedWallets = useMemo(() => {
+    if (!user || !Array.isArray(user.linkedAccounts)) return []
+    return user.linkedAccounts.filter(account => account?.type === 'wallet' && typeof account?.address === 'string' && account.address)
+  }, [user])
+
+  const socialProviders = useMemo(() => {
+    return [
+      {
+        key: 'google',
+        label: 'Google',
+        linkedType: 'google_oauth',
+        subject: user?.google?.subject,
+        handle: user?.google?.email || user?.google?.name,
+        link: linkGoogle,
+      },
+      {
+        key: 'discord',
+        label: 'Discord',
+        linkedType: 'discord_oauth',
+        subject: user?.discord?.subject,
+        handle: user?.discord?.username || user?.discord?.email,
+        link: linkDiscord,
+      },
+      {
+        key: 'twitter',
+        label: 'X',
+        linkedType: 'twitter_oauth',
+        subject: user?.twitter?.subject,
+        handle: user?.twitter?.username,
+        link: linkTwitter,
+      },
+    ]
+  }, [user, linkGoogle, linkTwitter, linkDiscord])
+
+  const runLogin = useCallback(() => {
+    clearFeedback()
+    try {
+      login()
+    } catch (error) {
+      setFeedbackError(toPrivyErrorMessage(error, 'Unable to open Privy login.'))
+    }
+  }, [login, clearFeedback, setFeedbackError])
+
+  const runSignOut = useCallback(async () => {
+    if (signingOut) return
+    clearFeedback()
+    setSigningOut(true)
+    try {
+      if (typeof onDisconnectWallet === 'function') {
+        await onDisconnectWallet()
+      } else {
+        await logout()
+      }
+    } catch {
+    } finally {
+      setSigningOut(false)
+    }
+  }, [clearFeedback, logout, onDisconnectWallet, signingOut])
+
+  const runLinkAction = useCallback(
+    (key, action) => {
+      clearFeedback()
+      setPendingAction(`link-${key}`)
+      try {
+        action()
+      } catch (error) {
+        setPendingAction('')
+        setFeedbackError(toPrivyErrorMessage(error, 'Unable to link account.'))
+      }
+    },
+    [clearFeedback, setFeedbackError],
+  )
+
+  const runLinkWallet = useCallback(
+    chain => {
+      const options =
+        chain === 'solana'
+          ? { walletChainType: 'solana-only', description: 'Link a Solana wallet (Phantom, Backpack, etc).' }
+          : { walletChainType: 'ethereum-only', description: 'Link an Ethereum wallet to this user.' }
+      runLinkAction(`wallet-${chain}`, () => linkWallet(options))
+    },
+    [linkWallet, runLinkAction],
+  )
+
+  const refreshOwnedWorld = useCallback(async () => {
+    if (!apiBaseUrl) {
+      setOwnedWorld(null)
+      setWorldError('World service API is unavailable.')
+      return
+    }
+    setLoadingWorld(true)
+    setWorldError('')
+    const result = await requestJson(`${apiBaseUrl}/my/worlds`, { method: 'GET' })
+    setLoadingWorld(false)
+    if (!result.ok) {
+      if (result.status === 401) {
+        setOwnedWorld(null)
+        setWorldError('Session expired. Please sign in again.')
+        return
+      }
+      setOwnedWorld(null)
+      setWorldError(getErrorMessage(result.body, 'Unable to load your world.'))
+      return
+    }
+    const owned = Array.isArray(result.body?.owned) ? result.body.owned : []
+    const world = owned[0] || null
+    setOwnedWorld(world)
+    if (world) {
+      const nextName = typeof world.name === 'string' ? world.name : 'My World'
+      const nextSlug = typeof world.slug === 'string' ? world.slug : slugify(nextName)
+      const nextDescription = typeof world.description === 'string' ? world.description : ''
+      setWorldName(nextName)
+      setWorldSlug(nextSlug)
+      setWorldDescription(nextDescription)
+      setSlugEdited(true)
+    }
+  }, [apiBaseUrl])
+
+  useEffect(() => {
+    if (!open) return
+    setCreateError('')
+    if (!canManageWorld) {
+      setLoadingWorld(false)
+      setOwnedWorld(null)
+      setWorldError('')
+      return
+    }
+    void refreshOwnedWorld()
+  }, [open, canManageWorld, refreshOwnedWorld])
+
+  useEffect(() => {
+    if (slugEdited) return
+    setWorldSlug(slugify(worldName))
+  }, [worldName, slugEdited])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = event => {
+      if (event.code === 'Escape') onClose?.()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
+  const createWorld = async () => {
+    if (creatingWorld || loadingWorld) return
+    if (!apiBaseUrl) {
+      setCreateError('World service API is unavailable.')
+      return
+    }
+    const normalizedName = worldName.trim()
+    const normalizedSlug = slugify(worldSlug)
+    const normalizedDescription = worldDescription.trim()
+    if (!normalizedName) {
+      setCreateError('World name is required.')
+      return
+    }
+    if (normalizedSlug.length < 3) {
+      setCreateError('Slug must be at least 3 characters.')
+      return
+    }
+    if (!WORLD_SLUG_REGEX.test(normalizedSlug)) {
+      setCreateError('Slug can only use lowercase letters, numbers, and hyphens.')
+      return
+    }
+    setCreateError('')
+    setCreatingWorld(true)
+    const result = await requestJson(`${apiBaseUrl}/worlds`, {
+      method: 'POST',
+      body: JSON.stringify({
+        slug: normalizedSlug,
+        name: normalizedName,
+        ...(normalizedDescription ? { description: normalizedDescription } : null),
+      }),
+    })
+    setCreatingWorld(false)
+    if (!result.ok) {
+      const code = typeof result.body?.error === 'string' ? result.body.error : ''
+      if (result.status === 401) {
+        setCreateError('Session expired. Please sign in again.')
+        return
+      }
+      if (result.status === 409 && code === 'world_limit_reached') {
+        setCreateError('A personal world already exists for this account.')
+        await refreshOwnedWorld()
+        return
+      }
+      if (result.status === 409 && code.toLowerCase().includes('slug')) {
+        setCreateError('That slug is already in use.')
+        return
+      }
+      setCreateError(getErrorMessage(result.body, 'Unable to create world.'))
+      return
+    }
+    const created = result.body?.world || null
+    if (created) {
+      setOwnedWorld(created)
+      setSlugEdited(true)
+      setCreateError('')
+      return
+    }
+    await refreshOwnedWorld()
+  }
+
+  const openMyWorld = () => {
+    const slug = typeof ownedWorld?.slug === 'string' ? ownedWorld.slug.trim() : ''
+    if (!slug) return
+    window.location.href = `/worlds/${slug}`
+  }
+
+  const renderWorldSection = () => {
+    if (!canManageWorld) {
+      return (
+        <div className='usermenu-hero'>
+          <div className='usermenu-section-label'>World</div>
+          <div className='usermenu-muted'>Sign in to manage your world.</div>
+        </div>
+      )
+    }
+
+    if (loadingWorld) {
+      return (
+        <div className='usermenu-hero'>
+          <div className='usermenu-section-label'>World</div>
+          <div className='usermenu-muted'>
+            <LoaderIcon size='0.85rem' style={{ verticalAlign: 'text-bottom', marginRight: '0.35rem' }} />
+            Loading...
+          </div>
+        </div>
+      )
+    }
+
+    if (worldError && !ownedWorld) {
+      return (
+        <div className='usermenu-hero'>
+          <div className='usermenu-section-label'>World</div>
+          <div className='usermenu-error'>{worldError}</div>
+        </div>
+      )
+    }
+
+    if (ownedWorld) {
+      return (
+        <div className='usermenu-hero usermenu-hero--world'>
+          <div className='usermenu-section-label'>World</div>
+          <div className='usermenu-hero-name'>{ownedWorld.name || 'My World'}</div>
+          <div className='usermenu-hero-slug'>/{ownedWorld.slug}</div>
+          <div className='usermenu-hero-actions'>
+            <button className='usermenu-btn-enter' onClick={openMyWorld}>
+              Enter
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className='usermenu-hero'>
+        <div className='usermenu-section-label'>Create Your World</div>
+        <label className='usermenu-field'>
+          <div className='usermenu-label'>Name</div>
+          <input
+            className='usermenu-input'
+            value={worldName}
+            maxLength={100}
+            onChange={event => setWorldName(event.target.value)}
+          />
+        </label>
+        <label className='usermenu-field'>
+          <div className='usermenu-label'>Slug</div>
+          <input
+            className='usermenu-input'
+            value={worldSlug}
+            maxLength={32}
+            onChange={event => {
+              setSlugEdited(true)
+              setWorldSlug(slugify(event.target.value))
+            }}
+          />
+        </label>
+        <label className='usermenu-field'>
+          <div className='usermenu-label'>Description (optional)</div>
+          <textarea
+            className='usermenu-textarea'
+            value={worldDescription}
+            maxLength={1000}
+            onChange={event => setWorldDescription(event.target.value)}
+          />
+        </label>
+        {createError && <div className='usermenu-error'>{createError}</div>}
+        <div className='usermenu-hero-actions'>
+          <button
+            className={cls('usermenu-btn-primary', { disabled: creatingWorld || loadingWorld })}
+            onClick={() => {
+              if (creatingWorld || loadingWorld) return
+              void createWorld()
+            }}
+          >
+            {creatingWorld && <LoaderIcon size='0.85rem' />}
+            {creatingWorld ? 'Creating...' : 'Create World'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const renderWalletsSection = () => {
+    if (!isPrivyMode) return null
+
+    const isAuthenticated = ready && authenticated && user
+    const linkingEvm = pendingAction === 'link-wallet-evm'
+    const linkingSolana = pendingAction === 'link-wallet-solana'
+
+    return (
+      <div className='usermenu-section'>
+        <div className='usermenu-section-label'>Wallets</div>
+        {!isAuthenticated ? (
+          <div className='usermenu-muted'>Sign in to link wallets.</div>
+        ) : (
+          <>
+            {linkedWallets.length > 0 && (
+              <div className='usermenu-rows'>
+                {linkedWallets.map(wallet => {
+                  const key = `${wallet.chainType || 'wallet'}:${wallet.address}`
+                  return (
+                    <div key={key} className='usermenu-row'>
+                      <div className='usermenu-row-label'>{getWalletChainLabel(wallet.chainType)}</div>
+                      <div className='usermenu-row-value mono'>{truncateAddress(wallet.address)}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <div className='usermenu-row'>
+              <div className='usermenu-row-label usermenu-muted'>Add wallet</div>
+              <div className='usermenu-inlineactions'>
+                <button
+                  className='usermenu-linkbtn'
+                  disabled={linkingEvm}
+                  onClick={() => {
+                    if (linkingEvm) return
+                    runLinkWallet('evm')
+                  }}
+                >
+                  {linkingEvm ? 'Linking...' : 'EVM'}
+                </button>
+                <button
+                  className='usermenu-linkbtn'
+                  disabled={linkingSolana}
+                  onClick={() => {
+                    if (linkingSolana) return
+                    runLinkWallet('solana')
+                  }}
+                >
+                  {linkingSolana ? 'Linking...' : 'Solana'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  const renderSocialSection = () => {
+    if (!isPrivyMode) return null
+
+    const isAuthenticated = ready && authenticated && user
+
+    return (
+      <div className='usermenu-section'>
+        <div className='usermenu-section-label'>Social</div>
+        {!isAuthenticated ? (
+          <div className='usermenu-muted'>Sign in to link social accounts.</div>
+        ) : (
+          <div className='usermenu-rows'>
+            {socialProviders.map(provider => {
+              const isLinked = !!provider.subject || hasLinkedAccountType(user, provider.linkedType)
+              const isBusy = pendingAction === `link-${provider.key}`
+              return (
+                <div key={provider.key} className='usermenu-row'>
+                  <div className='usermenu-row-label'>{provider.label}</div>
+                  <div className='usermenu-row-value'>
+                    {isLinked ? (
+                      <span className='usermenu-linked-handle'>{provider.handle ? `@${provider.handle}` : 'Linked'}</span>
+                    ) : (
+                      <button
+                        className='usermenu-linkbtn'
+                        disabled={isBusy}
+                        onClick={() => {
+                          if (isBusy) return
+                          runLinkAction(provider.key, provider.link)
+                        }}
+                      >
+                        {isBusy ? 'Linking...' : 'Link'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderAccountFooter = () => {
+    const isAuthenticated = ready && authenticated && user
+
+    if (!isAuthenticated) {
+      return (
+        <div className='usermenu-footer'>
+          <button className='usermenu-btn' onClick={runLogin}>
+            Sign In
+          </button>
+        </div>
+      )
+    }
+
+    const displayName = getDisplayName(user)
+    const primaryEmail = getPrimaryEmail(user)
+
+    return (
+      <div className='usermenu-footer'>
+        <div className='usermenu-footer-identity'>
+          <span className='usermenu-footer-name'>{displayName}</span>
+          {primaryEmail && <span className='usermenu-footer-email'>{primaryEmail}</span>}
+        </div>
+        <button
+          className={cls('usermenu-btn danger', { disabled: signingOut })}
+          onClick={() => {
+            if (signingOut) return
+            void runSignOut()
+          }}
+        >
+          {signingOut ? <LoaderIcon size='0.85rem' /> : <LogOutIcon size='0.85rem' />}
+          Sign Out
+        </button>
+      </div>
+    )
+  }
+
+  if (!open) return null
+
+  return (
+    <div
+      className='usermenu'
+      css={css`
+        position: absolute;
+        inset: 0;
+        z-index: 100;
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        .usermenu-backdrop {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          background: rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(15px);
+        }
+        .usermenu-panel {
+          position: relative;
+          z-index: 1;
+          width: 26rem;
+          max-width: calc(100% - 2rem);
+          max-height: calc(100% - 2rem);
+          display: flex;
+          flex-direction: column;
+          background: ${theme.bgPanel};
+          border: 1px solid ${theme.border};
+          border-radius: ${theme.radius};
+          overflow: hidden;
+        }
+        .usermenu-head {
+          height: 3.5rem;
+          padding: 0 0.75rem 0 1rem;
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          border-bottom: 1px solid ${theme.borderLight};
+          flex-shrink: 0;
+        }
+        .usermenu-head-title {
+          font-size: 0.95rem;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.95);
+        }
+        .usermenu-head-spacer {
+          flex: 1;
+        }
+        .usermenu-close {
+          width: 2rem;
+          height: 2rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: ${theme.radiusSmall};
+          color: rgba(255, 255, 255, 0.6);
+          cursor: pointer;
+          &:hover {
+            color: white;
+            background: ${theme.bgHover};
+          }
+        }
+        .usermenu-scroll {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+        }
+        .usermenu-divider {
+          height: 1px;
+          background: ${theme.borderLight};
+          flex-shrink: 0;
+        }
+        .usermenu-section-label {
+          font-size: 0.68rem;
+          font-weight: 700;
+          color: rgba(255, 255, 255, 0.35);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          margin-bottom: 0.5rem;
+        }
+        .usermenu-hero {
+          padding: 1.1rem 1rem;
+          background: ${theme.bgInputSolid};
+          display: flex;
+          flex-direction: column;
+          gap: 0.45rem;
+          flex-shrink: 0;
+        }
+        .usermenu-hero--world {
+          padding: 1.5rem 1rem 1.25rem;
+          align-items: center;
+          text-align: center;
+          background: linear-gradient(160deg, rgba(80, 60, 120, 0.45) 0%, rgba(28, 30, 40, 0.55) 100%);
+          border-bottom: 1px solid rgba(180, 140, 255, 0.12);
+        }
+        .usermenu-hero-name {
+          font-size: 1.05rem;
+          font-weight: 700;
+          color: rgba(255, 255, 255, 0.95);
+          line-height: 1.2;
+        }
+        .usermenu-hero--world .usermenu-hero-name {
+          font-size: 1.2rem;
+          background: linear-gradient(135deg, #fff 0%, rgba(200, 170, 255, 0.95) 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        .usermenu-hero-slug {
+          font-size: 0.78rem;
+          color: rgba(255, 255, 255, 0.4);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        }
+        .usermenu-hero--world .usermenu-hero-slug {
+          color: rgba(180, 150, 255, 0.5);
+        }
+        .usermenu-hero-actions {
+          display: flex;
+          gap: 0.5rem;
+          margin-top: 0.35rem;
+        }
+        .usermenu-btn-primary {
+          height: 2.25rem;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          border-radius: ${theme.radiusSmall};
+          padding: 0 1rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.4rem;
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: rgba(255, 255, 255, 0.95);
+          background: rgba(255, 255, 255, 0.08);
+          cursor: pointer;
+          &:hover {
+            background: rgba(255, 255, 255, 0.13);
+            border-color: rgba(255, 255, 255, 0.25);
+          }
+          &.disabled {
+            cursor: default;
+            color: rgba(255, 255, 255, 0.4);
+            background: transparent;
+            border-color: ${theme.border};
+          }
+        }
+        .usermenu-btn-enter {
+          height: 2.25rem;
+          border: 1px solid rgba(180, 140, 255, 0.4);
+          border-radius: ${theme.radiusSmall};
+          padding: 0 1.5rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.82rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          color: rgba(230, 210, 255, 0.95);
+          background: linear-gradient(135deg, rgba(120, 80, 200, 0.35) 0%, rgba(80, 50, 150, 0.25) 100%);
+          cursor: pointer;
+          position: relative;
+          overflow: hidden;
+          &::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 60%);
+            pointer-events: none;
+          }
+          &:hover {
+            background: linear-gradient(135deg, rgba(140, 100, 220, 0.5) 0%, rgba(100, 65, 180, 0.4) 100%);
+            border-color: rgba(200, 170, 255, 0.6);
+            color: #fff;
+          }
+        }
+        .usermenu-section {
+          padding: 0.85rem 1rem;
+          display: flex;
+          flex-direction: column;
+          flex-shrink: 0;
+        }
+        .usermenu-rows {
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+        }
+        .usermenu-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.6rem;
+          padding: 0.4rem 0;
+        }
+        .usermenu-row-label {
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.75);
+        }
+        .usermenu-row-value {
+          font-size: 0.8rem;
+          color: rgba(255, 255, 255, 0.55);
+        }
+        .usermenu-row-value.mono {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+          font-size: 0.75rem;
+        }
+        .usermenu-linked-handle {
+          font-size: 0.78rem;
+          color: rgba(255, 255, 255, 0.45);
+        }
+        .usermenu-inlineactions {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        .usermenu-linkbtn {
+          height: 1.9rem;
+          border: 1px solid ${theme.border};
+          border-radius: ${theme.radiusSmall};
+          padding: 0 0.55rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.75);
+          background: transparent;
+          cursor: pointer;
+          white-space: nowrap;
+          &:hover {
+            background: ${theme.bgHover};
+            color: rgba(255, 255, 255, 0.95);
+          }
+          &:disabled {
+            cursor: default;
+            color: rgba(255, 255, 255, 0.35);
+            border-color: ${theme.borderLight};
+          }
+        }
+        .usermenu-muted {
+          font-size: 0.82rem;
+          color: rgba(255, 255, 255, 0.35);
+        }
+        .usermenu-error {
+          font-size: 0.8rem;
+          color: #ff8e8e;
+        }
+        .usermenu-field {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+        }
+        .usermenu-label {
+          font-size: 0.68rem;
+          color: rgba(255, 255, 255, 0.4);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+        }
+        .usermenu-input,
+        .usermenu-textarea {
+          width: 100%;
+          border: 1px solid ${theme.border};
+          background: rgba(0, 0, 0, 0.2);
+          color: rgba(255, 255, 255, 0.95);
+          font-size: 0.85rem;
+          border-radius: ${theme.radiusSmall};
+          padding: 0.5rem 0.6rem;
+          &:focus {
+            border-color: ${theme.borderHover};
+            outline: none;
+          }
+        }
+        .usermenu-textarea {
+          min-height: 4rem;
+          resize: vertical;
+        }
+        .usermenu-footer {
+          padding: 0.75rem 1rem;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+          border-top: 1px solid ${theme.borderLight};
+          flex-shrink: 0;
+        }
+        .usermenu-footer-identity {
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+          min-width: 0;
+        }
+        .usermenu-footer-name {
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.8);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .usermenu-footer-email {
+          font-size: 0.75rem;
+          color: rgba(255, 255, 255, 0.35);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .usermenu-btn {
+          height: 2.1rem;
+          border: 1px solid ${theme.border};
+          border-radius: ${theme.radiusSmall};
+          padding: 0 0.8rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.4rem;
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.8);
+          background: transparent;
+          cursor: pointer;
+          white-space: nowrap;
+          flex-shrink: 0;
+          &:hover {
+            background: ${theme.bgHover};
+          }
+          &.danger {
+            border-color: rgba(255, 125, 125, 0.35);
+            color: rgba(255, 175, 175, 0.9);
+          }
+          &.disabled {
+            cursor: default;
+            color: rgba(255, 255, 255, 0.35);
+            background: transparent;
+          }
+        }
+        .usermenu-feedback {
+          margin: 0 1rem 0.75rem;
+          font-size: 0.8rem;
+          border: 1px solid ${theme.border};
+          border-radius: ${theme.radiusSmall};
+          padding: 0.5rem 0.6rem;
+          background: rgba(255, 255, 255, 0.03);
+          color: rgba(255, 255, 255, 0.7);
+          flex-shrink: 0;
+        }
+        .usermenu-feedback.success {
+          border-color: rgba(102, 240, 150, 0.35);
+          color: rgba(164, 255, 194, 0.95);
+          background: rgba(49, 122, 74, 0.2);
+        }
+        .usermenu-feedback.error {
+          border-color: rgba(255, 110, 110, 0.35);
+          color: rgba(255, 180, 180, 0.95);
+          background: rgba(122, 49, 49, 0.2);
+        }
+      `}
+    >
+      <div className='usermenu-backdrop' onClick={onClose} />
+      <div className='usermenu-panel'>
+        <div className='usermenu-head'>
+          <UserIcon size='1rem' />
+          <div className='usermenu-head-title'>Account</div>
+          <div className='usermenu-head-spacer' />
+          <div className='usermenu-close' onClick={onClose}>
+            <XIcon size='1rem' />
+          </div>
+        </div>
+        <div className='usermenu-scroll'>
+          {renderWorldSection()}
+          {isPrivyMode && <div className='usermenu-divider' />}
+          {renderWalletsSection()}
+          {isPrivyMode && <div className='usermenu-divider' />}
+          {renderSocialSection()}
+          {feedback && (
+            <div className={cls('usermenu-feedback', { success: feedback.type === 'success', error: feedback.type === 'error' })}>
+              {feedback.message}
+            </div>
+          )}
+        </div>
+        {renderAccountFooter()}
+      </div>
+    </div>
+  )
+}
