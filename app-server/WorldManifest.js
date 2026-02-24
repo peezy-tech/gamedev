@@ -116,7 +116,7 @@ export class WorldManifest {
         customAvatars: false,
         voice: 'spatial',
         rank: 0,
-        playerLimit: 0,
+        playerLimit: 3,
         ao: true,
       },
       spawn: {
