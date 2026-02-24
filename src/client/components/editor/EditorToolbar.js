@@ -1,8 +1,8 @@
 import { css } from '@firebolt-dev/css'
-import { HammerIcon, LoaderIcon, UserIcon } from 'lucide-react'
+import { GlobeIcon, HammerIcon, LoaderIcon, UserIcon } from 'lucide-react'
 import { editorTheme as theme } from './editorTheme'
 
-export function EditorToolbar({ world, open, onToggle, buildMode, auth, onUserClick }) {
+export function EditorToolbar({ world, open, onToggle, buildMode, auth, onUserClick, onExploreClick }) {
   return (
     <div
       className='editor-toolbar'
@@ -41,6 +41,7 @@ export function EditorToolbar({ world, open, onToggle, buildMode, auth, onUserCl
           <HammerIcon size='1.125rem' />
         </div>
       )}
+      <ExploreBtn onClick={onExploreClick} />
       <UserBtn auth={auth} onClick={onUserClick} />
     </div>
   )
@@ -72,6 +73,33 @@ function LogoBtn({ onClick }) {
       onClick={onClick}
     >
       <img src='/logo.png' />
+    </div>
+  )
+}
+
+function ExploreBtn({ onClick }) {
+  return (
+    <div
+      className='editor-explore'
+      css={css`
+        width: 2.75rem;
+        height: 2.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid ${theme.border};
+        border-radius: ${theme.radius};
+        color: rgba(255, 255, 255, 0.9);
+        cursor: pointer;
+        user-select: none;
+        &:hover {
+          background: ${theme.bgHover};
+        }
+      `}
+      onClick={() => onClick?.()}
+    >
+      <GlobeIcon size='1.1rem' />
     </div>
   )
 }

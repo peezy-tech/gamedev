@@ -3,6 +3,7 @@ import { useContext, useEffect, useState } from 'react'
 import { editorTheme as theme } from './editorTheme'
 import { EditorToolbar } from './EditorToolbar'
 import { EditorUserMenu } from '../UserMenu'
+import { ExploreMenu } from '../ExploreMenu'
 import { LeftPanel } from './LeftPanel'
 import { RightPanel } from './RightPanel'
 import { BottomPanel } from './BottomPanel'
@@ -17,6 +18,7 @@ export function EditorLayout({ world, ui, children }) {
   const [open, setOpen] = useState(true)
   const [buildMode, setBuildMode] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [exploreMenuOpen, setExploreMenuOpen] = useState(false)
   const { walletAuth, connectWallet, disconnectWallet } = useWalletAuth(world)
   const isPrivyAuth = walletAuth.mode === 'privy'
   const hasApp = !!ui.app
@@ -116,6 +118,7 @@ export function EditorLayout({ world, ui, children }) {
                 buildMode={buildMode}
                 auth={walletAuth}
                 onUserClick={onUserClick}
+                onExploreClick={() => setExploreMenuOpen(true)}
               />
             )}
             {ready && (
@@ -124,6 +127,12 @@ export function EditorLayout({ world, ui, children }) {
                 auth={walletAuth}
                 onClose={() => setUserMenuOpen(false)}
                 onDisconnectWallet={disconnectWallet}
+              />
+            )}
+            {ready && (
+              <ExploreMenu
+                open={exploreMenuOpen}
+                onClose={() => setExploreMenuOpen(false)}
               />
             )}
           </div>
