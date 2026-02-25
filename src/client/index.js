@@ -4,6 +4,7 @@ import { getAddress } from 'ethers'
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth'
+import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana'
 
 import { storage } from '../core/storage'
 import { Client } from './world-client'
@@ -646,6 +647,11 @@ function RootApp() {
       config={{
         appearance: {
           walletChainType: 'ethereum-and-solana',
+        },
+        externalWallets: {
+          solana: {
+            connectors: toSolanaWalletConnectors(),
+          },
         },
         embeddedWallets: {
           ethereum: { createOnLogin: 'all-users' },
