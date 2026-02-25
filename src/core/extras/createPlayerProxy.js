@@ -175,6 +175,15 @@ export function createPlayerProxy(entity, player) {
         world.network.sendTo(player.data.owner, 'playerPush', { force })
       }
     },
+    replaceAnimations(newEmotes, reset = false) {
+      if (!world.network.isClient) {
+        return console.error('replaceAnimations can only be called on the client')
+      }
+      if (player.data.owner !== world.network.id) {
+        return console.error('replaceAnimations can only be called on local player')
+      }
+      player.replaceAnimations?.(newEmotes, reset)
+    },
     firstPerson(value = true) {
       if (!world.network.isClient) {
         return console.error('firstPerson can only be called on the client')

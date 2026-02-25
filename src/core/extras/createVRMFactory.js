@@ -22,6 +22,38 @@ const MAX_GAZE_DISTANCE = 40
 
 const material = new THREE.MeshBasicMaterial()
 
+const DefaultLocomotionEmotes = {
+  idle: Emotes.IDLE,
+  walk: Emotes.WALK,
+  walkLeft: Emotes.WALK_LEFT,
+  walkRight: Emotes.WALK_RIGHT,
+  walkBack: Emotes.WALK_BACK,
+  run: Emotes.RUN,
+  runLeft: Emotes.RUN_LEFT,
+  runRight: Emotes.RUN_RIGHT,
+  runBack: Emotes.RUN_BACK,
+  jump: Emotes.JUMP,
+  fall: Emotes.FALL,
+  fly: Emotes.FLY,
+  talk: Emotes.TALK,
+}
+
+const EmoteKeyToPoseKey = {
+  IDLE: 'idle',
+  WALK: 'walk',
+  WALK_LEFT: 'walkLeft',
+  WALK_RIGHT: 'walkRight',
+  WALK_BACK: 'walkBack',
+  RUN: 'run',
+  RUN_LEFT: 'runLeft',
+  RUN_RIGHT: 'runRight',
+  RUN_BACK: 'runBack',
+  JUMP: 'jump',
+  FALL: 'fall',
+  FLY: 'fly',
+  TALK: 'talk',
+}
+
 const AimAxis = {
   X: new THREE.Vector3(1, 0, 0),
   Y: new THREE.Vector3(0, 1, 0),
@@ -480,15 +512,15 @@ export function createVRMFactory(glb, setupMaterial) {
     // })
 
     const poses = {}
-    function addPose(key, url) {
-      const opts = getQueryParams(url)
-      const speed = parseFloat(opts.s || 1)
+    function createPose(key) {
       const pose = {
-        loading: true,
+        url: null,
+        loading: false,
         active: false,
         action: null,
         weight: 0,
         target: 0,
+        loadId: 0,
         setWeight: value => {
           pose.weight = value
           if (pose.action) {
@@ -505,41 +537,55 @@ export function createVRMFactory(glb, setupMaterial) {
           pose.active = false
         },
       }
-      hooks.loader.load('emote', url).then(emo => {
-        const clip = emo.toClip({
-          rootToHips,
-          version,
-          getBoneName,
-        })
-        // remove neck/head tracks so locomotion animations
-        // never conflict with aimBone gaze overrides
-        const neckName = getBoneName('neck')
-        const headName = getBoneName('head')
-        // const chestName = getBoneName('chest')
-        clip.tracks = clip.tracks.filter(track => {
-          const boneName = track.name.split('.')[0]
-          return boneName !== neckName && boneName !== headName
-        })
-        pose.action = mixer.clipAction(clip)
-        pose.action.timeScale = speed
-        pose.action.weight = pose.weight
-        pose.action.play()
-      })
       poses[key] = pose
+      return pose
     }
-    addPose('idle', Emotes.IDLE)
-    addPose('walk', Emotes.WALK)
-    addPose('walkLeft', Emotes.WALK_LEFT)
-    addPose('walkBack', Emotes.WALK_BACK)
-    addPose('walkRight', Emotes.WALK_RIGHT)
-    addPose('run', Emotes.RUN)
-    addPose('runLeft', Emotes.RUN_LEFT)
-    addPose('runBack', Emotes.RUN_BACK)
-    addPose('runRight', Emotes.RUN_RIGHT)
-    addPose('jump', Emotes.JUMP)
-    addPose('fall', Emotes.FALL)
-    addPose('fly', Emotes.FLY)
-    addPose('talk', Emotes.TALK)
+    function setPoseUrl(key, url) {
+      if (!url) return
+      if (!poses[key]) createPose(key)
+      const pose = poses[key]
+      if (pose.url === url && pose.action) return
+      pose.url = url
+      pose.loading = true
+      pose.loadId += 1
+      const loadId = pose.loadId
+      const opts = getQueryParams(url)
+      const speed = parseFloat(opts.s || 1)
+      hooks.loader
+        .load('emote', url)
+        .then(emo => {
+          if (pose.loadId !== loadId) return
+          const clip = emo.toClip({
+            rootToHips,
+            version,
+            getBoneName,
+          })
+          // remove neck/head tracks so locomotion animations
+          // never conflict with aimBone gaze overrides
+          const neckName = getBoneName('neck')
+          const headName = getBoneName('head')
+          clip.tracks = clip.tracks.filter(track => {
+            const boneName = track.name.split('.')[0]
+            return boneName !== neckName && boneName !== headName
+          })
+          const action = mixer.clipAction(clip)
+          action.timeScale = speed
+          pose.action?.fadeOut(0.15)
+          pose.action = action
+          pose.loading = false
+          pose.active = false
+          pose.setWeight(pose.weight)
+        })
+        .catch(err => {
+          if (pose.loadId !== loadId) return
+          pose.loading = false
+          console.error(err)
+        })
+    }
+    Object.keys(DefaultLocomotionEmotes).forEach(key => {
+      createPose(key)
+      setPoseUrl(key, DefaultLocomotionEmotes[key])
+    })
     function clearLocomotion() {
       for (const key in poses) {
         poses[key].fadeOut()
@@ -612,6 +658,22 @@ export function createVRMFactory(glb, setupMaterial) {
       }
     }
 
+    function replaceLocomotionEmotes(next, reset = false) {
+      if (reset) {
+        for (const key in DefaultLocomotionEmotes) {
+          setPoseUrl(key, DefaultLocomotionEmotes[key])
+        }
+      }
+      if (!next || typeof next !== 'object' || Array.isArray(next)) return
+      for (const [key, url] of Object.entries(next)) {
+        const poseKey = EmoteKeyToPoseKey[key] || key
+        if (!DefaultLocomotionEmotes[poseKey]) continue
+        const nextUrl =
+          typeof url === 'string' && url.trim().length > 0 ? url : DefaultLocomotionEmotes[poseKey]
+        setPoseUrl(poseKey, nextUrl)
+      }
+    }
+
     // console.log('=== vrm ===')
     // console.log('vrm', vrm)
     // console.log('skeleton', skeleton)
@@ -634,6 +696,7 @@ export function createVRMFactory(glb, setupMaterial) {
       updateRate,
       getBoneTransform,
       setLocomotion,
+      replaceLocomotionEmotes,
       setVisible(visible) {
         vrm.scene.traverse(o => {
           o.visible = visible
