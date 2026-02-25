@@ -8,8 +8,7 @@ function resolveWorldServiceApiBase() {
   if (configuredAuthUrl) {
     return configuredAuthUrl.replace(/\/+$/, '').replace(/\/identity$/, '')
   }
-  if (typeof window === 'undefined') return ''
-  return `${window.location.origin}/api`
+  return 'https://dev.lobby.ws'
 }
 
 async function fetchPlayerCount(apiBase, slug) {
