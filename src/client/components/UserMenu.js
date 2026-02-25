@@ -119,20 +119,7 @@ function getWalletChainLabel(chainType) {
   return 'Wallet'
 }
 
-export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
-  const apiBaseUrl = useMemo(resolveWorldServiceApiBase, [])
-  const isPrivyMode = auth?.mode === 'privy'
-  const canManageWorld = !!auth?.connected
-
-  const [loadingWorld, setLoadingWorld] = useState(false)
-  const [ownedWorld, setOwnedWorld] = useState(null)
-  const [worldError, setWorldError] = useState('')
-  const [worldName, setWorldName] = useState('My World')
-  const [worldSlug, setWorldSlug] = useState('my-world')
-  const [worldDescription, setWorldDescription] = useState('')
-  const [slugEdited, setSlugEdited] = useState(false)
-  const [createError, setCreateError] = useState('')
-  const [creatingWorld, setCreatingWorld] = useState(false)
+function PrivyAccountSection({ onDisconnectWallet, children }) {
   const [signingOut, setSigningOut] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [pendingAction, setPendingAction] = useState('')
@@ -250,6 +237,170 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
     },
     [linkWallet, runLinkAction],
   )
+
+  const isAuthenticated = ready && authenticated && user
+
+  const renderWalletsSection = () => {
+    const linkingEvm = pendingAction === 'link-wallet-evm'
+    const linkingSolana = pendingAction === 'link-wallet-solana'
+
+    return (
+      <div className='usermenu-section'>
+        <div className='usermenu-section-label'>Wallets</div>
+        {!isAuthenticated ? (
+          <div className='usermenu-muted'>Sign in to link wallets.</div>
+        ) : (
+          <>
+            {linkedWallets.length > 0 && (
+              <div className='usermenu-rows'>
+                {linkedWallets.map(wallet => {
+                  const key = `${wallet.chainType || 'wallet'}:${wallet.address}`
+                  return (
+                    <div key={key} className='usermenu-row'>
+                      <div className='usermenu-row-label'>{getWalletChainLabel(wallet.chainType)}</div>
+                      <div className='usermenu-row-value mono'>{truncateAddress(wallet.address)}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <div className='usermenu-row'>
+              <div className='usermenu-row-label usermenu-muted'>Add wallet</div>
+              <div className='usermenu-inlineactions'>
+                <button
+                  className='usermenu-linkbtn'
+                  disabled={linkingEvm}
+                  onClick={() => {
+                    if (linkingEvm) return
+                    runLinkWallet('evm')
+                  }}
+                >
+                  {linkingEvm ? 'Linking...' : 'EVM'}
+                </button>
+                <button
+                  className='usermenu-linkbtn'
+                  disabled={linkingSolana}
+                  onClick={() => {
+                    if (linkingSolana) return
+                    runLinkWallet('solana')
+                  }}
+                >
+                  {linkingSolana ? 'Linking...' : 'Solana'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  const renderSocialSection = () => {
+    return (
+      <div className='usermenu-section'>
+        <div className='usermenu-section-label'>Social</div>
+        {!isAuthenticated ? (
+          <div className='usermenu-muted'>Sign in to link social accounts.</div>
+        ) : (
+          <div className='usermenu-rows'>
+            {socialProviders.map(provider => {
+              const isLinked = !!provider.subject || hasLinkedAccountType(user, provider.linkedType)
+              const isBusy = pendingAction === `link-${provider.key}`
+              return (
+                <div key={provider.key} className='usermenu-row'>
+                  <div className='usermenu-row-label'>{provider.label}</div>
+                  <div className='usermenu-row-value'>
+                    {isLinked ? (
+                      <span className='usermenu-linked-handle'>{provider.handle ? `@${provider.handle}` : 'Linked'}</span>
+                    ) : (
+                      <button
+                        className='usermenu-linkbtn'
+                        disabled={isBusy}
+                        onClick={() => {
+                          if (isBusy) return
+                          runLinkAction(provider.key, provider.link)
+                        }}
+                      >
+                        {isBusy ? 'Linking...' : 'Link'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderAccountFooter = () => {
+    if (!isAuthenticated) {
+      return (
+        <div className='usermenu-footer'>
+          <button className='usermenu-btn' onClick={runLogin}>
+            Sign In
+          </button>
+        </div>
+      )
+    }
+
+    const displayName = getDisplayName(user)
+    const primaryEmail = getPrimaryEmail(user)
+
+    return (
+      <div className='usermenu-footer'>
+        <div className='usermenu-footer-identity'>
+          <span className='usermenu-footer-name'>{displayName}</span>
+          {primaryEmail && <span className='usermenu-footer-email'>{primaryEmail}</span>}
+        </div>
+        <button
+          className={cls('usermenu-btn danger', { disabled: signingOut })}
+          onClick={() => {
+            if (signingOut) return
+            void runSignOut()
+          }}
+        >
+          {signingOut ? <LoaderIcon size='0.85rem' /> : <LogOutIcon size='0.85rem' />}
+          Sign Out
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className='usermenu-scroll'>
+        {children}
+        <div className='usermenu-divider' />
+        {renderWalletsSection()}
+        <div className='usermenu-divider' />
+        {renderSocialSection()}
+        {feedback && (
+          <div className={cls('usermenu-feedback', { success: feedback.type === 'success', error: feedback.type === 'error' })}>
+            {feedback.message}
+          </div>
+        )}
+      </div>
+      {renderAccountFooter()}
+    </>
+  )
+}
+
+export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
+  const apiBaseUrl = useMemo(resolveWorldServiceApiBase, [])
+  const isPrivyMode = auth?.mode === 'privy'
+  const canManageWorld = !!auth?.connected
+
+  const [loadingWorld, setLoadingWorld] = useState(false)
+  const [ownedWorld, setOwnedWorld] = useState(null)
+  const [worldError, setWorldError] = useState('')
+  const [worldName, setWorldName] = useState('My World')
+  const [worldSlug, setWorldSlug] = useState('my-world')
+  const [worldDescription, setWorldDescription] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [creatingWorld, setCreatingWorld] = useState(false)
 
   const refreshOwnedWorld = useCallback(async () => {
     if (!apiBaseUrl) {
@@ -469,143 +620,6 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
             {creatingWorld ? 'Creating...' : 'Create World'}
           </button>
         </div>
-      </div>
-    )
-  }
-
-  const renderWalletsSection = () => {
-    if (!isPrivyMode) return null
-
-    const isAuthenticated = ready && authenticated && user
-    const linkingEvm = pendingAction === 'link-wallet-evm'
-    const linkingSolana = pendingAction === 'link-wallet-solana'
-
-    return (
-      <div className='usermenu-section'>
-        <div className='usermenu-section-label'>Wallets</div>
-        {!isAuthenticated ? (
-          <div className='usermenu-muted'>Sign in to link wallets.</div>
-        ) : (
-          <>
-            {linkedWallets.length > 0 && (
-              <div className='usermenu-rows'>
-                {linkedWallets.map(wallet => {
-                  const key = `${wallet.chainType || 'wallet'}:${wallet.address}`
-                  return (
-                    <div key={key} className='usermenu-row'>
-                      <div className='usermenu-row-label'>{getWalletChainLabel(wallet.chainType)}</div>
-                      <div className='usermenu-row-value mono'>{truncateAddress(wallet.address)}</div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            <div className='usermenu-row'>
-              <div className='usermenu-row-label usermenu-muted'>Add wallet</div>
-              <div className='usermenu-inlineactions'>
-                <button
-                  className='usermenu-linkbtn'
-                  disabled={linkingEvm}
-                  onClick={() => {
-                    if (linkingEvm) return
-                    runLinkWallet('evm')
-                  }}
-                >
-                  {linkingEvm ? 'Linking...' : 'EVM'}
-                </button>
-                <button
-                  className='usermenu-linkbtn'
-                  disabled={linkingSolana}
-                  onClick={() => {
-                    if (linkingSolana) return
-                    runLinkWallet('solana')
-                  }}
-                >
-                  {linkingSolana ? 'Linking...' : 'Solana'}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    )
-  }
-
-  const renderSocialSection = () => {
-    if (!isPrivyMode) return null
-
-    const isAuthenticated = ready && authenticated && user
-
-    return (
-      <div className='usermenu-section'>
-        <div className='usermenu-section-label'>Social</div>
-        {!isAuthenticated ? (
-          <div className='usermenu-muted'>Sign in to link social accounts.</div>
-        ) : (
-          <div className='usermenu-rows'>
-            {socialProviders.map(provider => {
-              const isLinked = !!provider.subject || hasLinkedAccountType(user, provider.linkedType)
-              const isBusy = pendingAction === `link-${provider.key}`
-              return (
-                <div key={provider.key} className='usermenu-row'>
-                  <div className='usermenu-row-label'>{provider.label}</div>
-                  <div className='usermenu-row-value'>
-                    {isLinked ? (
-                      <span className='usermenu-linked-handle'>{provider.handle ? `@${provider.handle}` : 'Linked'}</span>
-                    ) : (
-                      <button
-                        className='usermenu-linkbtn'
-                        disabled={isBusy}
-                        onClick={() => {
-                          if (isBusy) return
-                          runLinkAction(provider.key, provider.link)
-                        }}
-                      >
-                        {isBusy ? 'Linking...' : 'Link'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  const renderAccountFooter = () => {
-    const isAuthenticated = ready && authenticated && user
-
-    if (!isAuthenticated) {
-      return (
-        <div className='usermenu-footer'>
-          <button className='usermenu-btn' onClick={runLogin}>
-            Sign In
-          </button>
-        </div>
-      )
-    }
-
-    const displayName = getDisplayName(user)
-    const primaryEmail = getPrimaryEmail(user)
-
-    return (
-      <div className='usermenu-footer'>
-        <div className='usermenu-footer-identity'>
-          <span className='usermenu-footer-name'>{displayName}</span>
-          {primaryEmail && <span className='usermenu-footer-email'>{primaryEmail}</span>}
-        </div>
-        <button
-          className={cls('usermenu-btn danger', { disabled: signingOut })}
-          onClick={() => {
-            if (signingOut) return
-            void runSignOut()
-          }}
-        >
-          {signingOut ? <LoaderIcon size='0.85rem' /> : <LogOutIcon size='0.85rem' />}
-          Sign Out
-        </button>
       </div>
     )
   }
@@ -981,19 +995,15 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
             <XIcon size='1rem' />
           </div>
         </div>
-        <div className='usermenu-scroll'>
-          {renderWorldSection()}
-          {isPrivyMode && <div className='usermenu-divider' />}
-          {renderWalletsSection()}
-          {isPrivyMode && <div className='usermenu-divider' />}
-          {renderSocialSection()}
-          {feedback && (
-            <div className={cls('usermenu-feedback', { success: feedback.type === 'success', error: feedback.type === 'error' })}>
-              {feedback.message}
-            </div>
-          )}
-        </div>
-        {renderAccountFooter()}
+        {isPrivyMode ? (
+          <PrivyAccountSection onDisconnectWallet={onDisconnectWallet}>
+            {renderWorldSection()}
+          </PrivyAccountSection>
+        ) : (
+          <div className='usermenu-scroll'>
+            {renderWorldSection()}
+          </div>
+        )}
       </div>
     </div>
   )
