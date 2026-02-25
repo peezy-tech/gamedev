@@ -60,6 +60,14 @@ export class PlayerLocal extends Entity {
     super(world, data, local)
     this.isPlayer = true
     this.isLocal = true
+    const locomotionEmotes =
+      data.locomotionEmotes && typeof data.locomotionEmotes === 'object' && !Array.isArray(data.locomotionEmotes)
+        ? data.locomotionEmotes
+        : null
+    this.locomotionEmotes = locomotionEmotes ? { ...locomotionEmotes } : {}
+    if (locomotionEmotes) {
+      this.data.locomotionEmotes = this.locomotionEmotes
+    }
     this.init()
   }
 
@@ -203,6 +211,9 @@ export class PlayerLocal extends Entity {
       .then(src => {
         if (this.avatar) this.avatar.deactivate()
         this.avatar = src.toNodes().get('avatar')
+        this.avatar.onLoad = () => {
+          this.avatar?.instance?.replaceLocomotionEmotes?.(this.locomotionEmotes, true)
+        }
         this.avatar.disableRateCheck() // max fps for local player
         this.base.add(this.avatar)
         this.nametag.position.y = this.avatar.getHeadToHeight() + 0.2
@@ -1309,11 +1320,35 @@ export class PlayerLocal extends Entity {
       this.world.emit('rank', { playerId: this.data.id, rank: this.data.rank })
       changed = true
     }
+    if (data.hasOwnProperty('locomotionEmotes')) {
+      if (data.locomotionEmotes && typeof data.locomotionEmotes === 'object' && !Array.isArray(data.locomotionEmotes)) {
+        this.locomotionEmotes = { ...data.locomotionEmotes }
+      } else {
+        this.locomotionEmotes = {}
+      }
+      this.data.locomotionEmotes = this.locomotionEmotes
+      this.avatar?.instance?.replaceLocomotionEmotes?.(this.locomotionEmotes, true)
+    }
     if (avatarChanged) {
       this.applyAvatar()
     }
     if (changed) {
       this.world.emit('player', this)
     }
+  }
+
+  replaceAnimations(newEmotes, reset = false) {
+    if (!newEmotes || typeof newEmotes !== 'object' || Array.isArray(newEmotes)) return
+    if (reset) {
+      this.locomotionEmotes = { ...newEmotes }
+    } else {
+      this.locomotionEmotes = { ...this.locomotionEmotes, ...newEmotes }
+    }
+    this.data.locomotionEmotes = this.locomotionEmotes
+    this.avatar?.instance?.replaceLocomotionEmotes?.(this.locomotionEmotes, true)
+    this.world.network.send('entityModified', {
+      id: this.data.id,
+      locomotionEmotes: this.locomotionEmotes,
+    })
   }
 }
