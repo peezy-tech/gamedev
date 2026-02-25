@@ -22,17 +22,6 @@ The rendering space for the WebView. Defaults to `'world'`.
 
 A URL to load in the iframe. This can be any website that allows iframe embedding.
 
-Note: Some websites block embedding via `X-Frame-Options` headers. For these cases, use the `.html` property instead.
-
-### `.html`: String
-
-Raw HTML content to embed directly in the iframe using the `srcdoc` attribute. This is useful for:
-- Embedding widgets that don't allow direct URL access (e.g., TradingView)
-- Creating custom HTML interfaces
-- Bypassing X-Frame-Options restrictions
-
-When both `.src` and `.html` are set, `.html` takes precedence.
-
 ### `.width`: Number
 
 The width of the WebView surface. Defaults to `1`.
