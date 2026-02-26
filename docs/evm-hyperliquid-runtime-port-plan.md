@@ -59,7 +59,7 @@ Port the old-platform `world.evm()` and `world.hyperliquid()` runtime APIs into 
     - Systems compile and run with no reference to removed wagmi APIs.
   - Dependency: **Depends on PR-01** (adapter contract).
 
-- [ ] **PR-03: Client Binding Integration**
+- [x] **PR-03: Client Binding Integration**
   - Scope: Bind wallet adapter state into world systems during client lifecycle.
   - Concrete changes:
     - Wire binding lifecycle in [`src/client/world-client.js`](/home/peezy/repos/github/lobby/runtime/src/client/world-client.js).
