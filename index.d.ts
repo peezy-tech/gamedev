@@ -889,6 +889,39 @@ interface RaycastHit {
   playerId: string | null
 }
 
+interface EVMAPI {
+  getAddress(): string | null
+  isConnected(): boolean
+}
+
+interface HyperliquidPosition {
+  ticker: string
+  size: number
+  entryPrice: number
+  unrealizedPnl: number
+  liquidationPrice: number | null
+}
+
+interface HyperliquidAPI {
+  getPrice(ticker: string): Promise<number>
+  getBalance(): Promise<number>
+  getPositions(): Promise<HyperliquidPosition[]>
+  getAvailableTickers(): Promise<string[]>
+  buy(ticker: string, amount: number, slippage?: number): Promise<any>
+  sell(ticker: string, amount: number, slippage?: number): Promise<any>
+  closePosition(ticker: string, slippage?: number): Promise<any>
+  hasAgentKey(): boolean
+  setupAgentKey(name?: string): Promise<{ address: string }>
+  deposit(amount: number): Promise<{
+    status: string
+    txHash?: string
+    amount?: number
+    message?: string
+    [key: string]: any
+  }>
+  withdraw(amount: number, destination?: string): Promise<any>
+}
+
 interface WorldAPI {
   // Identity / env
   readonly networkId: string
@@ -932,6 +965,12 @@ interface WorldAPI {
 
   // Loader (subset)
   load(type: 'avatar' | 'model', url: string): Promise<BaseNode>
+
+  // EVM
+  evm(): EVMAPI
+
+  // Hyperliquid
+  hyperliquid(): HyperliquidAPI
 }
 
 // -----------------------------

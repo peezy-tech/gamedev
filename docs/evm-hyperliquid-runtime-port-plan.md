@@ -80,7 +80,7 @@ Port the old-platform `world.evm()` and `world.hyperliquid()` runtime APIs into 
     - Existing script APIs unaffected.
   - Dependency: **Depends on PR-02**.
 
-- [ ] **PR-05: Typings + Docs Parity**
+- [x] **PR-05: Typings + Docs Parity**
   - Scope: Restore developer-facing scripting contract docs/types for the two runtime APIs.
   - Concrete changes:
     - Update [`index.d.ts`](/home/peezy/repos/github/lobby/runtime/index.d.ts) with `WorldAPI` additions.

@@ -112,6 +112,18 @@ Sets a query parameter in the browsers url
 
 Opens a link, defaults to new tab.
 
+### `.evm()`
+
+Returns the EVM helper API.
+
+See: [EVM](./EVM.md)
+
+### `.hyperliquid()`
+
+Returns the Hyperliquid trading helper API.
+
+See: [Hyperliquid](./Hyperliquid.md)
+
 ### `.setReticle(options: ?Object)`
 
 Customizes the center-screen reticle. Pass `null` to reset to default.
