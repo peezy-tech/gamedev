@@ -18,6 +18,7 @@ import { Storage } from './Storage'
 import { assets } from './assets'
 import { cleaner } from './cleaner'
 import { admin } from './admin'
+import { parseBooleanEnvFlag } from './adminCredentials.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
 import { getMaxUploadSizeBytes } from './worldLimits.js'
@@ -337,7 +338,8 @@ const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
 const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
 const AGONES_SDK_HTTP_PORT =
   Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
-const agonesIdleControllerEnabled = hasValue(process.env.PUBLIC_AUTH_URL) && process.env.SHUTDOWN_IDLE
+const agonesIdleControllerEnabled =
+  hasValue(process.env.PUBLIC_AUTH_URL) && parseBooleanEnvFlag(process.env.SHUTDOWN_IDLE, false)
 const agonesShutdownUrl = `http://127.0.0.1:${AGONES_SDK_HTTP_PORT}/shutdown`
 const adminConnectionCounts = {
   main: 0,

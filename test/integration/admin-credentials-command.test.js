@@ -86,5 +86,7 @@ test('isAdminCredentialRevealEnabled parses truthy and falsy env values', () => 
   assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: 'true' }), true)
   assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: '1' }), true)
   assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: 'false' }), false)
+  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: '0' }), false)
+  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: 'off' }), false)
   assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: '' }), false)
 })
