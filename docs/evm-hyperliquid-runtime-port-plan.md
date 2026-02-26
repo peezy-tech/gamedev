@@ -70,7 +70,7 @@ Port the old-platform `world.evm()` and `world.hyperliquid()` runtime APIs into 
     - Hyperliquid methods requiring wallet fail/pass as expected based on connection state.
   - Dependency: **Depends on PR-01 and PR-02**.
 
-- [ ] **PR-04: Script API Surface Re-Exposure**
+- [x] **PR-04: Script API Surface Re-Exposure**
   - Scope: Restore scripting entry points so app scripts can call `world.evm()` and `world.hyperliquid()`.
   - Concrete changes:
     - Re-add world methods in [`src/core/systems/Apps.js`](/home/peezy/repos/github/lobby/runtime/src/core/systems/Apps.js) mapping to the system methods.
