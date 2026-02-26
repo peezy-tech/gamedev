@@ -3,7 +3,6 @@ import * as THREE from '../extras/three'
 
 import { System } from './System'
 import { isBoolean } from 'lodash-es'
-import { TrackSource } from 'livekit-server-sdk'
 
 const v1 = new THREE.Vector3()
 const v2 = new THREE.Vector3()
@@ -13,6 +12,11 @@ export class ClientLiveKit extends System {
   constructor(world) {
     super(world)
     this.room = null
+    this.opts = null
+    this.connecting = false
+    this.connectingPromise = null
+    this.leaving = false
+    this.pendingMicEnable = false
     this.status = {
       available: false,
       connected: false,
@@ -52,42 +56,59 @@ export class ClientLiveKit extends System {
 
   async deserialize(opts) {
     if (!opts) return
+    this.opts = opts
     this.status.available = true
     this.status.muted = opts.muted.has(this.world.network.id)
     this.levels = opts.levels
     this.muted = opts.muted
-    this.room = new Room({
-      webAudioMix: {
-        audioContext: this.world.audio.ctx,
-      },
-      publishDefaults: {
-        screenShareEncoding: ScreenSharePresets.h1080fps30.encoding,
-        screenShareSimulcastLayers: [ScreenSharePresets.h1080fps30],
-      },
+    this.emit('status', this.status)
+  }
+
+  onLocalSpeakingChanged = speaking => {
+    const player = this.world.entities.player
+    this.world.livekit.emit('speaking', { playerId: player.data.id, speaking })
+    player.setSpeaking(speaking)
+  }
+
+  async connect() {
+    if (this.status.connected || !this.opts) return
+    if (this.connecting) return this.connectingPromise
+    this.connecting = true
+    this.connectingPromise = new Promise(resolve => {
+      this.world.audio.ready(async () => {
+        try {
+          this.room = new Room({
+            webAudioMix: {
+              audioContext: this.world.audio.ctx,
+            },
+            publishDefaults: {
+              screenShareEncoding: ScreenSharePresets.h1080fps30.encoding,
+              screenShareSimulcastLayers: [ScreenSharePresets.h1080fps30],
+            },
+          })
+          this.room.on(RoomEvent.Disconnected, this.onDisconnected)
+          this.room.on(RoomEvent.TrackMuted, this.onTrackMuted)
+          this.room.on(RoomEvent.TrackUnmuted, this.onTrackUnmuted)
+          this.room.on(RoomEvent.LocalTrackPublished, this.onLocalTrackPublished)
+          this.room.on(RoomEvent.LocalTrackUnpublished, this.onLocalTrackUnpublished)
+          this.room.on(RoomEvent.TrackSubscribed, this.onTrackSubscribed)
+          this.room.on(RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed)
+          this.room.localParticipant.on(ParticipantEvent.IsSpeakingChanged, this.onLocalSpeakingChanged)
+          await this.room.connect(this.opts.wsUrl, this.opts.token)
+          this.status.connected = true
+          this.status.mic = false
+          this.connecting = false
+          this.connectingPromise = null
+          this.emit('status', this.status)
+        } catch (err) {
+          this.connecting = false
+          this.connectingPromise = null
+          console.error('[livekit] connection failed', err)
+        }
+        resolve()
+      })
     })
-    this.room.on(RoomEvent.TrackMuted, this.onTrackMuted)
-    this.room.on(RoomEvent.TrackUnmuted, this.onTrackUnmuted)
-    this.room.on(RoomEvent.LocalTrackPublished, this.onLocalTrackPublished)
-    this.room.on(RoomEvent.LocalTrackUnpublished, this.onLocalTrackUnpublished)
-    this.room.on(RoomEvent.TrackSubscribed, this.onTrackSubscribed)
-    this.room.on(RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed)
-    this.room.localParticipant.on(ParticipantEvent.IsSpeakingChanged, speaking => {
-      const player = this.world.entities.player
-      this.world.livekit.emit('speaking', { playerId: player.data.id, speaking })
-      player.setSpeaking(speaking)
-    })
-    this.world.audio.ready(async () => {
-      try {
-        await this.room.connect(opts.wsUrl, opts.token)
-        this.status.connected = true
-        this.status.mic = false
-        this.emit('status', this.status)
-        // Always join voice with microphone off.
-        await this.room.localParticipant.setMicrophoneEnabled(false)
-      } catch (err) {
-        console.error('[livekit] connection failed', err)
-      }
-    })
+    return this.connectingPromise
   }
 
   setMuted(playerId, muted) {
@@ -137,8 +158,14 @@ export class ClientLiveKit extends System {
   }
 
   async setMicrophoneEnabled(value) {
+    if (value && this.leaving) {
+      this.pendingMicEnable = true
+      return
+    }
+    if (value && !this.status.connected) {
+      await this.connect()
+    }
     if (!this.room || !this.status.connected) {
-      console.error('[livekit] setMicrophoneEnabled failed (not connected)')
       throw new Error('livekit_not_connected')
     }
     value = isBoolean(value) ? value : !this.room.localParticipant.isMicrophoneEnabled
@@ -146,10 +173,16 @@ export class ClientLiveKit extends System {
       throw new Error('muted_by_moderator')
     }
     if (this.status.mic === value) return
-    return this.room.localParticipant.setMicrophoneEnabled(value)
+    await this.room.localParticipant.setMicrophoneEnabled(value)
+    if (!value && !this.status.screenshare) {
+      this.disconnect()
+    }
   }
 
-  setScreenShareTarget(targetId = null) {
+  async setScreenShareTarget(targetId = null) {
+    if (targetId && !this.status.connected) {
+      await this.connect()
+    }
     if (!this.room) return console.error('[livekit] setScreenShareTarget failed (not connected)')
     if (this.status.screenshare === targetId) return
     const metadata = JSON.stringify({
@@ -197,7 +230,7 @@ export class ClientLiveKit extends System {
     }
   }
 
-  onLocalTrackUnpublished = publication => {
+  onLocalTrackUnpublished = async publication => {
     const playerId = this.world.network.id
     // console.log('onLocalTrackUnpublished', pub)
     if (publication.source === 'microphone') {
@@ -209,6 +242,9 @@ export class ClientLiveKit extends System {
       this.removeScreen(screen)
       this.status.screenshare = null
       this.emit('status', this.status)
+      if (!this.status.mic) {
+        this.disconnect()
+      }
     }
   }
 
@@ -267,6 +303,51 @@ export class ClientLiveKit extends System {
     }
   }
 
+  onDisconnected = reason => {
+    if (this.room) {
+      try {
+        this.room.off(RoomEvent.Disconnected, this.onDisconnected)
+        this.room.off(RoomEvent.TrackMuted, this.onTrackMuted)
+        this.room.off(RoomEvent.TrackUnmuted, this.onTrackUnmuted)
+        this.room.off(RoomEvent.LocalTrackPublished, this.onLocalTrackPublished)
+        this.room.off(RoomEvent.LocalTrackUnpublished, this.onLocalTrackUnpublished)
+        this.room.off(RoomEvent.TrackSubscribed, this.onTrackSubscribed)
+        this.room.off(RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed)
+        if (this.room.localParticipant) {
+          this.room.localParticipant.off(ParticipantEvent.IsSpeakingChanged, this.onLocalSpeakingChanged)
+        }
+        this.voices.forEach(voice => voice.destroy())
+        this.voices.clear()
+        this.screens.forEach(screen => screen.destroy())
+        this.screens = []
+      } catch (err) {
+        // ignore cleanup errors
+      }
+      this.room = null
+    }
+    this.status.connected = false
+    this.status.mic = false
+    this.status.screenshare = null
+    this.connecting = false
+    this.leaving = false
+    const wasPending = this.pendingMicEnable
+    this.pendingMicEnable = false
+    this.emit('status', this.status)
+    if (wasPending) {
+      this.setMicrophoneEnabled(true)
+    }
+  }
+
+  setToken(token) {
+    if (this.opts) this.opts.token = token
+  }
+
+  disconnect() {
+    if (!this.room || this.leaving) return
+    this.leaving = true
+    this.world.network.send('livekitLeave')
+  }
+
   registerScreenNode(node) {
     this.screenNodes.add(node)
     let match
@@ -283,27 +364,8 @@ export class ClientLiveKit extends System {
   }
 
   destroy() {
-    this.voices.forEach(voice => {
-      voice.destroy()
-    })
-    this.voices.clear()
-    this.screens.forEach(screen => {
-      screen.destroy()
-    })
-    this.screens = []
     this.screenNodes.clear()
-    if (this.room) {
-      this.room.off(RoomEvent.TrackMuted, this.onTrackMuted)
-      this.room.off(RoomEvent.TrackUnmuted, this.onTrackUnmuted)
-      this.room.off(RoomEvent.LocalTrackPublished, this.onLocalTrackPublished)
-      this.room.off(RoomEvent.LocalTrackUnpublished, this.onLocalTrackUnpublished)
-      this.room.off(RoomEvent.TrackSubscribed, this.onTrackSubscribed)
-      this.room.off(RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed)
-      if (this.room.localParticipant) {
-        this.room.localParticipant.off(ParticipantEvent.IsSpeakingChanged)
-      }
-      this.room?.disconnect()
-    }
+    this.onDisconnected('destroy')
   }
 }
 

@@ -406,7 +406,7 @@ export function MainMenu({ world, open, onClose }) {
                   value={voice}
                   onChange={voice => world.prefs.setVoice(voice)}
                 />
-                {livekit.connected && (
+                {livekit.available && (
                   <>
                     <FieldToggle
                       label='Microphone'
@@ -422,7 +422,9 @@ export function MainMenu({ world, open, onClose }) {
                       onChange={changeMicrophone}
                     />
                     {livekit.muted && (
-                      <div className='mainmenu-note warn'>A moderator muted your voice chat. Mic cannot be enabled.</div>
+                      <div className='mainmenu-note warn'>
+                        A moderator muted your voice chat. Mic cannot be enabled.
+                      </div>
                     )}
                   </>
                 )}

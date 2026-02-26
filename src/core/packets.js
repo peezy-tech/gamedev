@@ -19,6 +19,8 @@ const names = [
   'playerSessionAvatar',
   'playerAvatar',
   'liveKitLevel',
+  'livekitLeave',
+  'livekitToken',
   'mute',
   'settingsModified',
   'spawnModified',
