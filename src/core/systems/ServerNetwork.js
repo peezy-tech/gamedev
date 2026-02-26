@@ -722,6 +722,14 @@ export class ServerNetwork extends System {
     console.warn('rejected mute over /ws', { playerId: socket.id })
   }
 
+  onLivekitLeave = async socket => {
+    const playerId = socket.player?.data?.id
+    if (!playerId) return
+    await this.world.livekit.removeParticipant(playerId)
+    const token = await this.world.livekit.generateToken(playerId)
+    if (token) socket.send('livekitToken', { token })
+  }
+
   applyModifyRank = async ({ playerId, rank }) => {
     if (!playerId) return { ok: false, error: 'invalid_payload' }
     if (!isNumber(rank)) return { ok: false, error: 'invalid_payload' }

@@ -1,4 +1,4 @@
-import { AccessToken, TrackSource } from 'livekit-server-sdk'
+import { AccessToken, TrackSource, RoomServiceClient } from 'livekit-server-sdk'
 
 import { System } from './System'
 import { uuid } from '../utils'
@@ -18,9 +18,24 @@ export class ServerLiveKit extends System {
     this.apiKey = process.env.LIVEKIT_API_KEY
     this.apiSecret = process.env.LIVEKIT_API_SECRET
     this.enabled = this.wsUrl && this.apiKey && this.apiSecret
+    this.roomService = this.enabled ? new RoomServiceClient(this.wsUrl, this.apiKey, this.apiSecret) : null
     this.modifiers = {} // [playerId] => Set({ level })
     this.levels = {} // [playerId] => level (disabled, spatial, global)
     this.muted = new Set()
+  }
+
+  async generateToken(playerId) {
+    if (!this.enabled) return null
+    const at = new AccessToken(this.apiKey, this.apiSecret, { identity: playerId })
+    at.addGrant({
+      room: this.roomId,
+      roomJoin: true,
+      canSubscribe: true,
+      canPublish: true,
+      canPublishSources: [TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO],
+      canUpdateOwnMetadata: true,
+    })
+    return at.toJwt()
   }
 
   async serialize(playerId) {
@@ -29,21 +44,17 @@ export class ServerLiveKit extends System {
     data.wsUrl = this.wsUrl
     data.levels = this.levels
     data.muted = this.muted
-    // generate voice access token for the player
-    const at = new AccessToken(this.apiKey, this.apiSecret, {
-      identity: playerId,
-    })
-    const videoGrant = {
-      room: this.roomId,
-      roomJoin: true,
-      canSubscribe: true,
-      canPublish: true,
-      canPublishSources: [TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO],
-      canUpdateOwnMetadata: true,
-    }
-    at.addGrant(videoGrant)
-    data.token = await at.toJwt()
+    data.token = await this.generateToken(playerId)
     return data
+  }
+
+  async removeParticipant(playerId) {
+    if (!this.roomService) return
+    try {
+      await this.roomService.removeParticipant(this.roomId, playerId)
+    } catch (err) {
+      console.error('[livekit] failed to remove participant:', playerId, err)
+    }
   }
 
   setMuted(playerId, muted) {

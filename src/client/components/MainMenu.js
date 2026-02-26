@@ -23,37 +23,10 @@ const shadowOptions = [
   { label: 'High', value: 'high' },
 ]
 
-function getMicEnableErrorMessage(err) {
-  if (!err) return 'Unable to access your microphone.'
-  if (err.message === 'muted_by_moderator') return 'You are muted by a moderator.'
-  if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-    return 'Microphone access was denied. Check browser site permissions.'
-  }
-  if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-    return 'No microphone was found.'
-  }
-  if (err.name === 'NotReadableError') {
-    return 'Microphone is unavailable. It may be in use by another app.'
-  }
-  if (err.name === 'SecurityError') {
-    return 'Microphone access requires HTTPS.'
-  }
-  return 'Unable to access your microphone.'
-}
 
 export function MainMenu({ world, open, onClose }) {
   const player = world.entities.player
   const { isAdmin, isBuilder } = useRank(world, player)
-  const [livekit, setLiveKit] = useState(() => world.livekit.status)
-  useEffect(() => {
-    const onLiveKitStatus = status => {
-      setLiveKit({ ...status })
-    }
-    world.livekit.on('status', onLiveKitStatus)
-    return () => {
-      world.livekit.off('status', onLiveKitStatus)
-    }
-  }, [])
   const [name, setName] = useState(() => player.data.name)
   const [dpr, setDPR] = useState(world.prefs.dpr)
   const [shadows, setShadows] = useState(world.prefs.shadows)
@@ -90,13 +63,6 @@ export function MainMenu({ world, open, onClose }) {
     if (dpr >= 3) add('3x', dpr)
     return options
   }, [])
-  const changeMicrophone = async value => {
-    try {
-      await world.livekit.setMicrophoneEnabled(value)
-    } catch (err) {
-      world.emit('toast', getMicEnableErrorMessage(err))
-    }
-  }
   useEffect(() => {
     const onPrefsChange = changes => {
       if (changes.dpr) setDPR(changes.dpr.value)
@@ -406,26 +372,6 @@ export function MainMenu({ world, open, onClose }) {
                   value={voice}
                   onChange={voice => world.prefs.setVoice(voice)}
                 />
-                {livekit.connected && (
-                  <>
-                    <FieldToggle
-                      label='Microphone'
-                      hint={
-                        livekit.muted
-                          ? 'You are muted by a moderator and cannot enable your microphone.'
-                          : 'Toggle your microphone for voice chat.'
-                      }
-                      trueLabel='On'
-                      falseLabel='Off'
-                      value={livekit.mic}
-                      disabled={livekit.muted}
-                      onChange={changeMicrophone}
-                    />
-                    {livekit.muted && (
-                      <div className='mainmenu-note warn'>A moderator muted your voice chat. Mic cannot be enabled.</div>
-                    )}
-                  </>
-                )}
               </>
             )}
             {tab === 'players' && isAdmin && <PlayersSection world={world} />}
