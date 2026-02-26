@@ -212,7 +212,10 @@ export class RuntimeWalletAdapter {
       return this.sessionWalletAddress
     }
 
-    const session = await this.authBridge?.getSessionUser?.().catch(() => null)
+    let session = null
+    if (typeof this.authBridge?.getSessionUser === 'function') {
+      session = await this.authBridge.getSessionUser().catch(() => null)
+    }
     this.sessionWalletAddress = normalizeAddress(session?.user?.wallet_address || '')
     this.sessionWalletFetchedAt = now
     return this.sessionWalletAddress

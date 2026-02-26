@@ -93,7 +93,7 @@ Port the old-platform `world.evm()` and `world.hyperliquid()` runtime APIs into 
     - Docs match implementation and old method names.
   - Dependency: **Depends on PR-04**.
 
-- [ ] **PR-06: End-to-End Parity Validation + Hardening**
+- [x] **PR-06: End-to-End Parity Validation + Hardening**
   - Scope: Verify full functional parity and close integration gaps.
   - Concrete changes:
     - Validate flows in client runtime:
