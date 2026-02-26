@@ -4,9 +4,9 @@ Use this checklist for manual parity verification in the client runtime.
 
 ## Preconditions
 
-- [ ] `PUBLIC_AUTH_URL` is configured (for session wallet linkage checks).
-- [ ] `PUBLIC_PRIVY_APP_ID` is configured (for Privy wallet path checks).
-- [ ] Injected wallet extension is installed (for fallback path checks).
+- [x] `PUBLIC_AUTH_URL` is configured (for session wallet linkage checks).
+- [x] `PUBLIC_PRIVY_APP_ID` is configured (for Privy wallet path checks).
+- [x] Injected wallet extension is installed (for fallback path checks).
 - [ ] Test wallet has Arbitrum USDC for deposit checks.
 
 ## Wallet Resolution

@@ -45,10 +45,12 @@ function makeAuthBridge(address) {
   }
 }
 
-function makePrivyWallet(address, provider) {
+function makePrivyWallet(address, provider, { walletClientType = 'privy', connectorType = 'embedded' } = {}) {
   return {
     type: 'ethereum',
     address,
+    walletClientType,
+    connectorType,
     async getEthereumProvider() {
       return provider
     },
@@ -101,6 +103,36 @@ test('wallet adapter falls back to first connected Privy wallet', async () => {
     assert.equal(snapshot.connected, true)
     assert.equal(snapshot.source, 'privy')
     assert.equal(snapshot.address?.toLowerCase(), walletA.address.toLowerCase())
+  } finally {
+    adapter.destroy()
+  }
+})
+
+test('wallet adapter prefers embedded Privy wallet over injected connector wallets', async () => {
+  const injectedProvider = makeProvider({ chainId: '0x1' })
+  const embeddedProvider = makeProvider({ chainId: '0xa4b1' })
+
+  const injectedWallet = makePrivyWallet('0x00000000000000000000000000000000000000AB', injectedProvider.provider, {
+    walletClientType: 'rabby_wallet',
+    connectorType: 'injected',
+  })
+  const embeddedWallet = makePrivyWallet('0x00000000000000000000000000000000000000AC', embeddedProvider.provider, {
+    walletClientType: 'privy',
+    connectorType: 'embedded',
+  })
+
+  const adapter = new RuntimeWalletAdapter({
+    authBridge: makeAuthBridge(injectedWallet.address),
+    walletBridge: makeWalletBridge([injectedWallet, embeddedWallet]),
+    refreshIntervalMs: 0,
+  })
+
+  try {
+    await adapter.refresh()
+    const snapshot = adapter.getSnapshot()
+    assert.equal(snapshot.connected, true)
+    assert.equal(snapshot.source, 'privy')
+    assert.equal(snapshot.address?.toLowerCase(), embeddedWallet.address.toLowerCase())
   } finally {
     adapter.destroy()
   }

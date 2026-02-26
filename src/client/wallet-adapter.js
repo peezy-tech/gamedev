@@ -100,9 +100,22 @@ function toSignTypedDataPayload({ domain, types, primaryType, message }) {
   })
 }
 
+function isEmbeddedPrivyEvmWallet(wallet) {
+  if (wallet?.type !== 'ethereum') return false
+  if (!normalizeAddress(wallet.address)) return false
+
+  const connectorType =
+    typeof wallet?.connectorType === 'string' ? wallet.connectorType.toLowerCase() : ''
+  const walletClientType =
+    typeof wallet?.walletClientType === 'string' ? wallet.walletClientType.toLowerCase() : ''
+
+  if (connectorType === 'embedded') return true
+  return walletClientType === 'privy' || walletClientType === 'privy-v2'
+}
+
 function normalizePrivyWallets(snapshot) {
   const wallets = Array.isArray(snapshot?.wallets) ? snapshot.wallets : []
-  return wallets.filter(wallet => wallet?.type === 'ethereum' && normalizeAddress(wallet.address))
+  return wallets.filter(isEmbeddedPrivyEvmWallet)
 }
 
 export class RuntimeWalletAdapter {
@@ -276,17 +289,19 @@ export class RuntimeWalletAdapter {
         const context = await this._createPrivyContext(wallet)
         if (context) return context
       }
-
-      const injectedSession = await this._resolveInjectedContext({
-        expectedAddress: sessionAddress,
-        request,
-      })
-      if (injectedSession) return injectedSession
     }
 
     for (const wallet of privyWallets) {
       const context = await this._createPrivyContext(wallet)
       if (context) return context
+    }
+
+    if (sessionAddress) {
+      const injectedSession = await this._resolveInjectedContext({
+        expectedAddress: sessionAddress,
+        request,
+      })
+      if (injectedSession) return injectedSession
     }
 
     return this._resolveInjectedContext({ request })
