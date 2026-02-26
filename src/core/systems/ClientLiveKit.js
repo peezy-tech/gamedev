@@ -20,6 +20,7 @@ export class ClientLiveKit extends System {
     this.status = {
       available: false,
       connected: false,
+      connecting: false,
       mic: false,
       screenshare: null,
       level: null,
@@ -74,6 +75,8 @@ export class ClientLiveKit extends System {
     if (this.status.connected || !this.opts) return
     if (this.connecting) return this.connectingPromise
     this.connecting = true
+    this.status.connecting = true
+    this.emit('status', this.status)
     this.connectingPromise = new Promise(resolve => {
       this.world.audio.ready(async () => {
         try {
@@ -96,13 +99,16 @@ export class ClientLiveKit extends System {
           this.room.localParticipant.on(ParticipantEvent.IsSpeakingChanged, this.onLocalSpeakingChanged)
           await this.room.connect(this.opts.wsUrl, this.opts.token)
           this.status.connected = true
+          this.status.connecting = false
           this.status.mic = false
           this.connecting = false
           this.connectingPromise = null
           this.emit('status', this.status)
         } catch (err) {
+          this.status.connecting = false
           this.connecting = false
           this.connectingPromise = null
+          this.emit('status', this.status)
           console.error('[livekit] connection failed', err)
         }
         resolve()
@@ -326,6 +332,7 @@ export class ClientLiveKit extends System {
       this.room = null
     }
     this.status.connected = false
+    this.status.connecting = false
     this.status.mic = false
     this.status.screenshare = null
     this.connecting = false
