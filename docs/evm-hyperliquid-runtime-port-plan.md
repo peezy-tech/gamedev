@@ -43,7 +43,7 @@ Port the old-platform `world.evm()` and `world.hyperliquid()` runtime APIs into 
     - No regressions in existing login/session flow.
   - Dependency: None.
 
-- [ ] **PR-02: Reintroduce EVM + Hyperliquid Client Systems**
+- [x] **PR-02: Reintroduce EVM + Hyperliquid Client Systems**
   - Scope: Port old `EVMClient` and `HyperliquidClient` into current branch with internal adaptation to PR-01 adapter.
   - Concrete changes:
     - Add [`EVMClient.js`](/home/peezy/repos/github/lobby/runtime/src/core/systems/EVMClient.js) and [`HyperliquidClient.js`](/home/peezy/repos/github/lobby/runtime/src/core/systems/HyperliquidClient.js).
