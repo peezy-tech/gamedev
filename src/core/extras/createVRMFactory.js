@@ -332,7 +332,10 @@ export function createVRMFactory(glb, setupMaterial) {
       // console.log('rate per second', 1 / rate)
     }
 
+    let paused = false
+
     const update = delta => {
+      if (paused) return
       elapsed += delta
       const should = rateCheck ? elapsed >= rate : true
       if (should) {
@@ -658,6 +661,28 @@ export function createVRMFactory(glb, setupMaterial) {
       }
     }
 
+    const restPose = new Map()
+    for (const bone of skeleton.bones) {
+      restPose.set(bone.uuid, {
+        position: bone.position.clone(),
+        quaternion: bone.quaternion.clone(),
+        scale: bone.scale.clone(),
+      })
+    }
+
+    function resetPose() {
+      for (const bone of skeleton.bones) {
+        const rest = restPose.get(bone.uuid)
+        if (!rest) continue
+        bone.position.copy(rest.position)
+        bone.quaternion.copy(rest.quaternion)
+        bone.scale.copy(rest.scale)
+      }
+      skeleton.bones.forEach(bone => bone.updateMatrixWorld())
+      skeleton.update = THREE.Skeleton.prototype.update
+      skeleton.update()
+    }
+
     function replaceLocomotionEmotes(next, reset = false) {
       if (reset) {
         for (const key in DefaultLocomotionEmotes) {
@@ -690,12 +715,17 @@ export function createVRMFactory(glb, setupMaterial) {
       raw: vrm,
       height,
       headToHeight,
+      skeleton,
+      findBone,
+      get paused() { return paused },
+      set paused(v) { paused = v },
       setEmote,
       setFirstPerson,
       update,
       updateRate,
       getBoneTransform,
       setLocomotion,
+      resetPose,
       replaceLocomotionEmotes,
       setVisible(visible) {
         vrm.scene.traverse(o => {
