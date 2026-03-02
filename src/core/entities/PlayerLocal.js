@@ -11,6 +11,7 @@ import { Emotes } from '../extras/playerEmotes'
 import { ControlPriorities } from '../extras/ControlPriorities'
 import { isBoolean, isNumber } from 'lodash-es'
 import { hasRank, Ranks } from '../extras/ranks'
+import { Ragdoll } from '../extras/Ragdoll'
 
 const UP = new THREE.Vector3(0, 1, 0)
 const DOWN = new THREE.Vector3(0, -1, 0)
@@ -278,6 +279,7 @@ export class PlayerLocal extends Entity {
     // disable gravity we'll add it ourselves
     this.capsule.setActorFlag(PHYSX.PxActorFlagEnum.eDISABLE_GRAVITY, true)
     this.capsule.attachShape(shape)
+    this.capsuleShape = shape
     // There's a weird issue where running directly at a wall the capsule won't generate contacts and instead
     // go straight through it. It has to be almost perfectly head on, a slight angle and everything works fine.
     // I spent days trying to figure out why, it's not CCD, it's not contact offsets, its just straight up bugged.
@@ -460,6 +462,10 @@ export class PlayerLocal extends Entity {
   }
 
   fixedUpdate(delta) {
+    if (this._ragdoll) {
+      this._ragdoll.fixedUpdate(delta)
+      return
+    }
     const xr = this.isXR
     const freeze = this.data.effect?.freeze
     const anchor = this.getAnchorMatrix()
@@ -819,6 +825,93 @@ export class PlayerLocal extends Entity {
 
   update(delta) {
     const xr = this.isXR
+
+    const updateCameraInput = () => {
+      // update cam look direction
+      if (xr) {
+        // in xr clear camera rotation (handled internally)
+        // in xr we only track turn here, which is added to the xr camera later on
+        // this.cam.rotation.x = 0
+        // this.cam.rotation.z = 0
+        if (this.control.xrRightStick.value.x === 0 && this.didSnapTurn) {
+          this.didSnapTurn = false
+        } else if (this.control.xrRightStick.value.x > 0 && !this.didSnapTurn) {
+          this.turnXRRigAtPlayer(-45)
+          this.didSnapTurn = true
+        } else if (this.control.xrRightStick.value.x < 0 && !this.didSnapTurn) {
+          this.turnXRRigAtPlayer(45)
+          this.didSnapTurn = true
+        }
+        // if we did snap turn, we need to refresh the hmd position to cancel it out
+        if (this.didSnapTurn) {
+          this.world.camera.getWorldPosition(v1)
+          v1.y = 0
+          v2.copy(this.xrRig.position)
+          v2.y = 0
+          v3.copy(v1).sub(v2)
+          this.hmdLast.copy(v3)
+        }
+      } else if (this.control.pointer.locked) {
+        // or pointer lock, rotate camera with pointer movement
+        this.cam.rotation.x += -this.control.pointer.delta.y * POINTER_LOOK_SPEED * delta
+        this.cam.rotation.y += -this.control.pointer.delta.x * POINTER_LOOK_SPEED * delta
+        this.cam.rotation.z = 0
+      } else if (this.pan) {
+        // or when touch panning
+        this.cam.rotation.x += -this.pan.delta.y * PAN_LOOK_SPEED * delta
+        this.cam.rotation.y += -this.pan.delta.x * PAN_LOOK_SPEED * delta
+        this.cam.rotation.z = 0
+      }
+
+      // ensure we can't look too far up/down
+      if (!xr) {
+        this.cam.rotation.x = clamp(this.cam.rotation.x, -89 * DEG2RAD, 89 * DEG2RAD)
+      }
+
+      // zoom camera if scrolling wheel
+      if (!xr) {
+        this.cam.zoom += -this.control.scrollDelta.value * ZOOM_SPEED * delta
+        this.cam.zoom = clamp(this.cam.zoom, MIN_ZOOM, MAX_ZOOM)
+      }
+
+      if (this.firstPersonForced) {
+        this.cam.zoom = 0
+      }
+
+      // transition in and out of first person
+      if (this.cam.zoom < 1 && !this.firstPerson) {
+        this.cam.zoom = 0
+        this.firstPerson = true
+        this.avatar.visible = false
+      } else if (this.cam.zoom > 0 && this.firstPerson) {
+        this.cam.zoom = 1
+        this.firstPerson = false
+        this.avatar.visible = true
+      }
+    }
+
+    if (this._ragdoll) {
+      this._ragdoll.update(delta)
+      const hipsPos = this._ragdoll.getHipsPosition()
+      if (hipsPos) {
+        this.base.position.set(hipsPos.x - this._ragdollHipsOffset.x, hipsPos.y - this._ragdollHipsOffset.y, hipsPos.z - this._ragdollHipsOffset.z)
+        this.base.matrix.compose(this.base.position, this.base.quaternion, this.base.scale)
+        if (this.base.parent) {
+          this.base.matrixWorld.multiplyMatrices(this.base.parent.matrixWorld, this.base.matrix)
+        } else {
+          this.base.matrixWorld.copy(this.base.matrix)
+        }
+      }
+      updateCameraInput()
+      // tick effect duration even during ragdoll (normally skipped by early return)
+      if (this.data.effect?.duration) {
+        this.data.effect.duration -= delta
+        if (this.data.effect.duration <= 0) {
+          this.setEffect(null)
+        }
+      }
+      return
+    }
     const freeze = this.data.effect?.freeze
     const anchor = this.getAnchorMatrix()
 
@@ -843,67 +936,7 @@ export class PlayerLocal extends Entity {
       this.capsule.setGlobalPose(pose)
     }
 
-    // update cam look direction
-    if (xr) {
-      // in xr clear camera rotation (handled internally)
-      // in xr we only track turn here, which is added to the xr camera later on
-      // this.cam.rotation.x = 0
-      // this.cam.rotation.z = 0
-      if (this.control.xrRightStick.value.x === 0 && this.didSnapTurn) {
-        this.didSnapTurn = false
-      } else if (this.control.xrRightStick.value.x > 0 && !this.didSnapTurn) {
-        this.turnXRRigAtPlayer(-45)
-        this.didSnapTurn = true
-      } else if (this.control.xrRightStick.value.x < 0 && !this.didSnapTurn) {
-        this.turnXRRigAtPlayer(45)
-        this.didSnapTurn = true
-      }
-      // if we did snap turn, we need to refresh the hmd position to cancel it out
-      if (this.didSnapTurn) {
-        this.world.camera.getWorldPosition(v1)
-        v1.y = 0
-        v2.copy(this.xrRig.position)
-        v2.y = 0
-        v3.copy(v1).sub(v2)
-        this.hmdLast.copy(v3)
-      }
-    } else if (this.control.pointer.locked) {
-      // or pointer lock, rotate camera with pointer movement
-      this.cam.rotation.x += -this.control.pointer.delta.y * POINTER_LOOK_SPEED * delta
-      this.cam.rotation.y += -this.control.pointer.delta.x * POINTER_LOOK_SPEED * delta
-      this.cam.rotation.z = 0
-    } else if (this.pan) {
-      // or when touch panning
-      this.cam.rotation.x += -this.pan.delta.y * PAN_LOOK_SPEED * delta
-      this.cam.rotation.y += -this.pan.delta.x * PAN_LOOK_SPEED * delta
-      this.cam.rotation.z = 0
-    }
-
-    // ensure we can't look too far up/down
-    if (!xr) {
-      this.cam.rotation.x = clamp(this.cam.rotation.x, -89 * DEG2RAD, 89 * DEG2RAD)
-    }
-
-    // zoom camera if scrolling wheel
-    if (!xr) {
-      this.cam.zoom += -this.control.scrollDelta.value * ZOOM_SPEED * delta
-      this.cam.zoom = clamp(this.cam.zoom, MIN_ZOOM, MAX_ZOOM)
-    }
-
-    if (this.firstPersonForced) {
-      this.cam.zoom = 0
-    }
-
-    // transition in and out of first person
-    if (this.cam.zoom < 1 && !this.firstPerson) {
-      this.cam.zoom = 0
-      this.firstPerson = true
-      this.avatar.visible = false
-    } else if (this.cam.zoom > 0 && this.firstPerson) {
-      this.cam.zoom = 1
-      this.firstPerson = false
-      this.avatar.visible = true
-    }
+    updateCameraInput()
 
     // stick movement threshold
     if (this.stick && !this.stick.active) {
@@ -1048,7 +1081,7 @@ export class PlayerLocal extends Entity {
     if (this.emote !== emote) {
       this.emote = emote
     }
-    this.avatar?.setEmote(this.emote)
+    if (!this._ragdoll) this.avatar?.setEmote(this.emote)
 
     // get locomotion mode
     let mode
@@ -1089,7 +1122,7 @@ export class PlayerLocal extends Entity {
     }
 
     // apply locomotion
-    this.avatar?.instance?.setLocomotion(this.mode, this.axis, this.gaze)
+    if (!this._ragdoll) this.avatar?.instance?.setLocomotion(this.mode, this.axis, this.gaze)
 
     // send network updates
     this.lastSendAt += delta
@@ -1155,6 +1188,21 @@ export class PlayerLocal extends Entity {
   }
 
   lateUpdate(delta) {
+    if (this._ragdoll) {
+      this.cam.position.copy(this.base.position)
+      this.cam.position.y += this.camHeight
+      if (!this.firstPerson) {
+        const forward = v1.copy(FORWARD).applyQuaternion(this.cam.quaternion)
+        const right = v2.crossVectors(forward, UP).normalize()
+        this.cam.position.add(right.multiplyScalar(0.3))
+      }
+      simpleCamLerp(this.world, this.control.camera, this.cam, delta)
+      if (this.avatar) {
+        const matrix = this.avatar.getBoneTransform('head')
+        if (matrix) this.aura.position.setFromMatrixPosition(matrix)
+      }
+      return
+    }
     const xr = this.isXR
     const anchor = this.getAnchorMatrix()
 
@@ -1258,6 +1306,61 @@ export class PlayerLocal extends Entity {
     }
   }
 
+  pushBone(boneName, force, point) {
+    if (!this._ragdoll) return
+    if (Array.isArray(force)) force = v1.fromArray(force)
+    if (Array.isArray(point)) point = v2.fromArray(point)
+    this._ragdoll.pushBone(boneName, force, point)
+  }
+
+  setRagdoll(enable, force, opts) {
+    if (enable) {
+      if (this._ragdoll) return
+      if (!this.avatar?.instance) return
+      this.capsule.setActorFlag(PHYSX.PxActorFlagEnum.eDISABLE_SIMULATION, true)
+      if (this.capsuleShape) this.capsuleShape.setFlag(PHYSX.PxShapeFlagEnum.eSCENE_QUERY_SHAPE, false)
+      this.capsuleDisabled = true
+      const hipsBone = this.avatar.instance.findBone('hips')
+      const hipsBoneWorldPos = hipsBone
+        ? v1.setFromMatrixPosition(m1.multiplyMatrices(this.base.matrixWorld, hipsBone.matrixWorld))
+        : this.base.position
+      this._ragdollHipsOffset = new THREE.Vector3(
+        hipsBoneWorldPos.x - this.base.position.x,
+        hipsBoneWorldPos.y - this.base.position.y,
+        hipsBoneWorldPos.z - this.base.position.z
+      )
+      const ragdoll = new Ragdoll(this.world, this.avatar.instance, this.base.matrixWorld, this.data.id)
+      ragdoll.build()
+      ragdoll.activate(force || null, opts)
+      this._ragdoll = ragdoll
+    } else {
+      if (!this._ragdoll) return
+      this._ragdoll.destroy()
+      this._ragdoll = null
+      this._ragdollHipsOffset = null
+      if (this.avatar?.instance) {
+        this.avatar.instance.resetPose?.()
+        this.avatar.instance.paused = false
+      }
+      // move capsule to where ragdoll ended (base.position was updated by hips tracking)
+      const pose = this.capsule.getGlobalPose()
+      this.base.position.toPxTransform(pose)
+      this.capsuleHandle.snap(pose)
+      this.capsule.setActorFlag(PHYSX.PxActorFlagEnum.eDISABLE_SIMULATION, false)
+      if (this.capsuleShape) this.capsuleShape.setFlag(PHYSX.PxShapeFlagEnum.eSCENE_QUERY_SHAPE, true)
+      this.capsuleDisabled = false
+      this.capsule.setLinearVelocity(v1.set(0, 0, 0).toPxVec3())
+      // send teleport so remotes snap to final ragdoll position
+      this.world.network.send('entityModified', {
+        id: this.data.id,
+        r: 0,
+        p: this.base.position.toArray(),
+        q: this.base.quaternion.toArray(),
+        t: true,
+      })
+    }
+  }
+
   setName(name) {
     this.modify({ name })
     this.world.network.send('entityModified', { id: this.data.id, name })
@@ -1314,6 +1417,14 @@ export class PlayerLocal extends Entity {
         this.onEffectEnd = null
       }
       this.data.effect = data.ef
+    }
+    if (data.hasOwnProperty('r')) {
+      if (data.r === 1) {
+        const force = data.rf ? new THREE.Vector3().fromArray(data.rf) : null
+        this.setRagdoll(true, force, data.ro || null)
+      } else if (data.r === 0) {
+        this.setRagdoll(false)
+      }
     }
     if (data.hasOwnProperty('rank')) {
       this.data.rank = data.rank
