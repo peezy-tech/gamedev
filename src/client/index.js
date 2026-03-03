@@ -3,7 +3,7 @@ import '../core/lockdown'
 import { getAddress } from 'ethers'
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { PrivyProvider, usePrivy } from '@privy-io/react-auth'
+import { PrivyProvider, usePrivy, useWallets } from '@privy-io/react-auth'
 import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana'
 
 import { storage } from '../core/storage'
@@ -552,6 +552,76 @@ function createPrivyRuntimeAuthBridge(state) {
   }
 }
 
+function createRuntimeWalletBridge() {
+  const listeners = new Set()
+  let snapshot = {
+    ready: false,
+    wallets: [],
+  }
+
+  const emit = () => {
+    for (const listener of listeners) {
+      listener(snapshot)
+    }
+  }
+
+  return {
+    getSnapshot() {
+      return snapshot
+    },
+    setSnapshot(next) {
+      const wallets = Array.isArray(next?.wallets) ? next.wallets : []
+      const ready = !!next?.ready
+      const changed =
+        snapshot.ready !== ready ||
+        snapshot.wallets.length !== wallets.length ||
+        snapshot.wallets.some((wallet, index) => wallet !== wallets[index])
+      if (!changed) return
+      snapshot = { ready, wallets }
+      emit()
+    },
+    subscribe(listener) {
+      if (typeof listener !== 'function') {
+        return () => {}
+      }
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+  }
+}
+
+function normalizePrivyWallets(wallets) {
+  if (!Array.isArray(wallets)) return []
+  return wallets.filter(wallet => {
+    if (wallet?.type !== 'ethereum') return false
+    return typeof wallet?.address === 'string' && wallet.address.trim().length > 0
+  })
+}
+
+function PrivyWalletBridgeSync({ bridge, children }) {
+  const { ready, wallets } = useWallets()
+
+  useEffect(() => {
+    bridge?.setSnapshot({
+      ready,
+      wallets: normalizePrivyWallets(wallets),
+    })
+  }, [bridge, ready, wallets])
+
+  useEffect(() => {
+    return () => {
+      bridge?.setSnapshot({
+        ready: false,
+        wallets: [],
+      })
+    }
+  }, [bridge])
+
+  return children
+}
+
 function PrivyRuntimeAuthSync({ state, children }) {
   const { ready, authenticated, login, logout, getAccessToken } = usePrivy()
 
@@ -612,10 +682,12 @@ function PrivyRuntimeAuthSync({ state, children }) {
 const authBaseUrl = hasValue(env.PUBLIC_AUTH_URL) ? env.PUBLIC_AUTH_URL : null
 const privyAppId = hasValue(env.PUBLIC_PRIVY_APP_ID) ? env.PUBLIC_PRIVY_APP_ID : ''
 const privyBridgeState = privyAppId ? createPrivyBridgeState(authBaseUrl) : null
+const runtimeWalletBridge = createRuntimeWalletBridge()
 if (typeof globalThis !== 'undefined') {
   globalThis.__runtimeAuth = privyBridgeState
     ? createPrivyRuntimeAuthBridge(privyBridgeState)
     : createInjectedRuntimeAuthBridge(authBaseUrl)
+  globalThis.__runtimeWalletBridge = runtimeWalletBridge
 }
 
 function App() {
@@ -659,9 +731,11 @@ function RootApp() {
         },
       }}
     >
-      <PrivyRuntimeAuthSync state={privyBridgeState}>
-        <App />
-      </PrivyRuntimeAuthSync>
+      <PrivyWalletBridgeSync bridge={runtimeWalletBridge}>
+        <PrivyRuntimeAuthSync state={privyBridgeState}>
+          <App />
+        </PrivyRuntimeAuthSync>
+      </PrivyWalletBridgeSync>
     </PrivyProvider>
   )
 }
