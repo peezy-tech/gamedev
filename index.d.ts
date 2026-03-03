@@ -892,6 +892,26 @@ interface RaycastHit {
 interface EVMAPI {
   getAddress(): string | null
   isConnected(): boolean
+  getNativeBalance(address?: string | null): Promise<number>
+  getTokenBalance(tokenAddress: string, address?: string | null, decimals?: number): Promise<number>
+  getUSDCBalance(address?: string | null): Promise<number>
+  transferNative(to: string, amount: number | string): Promise<{
+    hash: string
+    receipt: any
+  }>
+  transferToken(
+    tokenAddress: string,
+    to: string,
+    amount: number | string,
+    decimals?: number
+  ): Promise<{
+    hash: string
+    receipt: any
+  }>
+  transferUSDC(to: string, amount: number | string): Promise<{
+    hash: string
+    receipt: any
+  }>
 }
 
 interface HyperliquidPosition {

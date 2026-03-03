@@ -401,6 +401,23 @@ export class RuntimeWalletAdapter {
     return publicClient.readContract(params)
   }
 
+  async getBalance({ address, request = false } = {}) {
+    const { context, publicClient } = await this._getViemClients({ request })
+    const resolvedAddress = normalizeAddress(address || context.address)
+    if (!resolvedAddress) {
+      throw new Error('Invalid address')
+    }
+    return publicClient.getBalance({ address: resolvedAddress })
+  }
+
+  async sendTransaction(params) {
+    const { context, walletClient } = await this._getViemClients({ request: true })
+    return walletClient.sendTransaction({
+      ...params,
+      account: params?.account || context.address,
+    })
+  }
+
   async writeContract(params) {
     const { context, walletClient } = await this._getViemClients({ request: true })
     return walletClient.writeContract({

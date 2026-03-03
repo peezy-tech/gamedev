@@ -76,6 +76,14 @@ export class Apps extends System {
         return {
           getAddress: () => evm.getAddress(),
           isConnected: () => evm.isConnected(),
+          getNativeBalance: address => evm.getNativeBalance(address),
+          getTokenBalance: (tokenAddress, address, decimals) =>
+            evm.getTokenBalance(tokenAddress, address, decimals),
+          getUSDCBalance: address => evm.getUSDCBalance(address),
+          transferNative: (to, amount) => evm.transferNative(to, amount),
+          transferToken: (tokenAddress, to, amount, decimals) =>
+            evm.transferToken(tokenAddress, to, amount, decimals),
+          transferUSDC: (to, amount) => evm.transferUSDC(to, amount),
         }
       },
       add(entity, pNode) {
