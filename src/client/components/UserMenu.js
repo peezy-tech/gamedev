@@ -112,6 +112,11 @@ function truncateAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
+function formatBalance(value, maximumFractionDigits = 6) {
+  if (!Number.isFinite(value)) return '--'
+  return value.toLocaleString('en-US', { maximumFractionDigits })
+}
+
 function getWalletChainLabel(chainType) {
   if (chainType === 'ethereum') return 'EVM'
   if (chainType === 'solana') return 'Solana'
@@ -178,11 +183,20 @@ function getLatestConnectedWallet(wallets) {
     })[0]
 }
 
-function PrivyAccountSection({ onDisconnectWallet, children }) {
+function PrivyAccountSection({ world, onDisconnectWallet, children }) {
   const [signingOut, setSigningOut] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [pendingAction, setPendingAction] = useState('')
   const [copiedWalletKey, setCopiedWalletKey] = useState('')
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [transferAsset, setTransferAsset] = useState('USDC')
+  const [transferTo, setTransferTo] = useState('')
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferBalance, setTransferBalance] = useState(null)
+  const [transferPending, setTransferPending] = useState(false)
+  const [transferError, setTransferError] = useState('')
+  const [transferTxHash, setTransferTxHash] = useState('')
+  const [copiedTxHash, setCopiedTxHash] = useState(false)
 
   const setFeedbackError = useCallback(message => setFeedback({ type: 'error', message }), [])
   const setFeedbackSuccess = useCallback(message => setFeedback({ type: 'success', message }), [])
@@ -396,6 +410,126 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
     }, 1200)
   }, [connectedSiteWalletRows, setFeedbackError])
 
+  const refreshTransferBalance = useCallback(async () => {
+    if (!transferOpen) return
+    if (!activeEvmWallet?.address) {
+      setTransferBalance(null)
+      return
+    }
+    if (!world?.evm) {
+      setTransferBalance(null)
+      return
+    }
+
+    const address = activeEvmWallet.address
+    try {
+      const nextBalance =
+        transferAsset === 'USDC'
+          ? await world.evm.getUSDCBalance(address)
+          : await world.evm.getNativeBalance(address)
+      setTransferBalance(Number.isFinite(nextBalance) ? nextBalance : null)
+    } catch {
+      setTransferBalance(null)
+    }
+  }, [transferOpen, activeEvmWallet, transferAsset, world])
+
+  useEffect(() => {
+    void refreshTransferBalance()
+  }, [refreshTransferBalance])
+
+  useEffect(() => {
+    if (activeEvmWallet?.address) return
+    setTransferOpen(false)
+    setTransferPending(false)
+    setTransferError('')
+    setTransferTxHash('')
+    setCopiedTxHash(false)
+  }, [activeEvmWallet])
+
+  const openTransferPanel = useCallback(() => {
+    setTransferOpen(true)
+    setTransferError('')
+    setTransferTxHash('')
+    setCopiedTxHash(false)
+  }, [])
+
+  const closeTransferPanel = useCallback(() => {
+    if (transferPending) return
+    setTransferOpen(false)
+    setTransferError('')
+    setTransferTxHash('')
+    setCopiedTxHash(false)
+  }, [transferPending])
+
+  const copyTransferTxHash = useCallback(async () => {
+    if (!transferTxHash) return
+    const copied = await copyToClipboard(transferTxHash)
+    if (!copied) {
+      setTransferError('Unable to copy transaction hash.')
+      return
+    }
+    setCopiedTxHash(true)
+    setTimeout(() => {
+      setCopiedTxHash(false)
+    }, 1200)
+  }, [transferTxHash])
+
+  const submitTransfer = useCallback(async () => {
+    if (transferPending) return
+    if (!world?.evm) {
+      setTransferError('EVM wallet is unavailable.')
+      return
+    }
+
+    const destination = transferTo.trim()
+    if (!/^0x[a-fA-F0-9]{40}$/.test(destination)) {
+      setTransferError('Enter a valid recipient address.')
+      return
+    }
+
+    const amountValue = transferAmount.trim()
+    if (!amountValue) {
+      setTransferError('Enter an amount.')
+      return
+    }
+    const parsed = Number(amountValue)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setTransferError('Amount must be greater than 0.')
+      return
+    }
+
+    setTransferPending(true)
+    setTransferError('')
+    setTransferTxHash('')
+    setCopiedTxHash(false)
+
+    try {
+      const result =
+        transferAsset === 'USDC'
+          ? await world.evm.transferUSDC(destination, amountValue)
+          : await world.evm.transferNative(destination, amountValue)
+      const hash = typeof result?.hash === 'string' ? result.hash : ''
+      if (hash) {
+        setTransferTxHash(hash)
+      }
+      setTransferAmount('')
+      setFeedbackSuccess(`${transferAsset} transfer submitted.`)
+      await refreshTransferBalance()
+    } catch (error) {
+      setTransferError(toPrivyErrorMessage(error, `Unable to transfer ${transferAsset}.`))
+    } finally {
+      setTransferPending(false)
+    }
+  }, [
+    transferPending,
+    world,
+    transferTo,
+    transferAmount,
+    transferAsset,
+    refreshTransferBalance,
+    setFeedbackSuccess,
+  ])
+
   const isAuthenticated = ready && authenticated && user
 
   const renderWalletsSection = () => {
@@ -417,6 +551,17 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
                   <div className='usermenu-wallet-row'>
                     <span className='usermenu-wallet-address mono'>{truncateAddress(row.wallet.address)}</span>
                     <span className='usermenu-chip active'>Active</span>
+                    {row.chainLabel === 'EVM' && (
+                      <button
+                        className='usermenu-chipbtn'
+                        disabled={!world?.evm}
+                        onClick={() => {
+                          openTransferPanel()
+                        }}
+                      >
+                        Send
+                      </button>
+                    )}
                     <button
                       className='usermenu-chipbtn'
                       onClick={() => {
@@ -432,6 +577,99 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
           </div>
         ) : (
           <div className='usermenu-muted'>No connected wallets.</div>
+        )}
+        {transferOpen && activeEvmWallet && (
+          <div className='usermenu-transfer-panel'>
+            <div className='usermenu-transfer-head'>
+              <div className='usermenu-transfer-title'>Send From {truncateAddress(activeEvmWallet.address)}</div>
+              <button className='usermenu-linkbtn' disabled={transferPending} onClick={closeTransferPanel}>
+                Close
+              </button>
+            </div>
+            <div className='usermenu-transfer-grid'>
+              <label className='usermenu-field'>
+                <div className='usermenu-label'>Asset</div>
+                <select
+                  className='usermenu-input usermenu-select'
+                  value={transferAsset}
+                  disabled={transferPending}
+                  onChange={event => {
+                    setTransferAsset(event.target.value === 'ETH' ? 'ETH' : 'USDC')
+                    setTransferError('')
+                    setTransferTxHash('')
+                    setCopiedTxHash(false)
+                  }}
+                >
+                  <option value='USDC'>USDC</option>
+                  <option value='ETH'>ETH</option>
+                </select>
+              </label>
+              <label className='usermenu-field'>
+                <div className='usermenu-label'>Recipient</div>
+                <input
+                  className='usermenu-input mono'
+                  placeholder='0x...'
+                  value={transferTo}
+                  disabled={transferPending}
+                  onChange={event => {
+                    setTransferTo(event.target.value)
+                    setTransferError('')
+                  }}
+                />
+              </label>
+              <label className='usermenu-field'>
+                <div className='usermenu-label'>Amount</div>
+                <input
+                  className='usermenu-input'
+                  placeholder='0.0'
+                  value={transferAmount}
+                  disabled={transferPending}
+                  onChange={event => {
+                    setTransferAmount(event.target.value)
+                    setTransferError('')
+                  }}
+                />
+              </label>
+            </div>
+            <div className='usermenu-transfer-meta'>
+              Available: {formatBalance(transferBalance, transferAsset === 'USDC' ? 2 : 6)} {transferAsset}
+            </div>
+            {transferError && <div className='usermenu-error'>{transferError}</div>}
+            {transferTxHash && (
+              <div className='usermenu-transfer-tx'>
+                <div className='usermenu-transfer-tx-value mono'>{truncateAddress(transferTxHash)}</div>
+                <div className='usermenu-inlineactions'>
+                  <button
+                    className='usermenu-linkbtn'
+                    onClick={() => {
+                      void copyTransferTxHash()
+                    }}
+                  >
+                    {copiedTxHash ? 'Copied' : 'Copy Tx'}
+                  </button>
+                  <a
+                    className='usermenu-linkbtn'
+                    href={`https://arbiscan.io/tx/${transferTxHash}`}
+                    target='_blank'
+                    rel='noreferrer'
+                  >
+                    View
+                  </a>
+                </div>
+              </div>
+            )}
+            <div className='usermenu-inlineactions'>
+              <button
+                className='usermenu-linkbtn'
+                disabled={transferPending}
+                onClick={() => {
+                  void submitTransfer()
+                }}
+              >
+                {transferPending ? 'Sending...' : `Send ${transferAsset}`}
+              </button>
+            </div>
+          </div>
         )}
 
         <div className='usermenu-subsection-label'>Linked To Account</div>
@@ -577,7 +815,7 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
   )
 }
 
-export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
+export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet }) {
   const apiBaseUrl = useMemo(resolveWorldServiceApiBase, [])
   const isPrivyMode = auth?.mode === 'privy'
   const canManageWorld = !!auth?.connected
@@ -1075,6 +1313,53 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
             border-color: ${theme.borderHover};
             background: rgba(255, 255, 255, 0.08);
           }
+          &:disabled {
+            cursor: default;
+            color: rgba(255, 255, 255, 0.4);
+            border-color: ${theme.borderLight};
+            background: rgba(255, 255, 255, 0.02);
+          }
+        }
+        .usermenu-transfer-panel {
+          margin-top: 0.5rem;
+          border: 1px solid ${theme.borderLight};
+          border-radius: ${theme.radiusSmall};
+          background: rgba(0, 0, 0, 0.16);
+          padding: 0.55rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.45rem;
+        }
+        .usermenu-transfer-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.5rem;
+        }
+        .usermenu-transfer-title {
+          font-size: 0.74rem;
+          color: rgba(255, 255, 255, 0.74);
+          font-weight: 600;
+        }
+        .usermenu-transfer-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .usermenu-transfer-meta {
+          font-size: 0.74rem;
+          color: rgba(255, 255, 255, 0.52);
+        }
+        .usermenu-transfer-tx {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .usermenu-transfer-tx-value {
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 0.74rem;
         }
         .usermenu-row-value.mono {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
@@ -1145,6 +1430,9 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
             border-color: ${theme.borderHover};
             outline: none;
           }
+        }
+        .usermenu-select {
+          appearance: none;
         }
         .usermenu-textarea {
           min-height: 4rem;
@@ -1242,7 +1530,7 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
           </div>
         </div>
         {isPrivyMode ? (
-          <PrivyAccountSection onDisconnectWallet={onDisconnectWallet}>
+          <PrivyAccountSection world={world} onDisconnectWallet={onDisconnectWallet}>
             {renderWorldSection()}
           </PrivyAccountSection>
         ) : (

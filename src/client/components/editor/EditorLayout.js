@@ -129,6 +129,7 @@ export function EditorLayout({ world, ui, children }) {
               <EditorUserMenu
                 open={userMenuOpen}
                 auth={walletAuth}
+                world={world}
                 onClose={() => setUserMenuOpen(false)}
                 onDisconnectWallet={disconnectWallet}
               />
