@@ -55,7 +55,27 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
   }, [wsUrl, apiUrl, authUrl])
 
   useEffect(() => {
+    const publishRuntimeWalletSnapshot = snapshot => {
+      if (typeof globalThis === 'undefined') return
+      const normalized = {
+        source: snapshot?.source || null,
+        address: snapshot?.address || null,
+        connected: !!snapshot?.connected,
+        chainId: snapshot?.chainId ?? null,
+        updatedAt: Date.now(),
+      }
+      globalThis.__runtimeResolvedWallet = normalized
+      if (
+        typeof window !== 'undefined' &&
+        typeof window.dispatchEvent === 'function' &&
+        typeof window.CustomEvent === 'function'
+      ) {
+        window.dispatchEvent(new window.CustomEvent('runtime-wallet-snapshot', { detail: normalized }))
+      }
+    }
+
     const applyWalletBinding = snapshot => {
+      publishRuntimeWalletSnapshot(snapshot)
       const binding = {
         walletAdapter,
         address: snapshot?.address || null,

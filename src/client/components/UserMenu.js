@@ -1,7 +1,7 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { LoaderIcon, LogOutIcon, UserIcon, XIcon } from 'lucide-react'
-import { useLinkAccount, useLogin, usePrivy } from '@privy-io/react-auth'
+import { useActiveWallet, useLinkAccount, useLogin, usePrivy, useWallets } from '@privy-io/react-auth'
 import { editorTheme as theme } from './editor/editorTheme'
 import { cls } from './cls'
 
@@ -119,16 +119,82 @@ function getWalletChainLabel(chainType) {
   return 'Wallet'
 }
 
+async function copyToClipboard(text) {
+  const value = typeof text === 'string' ? text.trim() : ''
+  if (!value) return false
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(value)
+      return true
+    } catch {
+      // fall through to legacy clipboard path
+    }
+  }
+
+  if (typeof document !== 'undefined' && typeof document.execCommand === 'function') {
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = value
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.top = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      const copied = document.execCommand('copy')
+      document.body.removeChild(textarea)
+      return copied
+    } catch {
+      return false
+    }
+  }
+
+  return false
+}
+
+function normalizeWalletAddress(address, chainType) {
+  if (typeof address !== 'string') return ''
+  const trimmed = address.trim()
+  if (!trimmed) return ''
+  if (chainType === 'ethereum') return trimmed.toLowerCase()
+  return trimmed
+}
+
+function sameWalletAddress(a, b, chainType) {
+  const normalizedA = normalizeWalletAddress(a, chainType)
+  const normalizedB = normalizeWalletAddress(b, chainType)
+  if (!normalizedA || !normalizedB) return false
+  return normalizedA === normalizedB
+}
+
+function getLatestConnectedWallet(wallets) {
+  if (!Array.isArray(wallets) || wallets.length === 0) return null
+  return wallets
+    .slice()
+    .sort((a, b) => {
+      const aTime = Number(a?.connectedAt) || 0
+      const bTime = Number(b?.connectedAt) || 0
+      return bTime - aTime
+    })[0]
+}
+
 function PrivyAccountSection({ onDisconnectWallet, children }) {
   const [signingOut, setSigningOut] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [pendingAction, setPendingAction] = useState('')
+  const [copiedWalletKey, setCopiedWalletKey] = useState('')
 
   const setFeedbackError = useCallback(message => setFeedback({ type: 'error', message }), [])
   const setFeedbackSuccess = useCallback(message => setFeedback({ type: 'success', message }), [])
   const clearFeedback = useCallback(() => setFeedback(null), [])
 
   const { ready, authenticated, user, logout } = usePrivy()
+  const { wallets: connectedWallets = [], ready: connectedWalletsReady } = useWallets()
+  const { wallet: activePrivyWallet } = useActiveWallet()
+  const [runtimeResolvedWallet, setRuntimeResolvedWallet] = useState(() => {
+    if (typeof globalThis === 'undefined') return null
+    return globalThis.__runtimeResolvedWallet || null
+  })
 
   const { login } = useLogin({
     onError: error => {
@@ -154,10 +220,85 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
     if (authenticated) setPendingAction('')
   }, [authenticated])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {}
+
+    const setFromGlobal = () => {
+      setRuntimeResolvedWallet(globalThis.__runtimeResolvedWallet || null)
+    }
+    const onRuntimeWalletSnapshot = event => {
+      const nextSnapshot = event?.detail || null
+      setRuntimeResolvedWallet(nextSnapshot)
+    }
+
+    setFromGlobal()
+    window.addEventListener('runtime-wallet-snapshot', onRuntimeWalletSnapshot)
+    return () => {
+      window.removeEventListener('runtime-wallet-snapshot', onRuntimeWalletSnapshot)
+    }
+  }, [])
+
   const linkedWallets = useMemo(() => {
     if (!user || !Array.isArray(user.linkedAccounts)) return []
     return user.linkedAccounts.filter(account => account?.type === 'wallet' && typeof account?.address === 'string' && account.address)
   }, [user])
+
+  const connectedEvmWallets = useMemo(() => {
+    if (!Array.isArray(connectedWallets)) return []
+    return connectedWallets.filter(wallet => wallet?.type === 'ethereum' && typeof wallet?.address === 'string' && wallet.address)
+  }, [connectedWallets])
+
+  const connectedSolanaWallets = useMemo(() => {
+    if (!Array.isArray(connectedWallets)) return []
+    return connectedWallets.filter(wallet => wallet?.type === 'solana' && typeof wallet?.address === 'string' && wallet.address)
+  }, [connectedWallets])
+
+  const activeEvmWallet = useMemo(() => {
+    const runtimeAddress = normalizeWalletAddress(runtimeResolvedWallet?.address || '', 'ethereum')
+    if (runtimeResolvedWallet?.connected && runtimeAddress) {
+      const runtimeMatch = connectedEvmWallets.find(wallet => sameWalletAddress(wallet.address, runtimeAddress, 'ethereum'))
+      if (runtimeMatch) return runtimeMatch
+    }
+
+    if (activePrivyWallet?.type === 'ethereum') {
+      const activeMatch = connectedEvmWallets.find(wallet =>
+        sameWalletAddress(wallet.address, activePrivyWallet.address, 'ethereum')
+      )
+      if (activeMatch) return activeMatch
+    }
+
+    return getLatestConnectedWallet(connectedEvmWallets)
+  }, [runtimeResolvedWallet, activePrivyWallet, connectedEvmWallets])
+
+  const activeSolanaWallet = useMemo(() => {
+    if (activePrivyWallet?.type === 'solana') {
+      const activeMatch = connectedSolanaWallets.find(wallet =>
+        sameWalletAddress(wallet.address, activePrivyWallet.address, 'solana')
+      )
+      if (activeMatch) return activeMatch
+    }
+
+    return getLatestConnectedWallet(connectedSolanaWallets)
+  }, [activePrivyWallet, connectedSolanaWallets])
+
+  const connectedSiteWalletRows = useMemo(() => {
+    const rows = []
+    if (activeEvmWallet) {
+      rows.push({
+        key: `connected:ethereum:${activeEvmWallet.address}`,
+        chainLabel: 'EVM',
+        wallet: activeEvmWallet,
+      })
+    }
+    if (activeSolanaWallet) {
+      rows.push({
+        key: `connected:solana:${activeSolanaWallet.address}`,
+        chainLabel: 'Solana',
+        wallet: activeSolanaWallet,
+      })
+    }
+    return rows
+  }, [activeEvmWallet, activeSolanaWallet])
 
   const socialProviders = useMemo(() => {
     return [
@@ -238,6 +379,23 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
     [linkWallet, runLinkAction],
   )
 
+  const copyWalletAddress = useCallback(async key => {
+    const wallet = connectedSiteWalletRows.find(row => row.key === key)?.wallet || null
+    const address = typeof wallet?.address === 'string' ? wallet.address : ''
+    if (!address) return
+
+    const copied = await copyToClipboard(address)
+    if (!copied) {
+      setFeedbackError('Unable to copy wallet address.')
+      return
+    }
+
+    setCopiedWalletKey(key)
+    setTimeout(() => {
+      setCopiedWalletKey(current => (current === key ? '' : current))
+    }, 1200)
+  }, [connectedSiteWalletRows, setFeedbackError])
+
   const isAuthenticated = ready && authenticated && user
 
   const renderWalletsSection = () => {
@@ -247,11 +405,41 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
     return (
       <div className='usermenu-section'>
         <div className='usermenu-section-label'>Wallets</div>
+        <div className='usermenu-subsection-label'>Connected To Site</div>
+        {!connectedWalletsReady ? (
+          <div className='usermenu-muted'>Loading connected wallets...</div>
+        ) : connectedSiteWalletRows.length > 0 ? (
+          <div className='usermenu-rows'>
+            {connectedSiteWalletRows.map(row => (
+              <div key={row.key} className='usermenu-row'>
+                <div className='usermenu-row-label'>{row.chainLabel}</div>
+                <div className='usermenu-row-value'>
+                  <div className='usermenu-wallet-row'>
+                    <span className='usermenu-wallet-address mono'>{truncateAddress(row.wallet.address)}</span>
+                    <span className='usermenu-chip active'>Active</span>
+                    <button
+                      className='usermenu-chipbtn'
+                      onClick={() => {
+                        void copyWalletAddress(row.key)
+                      }}
+                    >
+                      {copiedWalletKey === row.key ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className='usermenu-muted'>No connected wallets.</div>
+        )}
+
+        <div className='usermenu-subsection-label'>Linked To Account</div>
         {!isAuthenticated ? (
           <div className='usermenu-muted'>Sign in to link wallets.</div>
         ) : (
           <>
-            {linkedWallets.length > 0 && (
+            {linkedWallets.length > 0 ? (
               <div className='usermenu-rows'>
                 {linkedWallets.map(wallet => {
                   const key = `${wallet.chainType || 'wallet'}:${wallet.address}`
@@ -263,6 +451,8 @@ function PrivyAccountSection({ onDisconnectWallet, children }) {
                   )
                 })}
               </div>
+            ) : (
+              <div className='usermenu-muted'>No linked wallets.</div>
             )}
             <div className='usermenu-row'>
               <div className='usermenu-row-label usermenu-muted'>Add wallet</div>
@@ -708,6 +898,14 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
           letter-spacing: 0.08em;
           margin-bottom: 0.5rem;
         }
+        .usermenu-subsection-label {
+          font-size: 0.66rem;
+          font-weight: 700;
+          color: rgba(255, 255, 255, 0.42);
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          margin: 0.4rem 0 0.2rem;
+        }
         .usermenu-hero {
           padding: 1.1rem 1rem;
           background: ${theme.bgInputSolid};
@@ -829,6 +1027,54 @@ export function EditorUserMenu({ open, auth, onClose, onDisconnectWallet }) {
         .usermenu-row-value {
           font-size: 0.8rem;
           color: rgba(255, 255, 255, 0.55);
+        }
+        .usermenu-wallet-row {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          flex-wrap: wrap;
+          gap: 0.3rem;
+        }
+        .usermenu-wallet-address {
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 0.74rem;
+        }
+        .usermenu-chip {
+          border: 1px solid ${theme.borderLight};
+          border-radius: 999px;
+          padding: 0.12rem 0.38rem;
+          font-size: 0.66rem;
+          font-weight: 700;
+          line-height: 1;
+          color: rgba(255, 255, 255, 0.62);
+          background: rgba(255, 255, 255, 0.03);
+          white-space: nowrap;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+        }
+        .usermenu-chip.active {
+          border-color: rgba(110, 255, 163, 0.45);
+          color: rgba(156, 255, 193, 0.96);
+          background: rgba(58, 130, 84, 0.22);
+        }
+        .usermenu-chipbtn {
+          border: 1px solid ${theme.borderLight};
+          border-radius: 999px;
+          padding: 0.12rem 0.38rem;
+          font-size: 0.66rem;
+          font-weight: 700;
+          line-height: 1;
+          color: rgba(255, 255, 255, 0.78);
+          background: rgba(255, 255, 255, 0.04);
+          white-space: nowrap;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+          cursor: pointer;
+          &:hover {
+            color: rgba(255, 255, 255, 0.96);
+            border-color: ${theme.borderHover};
+            background: rgba(255, 255, 255, 0.08);
+          }
         }
         .usermenu-row-value.mono {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
