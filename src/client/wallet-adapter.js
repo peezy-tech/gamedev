@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, custom, getAddress } from 'viem'
+import { createPublicClient, createWalletClient, custom, defineChain, getAddress } from 'viem'
 
 const SESSION_CACHE_TTL_MS = 3000
 const DEFAULT_REFRESH_INTERVAL_MS = 3000
@@ -71,6 +71,24 @@ async function readProviderChainId(provider) {
   if (!provider || typeof provider.request !== 'function') return null
   const chainId = await provider.request({ method: 'eth_chainId' }).catch(() => null)
   return parseChainId(chainId)
+}
+
+function defineProviderChain(chainId) {
+  if (!Number.isInteger(chainId) || chainId <= 0) return null
+  return defineChain({
+    id: chainId,
+    name: `EVM Chain ${chainId}`,
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    rpcUrls: {
+      default: {
+        http: [],
+      },
+    },
+  })
 }
 
 async function getInjectedAccounts({ request = false } = {}) {
@@ -384,10 +402,15 @@ export class RuntimeWalletAdapter {
 
   async _getViemClients({ request = true } = {}) {
     const context = await this._requireWalletContext({ request })
+    const chainId = await readProviderChainId(context.provider)
+    const chain = defineProviderChain(chainId)
+    if (!chain) {
+      throw new Error('Unable to determine active chain for wallet provider')
+    }
     const transport = custom(context.provider)
 
-    const publicClient = createPublicClient({ transport })
-    const walletClient = createWalletClient({ transport, account: context.address })
+    const publicClient = createPublicClient({ chain, transport })
+    const walletClient = createWalletClient({ chain, transport, account: context.address })
 
     return {
       context,

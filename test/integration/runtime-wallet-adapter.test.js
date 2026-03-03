@@ -3,7 +3,12 @@ import { test } from 'node:test'
 
 import { RuntimeWalletAdapter } from '../../src/client/wallet-adapter.js'
 
-function makeProvider({ accounts = [], chainId = '0x1', signature = '0xsignature' } = {}) {
+function makeProvider({
+  accounts = [],
+  chainId = '0x1',
+  signature = '0xsignature',
+  transactionHash = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+} = {}) {
   const calls = []
   const provider = {
     async request({ method, params }) {
@@ -11,6 +16,7 @@ function makeProvider({ accounts = [], chainId = '0x1', signature = '0xsignature
       if (method === 'eth_chainId') return chainId
       if (method === 'eth_accounts') return accounts
       if (method === 'eth_requestAccounts') return accounts
+      if (method === 'eth_sendTransaction') return transactionHash
       if (method === 'eth_signTypedData_v4') return signature
       if (method === 'wallet_switchEthereumChain') return null
       throw new Error(`Unsupported method: ${method}`)
@@ -202,6 +208,45 @@ test('wallet adapter signs typed data with active wallet provider', async () => 
 
     assert.equal(signature, '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1b')
     assert.equal(signer.calls.some(call => call.method === 'eth_signTypedData_v4'), true)
+  } finally {
+    adapter.destroy()
+  }
+})
+
+test('wallet adapter writes contracts using provider chain context', async () => {
+  const signer = makeProvider({
+    chainId: '0xa4b1',
+    transactionHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  })
+  const wallet = makePrivyWallet('0x00000000000000000000000000000000000000EE', signer.provider)
+
+  const adapter = new RuntimeWalletAdapter({
+    authBridge: makeAuthBridge(wallet.address),
+    walletBridge: makeWalletBridge([wallet]),
+    refreshIntervalMs: 0,
+  })
+
+  try {
+    const hash = await adapter.writeContract({
+      address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+      abi: [
+        {
+          name: 'transfer',
+          type: 'function',
+          stateMutability: 'nonpayable',
+          inputs: [
+            { name: 'to', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+          ],
+          outputs: [{ name: '', type: 'bool' }],
+        },
+      ],
+      functionName: 'transfer',
+      args: ['0x00000000000000000000000000000000000000AA', 1n],
+    })
+
+    assert.equal(hash, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+    assert.equal(signer.calls.some(call => call.method === 'eth_sendTransaction'), true)
   } finally {
     adapter.destroy()
   }
