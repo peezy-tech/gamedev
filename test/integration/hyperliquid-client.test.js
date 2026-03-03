@@ -179,3 +179,62 @@ test('Hyperliquid deposit switches to Arbitrum when needed', async () => {
   await hl.deposit(10)
   assert.equal(switchCount, 1)
 })
+
+test('Hyperliquid sets hardcoded referrer when none exists', async () => {
+  const hl = new Hyperliquid({})
+  hl.address = '0x00000000000000000000000000000000000000AA'
+  hl.wallet = {
+    address: hl.address,
+    async signTypedData() {
+      return '0x'
+    },
+  }
+
+  let setReferrerCode = null
+  hl.infoClient = {
+    async referral() {
+      return { referredBy: null }
+    },
+  }
+  hl._createUserExchangeClient = () => ({
+    async setReferrer({ code }) {
+      setReferrerCode = code
+      return { status: 'ok' }
+    },
+  })
+
+  await hl._setConfiguredReferrerIfNeeded()
+  assert.equal(setReferrerCode, 'LOBBY')
+})
+
+test('Hyperliquid does not set hardcoded referrer when already referred', async () => {
+  const hl = new Hyperliquid({})
+  hl.address = '0x00000000000000000000000000000000000000AA'
+  hl.wallet = {
+    address: hl.address,
+    async signTypedData() {
+      return '0x'
+    },
+  }
+
+  let setReferrerCalled = false
+  hl.infoClient = {
+    async referral() {
+      return {
+        referredBy: {
+          referrer: '0x00000000000000000000000000000000000000BB',
+          code: 'OTHERCODE',
+        },
+      }
+    },
+  }
+  hl._createUserExchangeClient = () => ({
+    async setReferrer() {
+      setReferrerCalled = true
+      return { status: 'ok' }
+    },
+  })
+
+  await hl._setConfiguredReferrerIfNeeded()
+  assert.equal(setReferrerCalled, false)
+})

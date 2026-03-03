@@ -116,6 +116,49 @@ export class Hyperliquid extends System {
     }
   }
 
+  _createUserExchangeClient() {
+    if (!this.wallet) return null
+    return new ExchangeClient({
+      transport: this.httpTransport,
+      wallet: this.wallet,
+    })
+  }
+
+  async _setConfiguredReferrerIfNeeded() {
+    const code = "LOBBY"
+    if (!this.address) return
+
+    try {
+      const referral = await this.infoClient.referral({ user: this.address })
+      const existingCode =
+        typeof referral?.referredBy?.code === 'string' ? referral.referredBy.code.trim() : ''
+      if (existingCode) {
+        console.log('[Hyperliquid] Referrer already set, skipping referral setup')
+        return
+      }
+    } catch (error) {
+      // Non-fatal: continue and try to set the referral code.
+      console.warn('[Hyperliquid] Failed to read referral status, attempting to set referrer anyway', error)
+    }
+
+    const userClient = this._createUserExchangeClient()
+    if (!userClient || typeof userClient.setReferrer !== 'function') return
+
+    try {
+      console.log('[Hyperliquid] Setting configured referrer code')
+      await userClient.setReferrer({ code })
+      console.log('[Hyperliquid] Referrer code set')
+    } catch (error) {
+      const message = String(error?.message || error || '')
+      if (/already.*referr|referr.*already|has.*referr/i.test(message)) {
+        console.log('[Hyperliquid] Referrer already set')
+        return
+      }
+      // Non-fatal: keep trading setup usable even if referral fails.
+      console.warn('[Hyperliquid] Failed to set referrer code', error)
+    }
+  }
+
   async _ensureArbitrum() {
     if (!this.walletAdapter) {
       throw new Error('Wallet not connected')
@@ -540,6 +583,8 @@ export class Hyperliquid extends System {
       }
       throw new Error(`Agent approval failed: ${error?.message || error}`)
     }
+
+    await this._setConfiguredReferrerIfNeeded()
 
     this._saveAgentKey({ privateKey, address: agentAddress, createdAt: Date.now() })
 
