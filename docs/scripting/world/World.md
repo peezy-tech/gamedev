@@ -116,13 +116,136 @@ Opens a link, defaults to new tab.
 
 Returns the EVM helper API.
 
-See: [EVM](./EVM.md)
+```js
+const evm = world.evm()
+```
+
+#### `getAddress()`
+
+Returns the connected EVM wallet address, or `null` when not connected.
+
+#### `isConnected()`
+
+Returns `true` when an EVM wallet is connected.
+
+#### `getNativeBalance(address?)`
+
+Returns native token balance for the provided address (or active wallet) as a number.
+
+#### `getTokenBalance(tokenAddress, address?, decimals = 18)`
+
+Returns ERC-20 token balance as a number.
+
+#### `getUSDCBalance(address?)`
+
+Returns Arbitrum USDC balance (`0xaf88...5831`) as a number.
+
+#### `transferNative(to, amount)`
+
+Sends native token to an address.
+
+- `to`: recipient address
+- `amount`: decimal amount as number or string
+
+Returns:
+
+```js
+{ hash, receipt }
+```
+
+#### `transferToken(tokenAddress, to, amount, decimals = 18)`
+
+Sends ERC-20 tokens to an address.
+
+Returns:
+
+```js
+{ hash, receipt }
+```
+
+#### `transferUSDC(to, amount)`
+
+Sends Arbitrum USDC (`0xaf88...5831`) using 6 decimals.
+
+Returns:
+
+```js
+{ hash, receipt }
+```
 
 ### `.hyperliquid()`
 
 Returns the Hyperliquid trading helper API.
 
-See: [Hyperliquid](./Hyperliquid.md)
+```js
+const hl = world.hyperliquid()
+```
+
+#### `getPrice(ticker)`
+
+Returns the current mid price.
+
+#### `getBalance()`
+
+Returns account value in USD.
+
+#### `getPositions()`
+
+Returns open positions:
+
+```js
+[
+  {
+    ticker: 'BTC',
+    size: 0.001,
+    entryPrice: 104000,
+    unrealizedPnl: 5.25,
+    liquidationPrice: 95000,
+  },
+]
+```
+
+#### `getAvailableTickers()`
+
+Returns a sorted ticker list available for trading.
+
+#### `buy(ticker, amount, slippage = 1)`
+
+Places an IOC buy order.
+
+#### `sell(ticker, amount, slippage = 1)`
+
+Places an IOC sell order.
+
+#### `closePosition(ticker, slippage = 1)`
+
+Closes the full open position for a ticker.
+
+#### `hasAgentKey()`
+
+Returns whether an agent key is already stored for the connected wallet.
+
+#### `setupAgentKey(name = 'HyperfyAgent')`
+
+Creates and approves an agent key for trading.
+
+#### `deposit(amount)`
+
+Deposits Arbitrum USDC to Hyperliquid.
+
+Notes:
+- Minimum is 5 USDC.
+- Uses Arbitrum USDC (`0xaf88...5831`).
+- May require approval + transfer signatures.
+
+#### `withdraw(amount, destination?)`
+
+Withdraws USDC from Hyperliquid to Arbitrum.
+
+Notes:
+- Uses main wallet signature (not agent key).
+- Defaults to connected wallet address when `destination` is omitted.
+
 
 ### `.setReticle(options: ?Object)`
 
