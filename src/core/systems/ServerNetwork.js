@@ -10,12 +10,11 @@ import { Ranks } from '../extras/ranks'
 import { validateBlueprintScriptFields } from '../blueprintValidation'
 import { ensureBlueprintSyncMetadata, ensureEntitySyncMetadata } from '../../server/syncMetadata.js'
 import { getWorldMaxPlayers } from '../../server/worldLimits.js'
+import { validateWorldIdConfig } from '../../server/worldIdMismatch.js'
 
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
 const PING_RATE = 10 // seconds
 const defaultSpawn = '{ "position": [0, 0, 0], "quaternion": [0, 0, 0, 1] }'
-const ALLOW_WORLD_ID_CONFIG_MISMATCH =
-  String(process.env.ALLOW_WORLD_ID_CONFIG_MISMATCH || '').trim().toLowerCase() === 'true'
 const SCRIPT_BLUEPRINT_FIELDS = new Set([
   'script',
   'scriptEntry',
@@ -243,10 +242,8 @@ export class ServerNetwork extends System {
     }
     const worldIdRow = await this.db('config').where({ key: 'worldId' }).first()
     const dbWorldId = worldIdRow?.value?.trim()
-    if (dbWorldId && dbWorldId !== envWorldId) {
-      if (!ALLOW_WORLD_ID_CONFIG_MISMATCH) {
-        throw new Error(`[envs] WORLD_ID mismatch: env=${envWorldId} db=${dbWorldId}`)
-      }
+    const worldIdCheck = validateWorldIdConfig({ envWorldId, dbWorldId })
+    if (worldIdCheck.mismatch) {
       console.warn(
         `[envs] WORLD_ID mismatch accepted by ALLOW_WORLD_ID_CONFIG_MISMATCH=true: env=${envWorldId} db=${dbWorldId}`
       )
