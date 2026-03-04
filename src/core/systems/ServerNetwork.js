@@ -14,6 +14,8 @@ import { getWorldMaxPlayers } from '../../server/worldLimits.js'
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
 const PING_RATE = 10 // seconds
 const defaultSpawn = '{ "position": [0, 0, 0], "quaternion": [0, 0, 0, 1] }'
+const ALLOW_WORLD_ID_CONFIG_MISMATCH =
+  String(process.env.ALLOW_WORLD_ID_CONFIG_MISMATCH || '').trim().toLowerCase() === 'true'
 const SCRIPT_BLUEPRINT_FIELDS = new Set([
   'script',
   'scriptEntry',
@@ -242,7 +244,12 @@ export class ServerNetwork extends System {
     const worldIdRow = await this.db('config').where({ key: 'worldId' }).first()
     const dbWorldId = worldIdRow?.value?.trim()
     if (dbWorldId && dbWorldId !== envWorldId) {
-      throw new Error(`[envs] WORLD_ID mismatch: env=${envWorldId} db=${dbWorldId}`)
+      if (!ALLOW_WORLD_ID_CONFIG_MISMATCH) {
+        throw new Error(`[envs] WORLD_ID mismatch: env=${envWorldId} db=${dbWorldId}`)
+      }
+      console.warn(
+        `[envs] WORLD_ID mismatch accepted by ALLOW_WORLD_ID_CONFIG_MISMATCH=true: env=${envWorldId} db=${dbWorldId}`
+      )
     }
     this.worldId = envWorldId
     // hydrate blueprints
