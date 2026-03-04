@@ -17,6 +17,7 @@ const defaults = {
   roughness: 0.8,
   opacity: 1,
   texture: null,
+  textureRepeat: [1, 1],
   castShadow: true,
   receiveShadow: true,
   doubleside: false,
@@ -115,7 +116,8 @@ const materialCache = new Map()
 // Create material with specific properties
 const getMaterial = props => {
   // Create a cache key from material properties
-  const cacheKey = `${props.metalness}_${props.roughness}_${props.opacity}_${props.texture}_${props.doubleside}`
+  const [textureRepeatX, textureRepeatY] = props.texture ? props.textureRepeat : defaults.textureRepeat
+  const cacheKey = `${props.metalness}_${props.roughness}_${props.opacity}_${props.texture}_${textureRepeatX}_${textureRepeatY}_${props.doubleside}`
 
   // Check cache first
   if (materialCache.has(cacheKey)) {
@@ -157,15 +159,24 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const applyTexture = (material, textureUrl, loader) => {
+const applyTextureWithRepeat = (material, textureUrl, textureRepeat, loader) => {
   if (!material._texPromise) {
-    material._texPromise = new Promise(async resolve => {
-      let texture = loader.get('texture', textureUrl)
-      if (!texture) texture = await loader.load('texture', textureUrl)
-      material.map = texture
+    material._texPromise = (async () => {
+      let texture = loader?.get('texture', textureUrl)
+      if (!texture) texture = await loader?.load?.('texture', textureUrl)
+      if (texture) {
+        const [repeatX, repeatY] = textureRepeat
+        const map = texture.clone()
+        map.wrapS = THREE.RepeatWrapping
+        map.wrapT = THREE.RepeatWrapping
+        map.repeat.set(repeatX, repeatY)
+        map.needsUpdate = true
+        material.map = map
+      } else {
+        material.map = null
+      }
       material._texApplied = true
-      resolve()
-    })
+    })()
   }
   return material._texPromise
 }
@@ -184,6 +195,7 @@ export class Prim extends Node {
     this.roughness = data.roughness
     this.opacity = data.opacity
     this.texture = data.texture
+    this.textureRepeat = data.textureRepeat
     this.castShadow = data.castShadow
     this.receiveShadow = data.receiveShadow
     this.doubleside = data.doubleside
@@ -237,6 +249,7 @@ export class Prim extends Node {
       roughness: this._roughness,
       opacity: quantizeOpacity(this._opacity), // reduce material variations
       texture: this._texture,
+      textureRepeat: this._textureRepeat,
       doubleside: this._doubleside,
     })
 
@@ -245,7 +258,7 @@ export class Prim extends Node {
 
     if (this._texture && !material._texApplied) {
       const n = ++this.n
-      await applyTexture(material, this._texture, loader)
+      await applyTextureWithRepeat(material, this._texture, this._textureRepeat, loader)
       if (n !== this.n) return // remounted or destroyed
     }
 
@@ -499,6 +512,7 @@ export class Prim extends Node {
     this._roughness = source._roughness
     this._opacity = source._opacity
     this._texture = source._texture
+    this._textureRepeat = source._textureRepeat.slice()
     this._castShadow = source._castShadow
     this._receiveShadow = source._receiveShadow
     this._doubleside = source._doubleside
@@ -689,6 +703,27 @@ export class Prim extends Node {
     }
     if (this._texture === value) return
     this._texture = value
+    this.needsRebuild = true
+    this.setDirty()
+  }
+
+  get textureRepeat() {
+    return this._textureRepeat
+  }
+
+  set textureRepeat(value = defaults.textureRepeat) {
+    if (
+      !isArray(value) ||
+      value.length !== 2 ||
+      !isNumber(value[0]) ||
+      !isNumber(value[1]) ||
+      value[0] <= 0 ||
+      value[1] <= 0
+    ) {
+      throw new Error('[prim] textureRepeat must be [x, y] with positive numbers')
+    }
+    if (isEqual(this._textureRepeat, value)) return
+    this._textureRepeat = [value[0], value[1]]
     this.needsRebuild = true
     this.setDirty()
   }
@@ -958,6 +993,12 @@ export class Prim extends Node {
         },
         set texture(value) {
           self.texture = value
+        },
+        get textureRepeat() {
+          return self.textureRepeat
+        },
+        set textureRepeat(value) {
+          self.textureRepeat = value
         },
         get castShadow() {
           return self.castShadow

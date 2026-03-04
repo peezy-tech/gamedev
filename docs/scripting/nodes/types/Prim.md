@@ -68,6 +68,16 @@ Whether the primitive should be rendered with transparency. Must be `true` for o
 
 URL or path to a texture image to apply to the primitive. The texture will be loaded asynchronously and cached for reuse. Supports common image formats (PNG, JPG, etc.). Defaults to `null`.
 
+### `.textureRepeat`: Array
+
+Controls texture tiling on the primitive as `[repeatX, repeatY]`.
+
+- `[1, 1]` = default UV mapping (no extra tiling)
+- Higher values tile more times across the surface
+- Values must be positive numbers
+
+Defaults to `[1, 1]`.
+
 ### `.castShadow`: Boolean
 
 Whether the primitive should cast shadows. Defaults to `true`.
@@ -211,6 +221,7 @@ const texturedPlane = app.create('prim', {
   position: [0, 1, -3],
   rotation: [-Math.PI/2, 0, 0],
   texture: 'https://example.com/texture.jpg',
+  textureRepeat: [4, 4],
   doubleside: true // Visible from both sides
 })
 
@@ -280,7 +291,8 @@ app.add(triggerZone)
 - Primitives with identical material properties are automatically instanced for optimal performance
 - Material properties (color, emissive, metalness, etc.) determine which primitives can be instanced together
 - Changing material properties requires rebuilding the primitive instance
-- Textures are loaded asynchronously and cached - multiple primitives using the same texture URL will share the loaded texture
+- Textures are loaded asynchronously and cached at the asset level
+- For textured prims, both `texture` and `textureRepeat` affect material batching/instancing keys
 
 ### Physics Notes
 

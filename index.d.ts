@@ -395,6 +395,7 @@ interface PrimNode extends BaseNode {
   opacity: number
   transparent: boolean
   texture: string | null
+  textureRepeat: [number, number]
   castShadow: boolean
   receiveShadow: boolean
   doubleside: boolean
@@ -645,6 +646,7 @@ type PrimInit = NodeInitBase &
       | 'opacity'
       | 'transparent'
       | 'texture'
+      | 'textureRepeat'
       | 'castShadow'
       | 'receiveShadow'
       | 'doubleside'
