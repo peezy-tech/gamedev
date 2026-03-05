@@ -10,6 +10,8 @@ import { Ranks } from '../extras/ranks'
 import { validateBlueprintScriptFields } from '../blueprintValidation'
 import { ensureBlueprintSyncMetadata, ensureEntitySyncMetadata } from '../../server/syncMetadata.js'
 import { getWorldMaxPlayers } from '../../server/worldLimits.js'
+import { validateWorldIdConfig } from '../../server/worldIdMismatch.js'
+import { deriveAdminUrlFromRequest } from '../../server/forwardedPrefix.js'
 
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
 const PING_RATE = 10 // seconds
@@ -31,49 +33,6 @@ function normalizeUserName(value) {
   const trimmed = value.trim()
   if (!trimmed || trimmed.startsWith('anon_')) return 'Anonymous'
   return trimmed
-}
-
-function normalizeForwardedPrefix(value) {
-  if (typeof value !== 'string') return ''
-  const first = value.split(',')[0].trim()
-  if (!first || first === '/') return ''
-  const prefixed = first.startsWith('/') ? first : `/${first}`
-  return prefixed.replace(/\/+$/, '')
-}
-
-function extractWorldPrefixFromPath(value) {
-  if (typeof value !== 'string') return ''
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  const [pathname] = trimmed.split('?')
-  const match = pathname.match(/^(\/worlds\/[^/]+)/)
-  return match ? match[1] : ''
-}
-
-function deriveAdminUrlFromRequest(req) {
-  const headers = req?.headers || {}
-  let host = headers['x-forwarded-host'] || headers['host']
-  if (Array.isArray(host)) host = host[0]
-  if (!host) return null
-
-  let proto = headers['x-forwarded-proto']
-  if (Array.isArray(proto)) proto = proto[0]
-  if (proto) proto = String(proto).split(',')[0].trim()
-  if (proto === 'wss') proto = 'https'
-  if (proto === 'ws') proto = 'http'
-  if (!proto && req?.protocol) proto = req.protocol
-  if (!proto) proto = 'https'
-
-  let prefix = normalizeForwardedPrefix(headers['x-forwarded-prefix'])
-  if (!prefix) {
-    const forwardedUri = headers['x-forwarded-uri'] || headers['x-original-uri'] || headers['x-rewrite-url']
-    prefix = extractWorldPrefixFromPath(Array.isArray(forwardedUri) ? forwardedUri[0] : forwardedUri)
-  }
-  if (!prefix) {
-    prefix = extractWorldPrefixFromPath(req?.url)
-  }
-
-  return `${proto}://${host}${prefix}`
 }
 
 function deriveAdminUrlFromEnv() {
@@ -241,8 +200,11 @@ export class ServerNetwork extends System {
     }
     const worldIdRow = await this.db('config').where({ key: 'worldId' }).first()
     const dbWorldId = worldIdRow?.value?.trim()
-    if (dbWorldId && dbWorldId !== envWorldId) {
-      throw new Error(`[envs] WORLD_ID mismatch: env=${envWorldId} db=${dbWorldId}`)
+    const worldIdCheck = validateWorldIdConfig({ envWorldId, dbWorldId })
+    if (worldIdCheck.mismatch) {
+      console.warn(
+        `[envs] WORLD_ID mismatch accepted by ALLOW_WORLD_ID_CONFIG_MISMATCH=true: env=${envWorldId} db=${dbWorldId}`
+      )
     }
     this.worldId = envWorldId
     // hydrate blueprints
