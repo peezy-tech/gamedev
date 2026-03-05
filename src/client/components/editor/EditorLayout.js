@@ -68,6 +68,22 @@ export function EditorLayout({ world, ui, children }) {
 
   const showEditor = ready && isBuilder && open && buildMode
 
+  useEffect(() => {
+    const uiEl = world.pointer.ui
+    if (!uiEl) return
+    const updateVisibility = () => {
+      for (const child of uiEl.children) {
+        if (child.tagName === 'CANVAS') {
+          child.style.display = showEditor ? 'none' : ''
+        }
+      }
+    }
+    updateVisibility()
+    const observer = new MutationObserver(updateVisibility)
+    observer.observe(uiEl, { childList: true })
+    return () => observer.disconnect()
+  }, [showEditor])
+
   const showRight = showEditor && hasApp
   const showBottom = showEditor && hasApp
   const showWalletPicker = ready && walletPickerOpen && !isPrivyAuth && !walletAuth.connected
