@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events'
+import WebSocket from 'ws'
 import { uuid } from './utils.js'
 import { readPacket, writePacket } from '../src/core/packets.js'
 import { normalizeWorldAdminBaseUrl, toWsUrl, joinUrl, normalizePacketData } from './helpers.js'
@@ -34,7 +35,9 @@ export class WorldAdminClient extends EventEmitter {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return
 
     await new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsAdminUrl)
+      const ws = new WebSocket(this.wsAdminUrl, {
+        headers: this.adminHeaders(),
+      })
       ws.binaryType = 'arraybuffer'
       this.ws = ws
 
