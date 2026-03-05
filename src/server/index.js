@@ -22,6 +22,7 @@ import { parseBooleanEnvFlag } from './adminCredentials.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
 import { getMaxUploadSizeBytes } from './worldLimits.js'
+import { allowWorldIdConfigMismatch } from './worldIdMismatch.js'
 import { createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
 import { Ranks } from '../core/extras/ranks'
 
@@ -335,18 +336,24 @@ const registryState = createRegistryState()
 let clientHtmlTemplateCache = null
 const AGONES_IDLE_TIMEOUT_MS = 72 * 60 * 60 * 1000
 const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
+const EARLY_MATCH_COMPLETION_DELAY_MS = 60 * 1000
 const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
 const AGONES_SDK_HTTP_PORT =
   Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
 const agonesIdleControllerEnabled =
   hasValue(process.env.PUBLIC_AUTH_URL) && parseBooleanEnvFlag(process.env.SHUTDOWN_IDLE, false)
+const allowWorldIdMismatch = allowWorldIdConfigMismatch(process.env)
+const earlyMatchCompletionEnabled = agonesIdleControllerEnabled && allowWorldIdMismatch
 const agonesShutdownUrl = `http://127.0.0.1:${AGONES_SDK_HTTP_PORT}/shutdown`
+const lobbyMatchCompletionUrl = resolveLobbyInternalEndpoint('/internal/matches/complete')
 const adminConnectionCounts = {
   main: 0,
   wss: 0,
 }
 let idleShutdownTimerId = null
 let idleShutdownRequested = false
+let earlyMatchCompletionTimerId = null
+let matchCompletionFinalized = false
 
 function getAdminConnectionCount() {
   return adminConnectionCounts.main + adminConnectionCounts.wss
@@ -368,12 +375,65 @@ function clearIdleShutdownTimer(reason = 'active_session') {
   console.info(`[agones-idle] cancelled idle shutdown (${reason})`)
 }
 
+function clearEarlyMatchCompletionTimer(reason = 'active_session') {
+  if (!earlyMatchCompletionTimerId) return
+  clearTimeout(earlyMatchCompletionTimerId)
+  earlyMatchCompletionTimerId = null
+  console.info(`[agones-idle] cancelled early match completion (${reason})`)
+}
+
+async function requestMatchCompletion(reason = 'idle') {
+  if (!agonesIdleControllerEnabled || matchCompletionFinalized) return
+  if (getActiveSessionCount() > 0) return
+  if (!lobbyMatchCompletionUrl) return
+
+  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
+  if (!apiKey) return
+
+  try {
+    const response = await fetch(lobbyMatchCompletionUrl, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ reason }),
+    })
+
+    if (response.status === 404) {
+      matchCompletionFinalized = true
+      console.info('[agones-idle] no match row found for completion; skipping future completion signals')
+      return
+    }
+    if (!response.ok) {
+      throw new Error(`lobby_status_${response.status}`)
+    }
+
+    matchCompletionFinalized = true
+    console.info(`[agones-idle] signaled match completion (${reason})`)
+  } catch (err) {
+    console.warn(`[agones-idle] failed to signal match completion (${formatErrorMessage(err)})`)
+  }
+}
+
+function scheduleEarlyMatchCompletion(reason = 'idle') {
+  if (!earlyMatchCompletionEnabled || matchCompletionFinalized || earlyMatchCompletionTimerId) return
+  earlyMatchCompletionTimerId = setTimeout(() => {
+    earlyMatchCompletionTimerId = null
+    void requestMatchCompletion('shared_schema_early_timeout')
+  }, EARLY_MATCH_COMPLETION_DELAY_MS)
+  console.info(`[agones-idle] scheduling early match completion in ${EARLY_MATCH_COMPLETION_DELAY_MS / 1000}s (${reason})`)
+}
+
 function scheduleIdleShutdown(reason = 'idle') {
   if (!agonesIdleControllerEnabled || idleShutdownRequested || idleShutdownTimerId) return
   idleShutdownTimerId = setTimeout(() => {
     idleShutdownTimerId = null
     void requestAgonesShutdown('idle_timeout_elapsed')
   }, AGONES_IDLE_TIMEOUT_MS)
+  void requestMatchCompletion('agones_shutdown_scheduled')
+  scheduleEarlyMatchCompletion(reason)
   console.info(`[agones-idle] scheduling shutdown in ${AGONES_IDLE_TIMEOUT_MS / 1000}s (${reason})`)
 }
 
@@ -384,6 +444,7 @@ async function requestAgonesShutdown(reason = 'idle') {
     return
   }
   try {
+    await requestMatchCompletion('agones_shutdown_requested')
     const response = await fetch(agonesShutdownUrl, { method: 'POST' })
     if (!response.ok) {
       throw new Error(`agones_sdk_status_${response.status}`)
@@ -402,6 +463,7 @@ function reconcileIdleShutdown(reason = 'state_change') {
     scheduleIdleShutdown(reason)
   } else {
     clearIdleShutdownTimer(reason)
+    clearEarlyMatchCompletionTimer(reason)
   }
 }
 
@@ -741,6 +803,9 @@ if (useDualPort) {
 
 if (agonesIdleControllerEnabled) {
   console.info(`[agones-idle] enabled with timeout=${AGONES_IDLE_TIMEOUT_MS / 1000}s`)
+  if (earlyMatchCompletionEnabled) {
+    console.info(`[agones-idle] early match completion enabled (${EARLY_MATCH_COMPLETION_DELAY_MS / 1000}s)`)
+  }
   reconcileIdleShutdown('startup')
 }
 
