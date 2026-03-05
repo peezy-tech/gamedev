@@ -97,6 +97,10 @@ function hasValue(value) {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function isGameMatchWorldType(worldType) {
+  return typeof worldType === 'string' && worldType.trim().toLowerCase() === 'game_match'
+}
+
 function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
   if (!hasValue(worldId) || !hasValue(jwtSecret)) return null
   return crypto
@@ -333,7 +337,11 @@ await world.init({
 
 const registryState = createRegistryState()
 let clientHtmlTemplateCache = null
-const AGONES_IDLE_TIMEOUT_MS = 72 * 60 * 60 * 1000
+const DEFAULT_AGONES_IDLE_TIMEOUT_MS = 72 * 60 * 60 * 1000
+const MATCH_AGONES_IDLE_TIMEOUT_MS = 60 * 1000
+const AGONES_IDLE_TIMEOUT_MS = isGameMatchWorldType(world.settings?.worldType)
+  ? MATCH_AGONES_IDLE_TIMEOUT_MS
+  : DEFAULT_AGONES_IDLE_TIMEOUT_MS
 const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
 const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
 const AGONES_SDK_HTTP_PORT =
