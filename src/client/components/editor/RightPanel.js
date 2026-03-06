@@ -7,14 +7,21 @@ import { storage } from '../../../core/storage'
 export function RightPanel({ world }) {
   const panelRef = useRef()
   const resizerRef = useRef()
+  const [collapsed, setCollapsed] = useState(() => storage.get('right-panel-collapsed', true))
   const [mode, setMode] = useState(() => {
     const saved = storage.get('right-panel-mode', 'chat')
     return saved === 'code' ? 'code' : 'chat'
   })
+  const toggleCollapsed = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    storage.set('right-panel-collapsed', next)
+  }
   useEffect(() => {
+    if (collapsed) return
     const resizer = resizerRef.current
     const panel = panelRef.current
-    panel.style.width = `${storage.get('right-panel-width', 640)}px`
+    panel.style.width = `${storage.get('right-panel-width', 300)}px`
     function onPointerDown(e) {
       resizer.addEventListener('pointermove', onPointerMove)
       resizer.addEventListener('pointerup', onPointerUp)
@@ -36,10 +43,35 @@ export function RightPanel({ world }) {
     return () => {
       resizer.removeEventListener('pointerdown', onPointerDown)
     }
-  }, [])
+  }, [collapsed])
   const setPanelMode = nextMode => {
     setMode(nextMode)
     storage.set('right-panel-mode', nextMode)
+  }
+  if (collapsed) {
+    return (
+      <div
+        className='right-panel-collapsed'
+        onClick={toggleCollapsed}
+        css={css`
+          flex: 0 0 28px;
+          background: ${theme.panelBg};
+          border-left: 1px solid ${theme.panelBorder};
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          pointer-events: auto;
+          color: rgba(255, 255, 255, 0.5);
+          font-size: 1rem;
+          &:hover {
+            color: white;
+          }
+        `}
+      >
+        ‹
+      </div>
+    )
   }
   return (
     <div
@@ -50,6 +82,7 @@ export function RightPanel({ world }) {
         border-left: 1px solid ${theme.panelBorder};
         display: flex;
         flex-direction: column;
+        flex-shrink: 0;
         overflow: hidden;
         pointer-events: auto;
         position: relative;
@@ -99,6 +132,18 @@ export function RightPanel({ world }) {
           background: rgba(255, 255, 255, 0.08);
           border-color: rgba(255, 255, 255, 0.32);
         }
+        .right-panel-collapse {
+          margin-left: auto;
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.5);
+          cursor: pointer;
+          font-size: 1rem;
+          padding: 0 0.25rem;
+          &:hover {
+            color: white;
+          }
+        }
       `}
     >
       <div className='right-panel-resizer' ref={resizerRef} />
@@ -108,6 +153,9 @@ export function RightPanel({ world }) {
         </button>
         <button className={`right-panel-mode ${mode === 'code' ? 'active' : ''}`} onClick={() => setPanelMode('code')}>
           Code
+        </button>
+        <button className='right-panel-collapse' onClick={toggleCollapsed}>
+          ›
         </button>
       </div>
       <div className='right-panel-content'>

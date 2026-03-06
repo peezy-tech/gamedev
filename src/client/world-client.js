@@ -8,6 +8,7 @@ import { createClientWorld } from '../core/createClientWorld'
 import { CoreUI } from './components/CoreUI'
 import { assetPath } from './utils'
 import { EditorLayout } from './components/editor/EditorLayout'
+import { createRuntimeWalletAdapter } from './wallet-adapter'
 
 export { System } from '../core/systems/System'
 
@@ -16,6 +17,7 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
   const cssLayerRef = useRef()
   const uiRef = useRef()
   const world = useMemo(() => createClientWorld(), [])
+  const walletAdapter = useMemo(() => createRuntimeWalletAdapter(), [])
   const [ui, setUI] = useState(world.ui.state)
   const [resolvedWsUrl, setResolvedWsUrl] = useState(null)
   const [apiBaseUrl, setApiBaseUrl] = useState(null)
@@ -51,6 +53,54 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
       cancelled = true
     }
   }, [wsUrl, apiUrl, authUrl])
+
+  useEffect(() => {
+    const publishRuntimeWalletSnapshot = snapshot => {
+      if (typeof globalThis === 'undefined') return
+      const normalized = {
+        source: snapshot?.source || null,
+        address: snapshot?.address || null,
+        connected: !!snapshot?.connected,
+        chainId: snapshot?.chainId ?? null,
+        updatedAt: Date.now(),
+      }
+      globalThis.__runtimeResolvedWallet = normalized
+      if (
+        typeof window !== 'undefined' &&
+        typeof window.dispatchEvent === 'function' &&
+        typeof window.CustomEvent === 'function'
+      ) {
+        window.dispatchEvent(new window.CustomEvent('runtime-wallet-snapshot', { detail: normalized }))
+      }
+    }
+
+    const applyWalletBinding = snapshot => {
+      publishRuntimeWalletSnapshot(snapshot)
+      const binding = {
+        walletAdapter,
+        address: snapshot?.address || null,
+        isConnected: !!snapshot?.connected,
+      }
+      world.evm?.bind?.(binding)
+      world.hyperliquid?.bind?.(binding)
+    }
+
+    applyWalletBinding(walletAdapter.getSnapshot())
+    const unsubscribe = walletAdapter.subscribe(snapshot => {
+      applyWalletBinding(snapshot)
+    })
+    void walletAdapter.refresh().then(applyWalletBinding).catch(() => {})
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [world, walletAdapter])
+
+  useEffect(() => {
+    return () => {
+      walletAdapter.destroy()
+    }
+  }, [walletAdapter])
 
   useEffect(() => {
     if (!entered) return

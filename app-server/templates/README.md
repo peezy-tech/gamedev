@@ -21,7 +21,7 @@ Before any coding agent does work in this SDK repo, require this pre-read from t
    - _tip_: point your agent to `/docs/scripts/` API reference for extra accuracy
 2. Find the "Add" pane in the menu to bring your Tree app in the scene
 
-## Updating the engine
+## Updating the SDK
 
-- Update your engine & sdk locally
-  - `npm install gamedev@latest`
+- Update your SDK and engine:
+  - `npm run update:sdk`

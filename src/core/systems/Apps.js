@@ -55,6 +55,37 @@ export class Apps extends System {
       // ...
     }
     this.worldMethods = {
+      hyperliquid(entity) {
+        const hl = world.hyperliquid
+        return {
+          getPrice: ticker => hl.getPrice(ticker),
+          getBalance: () => hl.getBalance(),
+          getPositions: () => hl.getPositions(),
+          getAvailableTickers: () => hl.getAvailableTickers(),
+          buy: (ticker, amount, slippage) => hl.buy(ticker, amount, slippage),
+          sell: (ticker, amount, slippage) => hl.sell(ticker, amount, slippage),
+          closePosition: (ticker, slippage) => hl.closePosition(ticker, slippage),
+          hasAgentKey: () => hl.hasAgentKey(),
+          setupAgentKey: name => hl.setupAgentKey(name),
+          deposit: amount => hl.deposit(amount),
+          withdraw: (amount, destination) => hl.withdraw(amount, destination),
+        }
+      },
+      evm(entity) {
+        const evm = world.evm
+        return {
+          getAddress: () => evm.getAddress(),
+          isConnected: () => evm.isConnected(),
+          getNativeBalance: address => evm.getNativeBalance(address),
+          getTokenBalance: (tokenAddress, address, decimals) =>
+            evm.getTokenBalance(tokenAddress, address, decimals),
+          getUSDCBalance: address => evm.getUSDCBalance(address),
+          transferNative: (to, amount) => evm.transferNative(to, amount),
+          transferToken: (tokenAddress, to, amount, decimals) =>
+            evm.transferToken(tokenAddress, to, amount, decimals),
+          transferUSDC: (to, amount) => evm.transferUSDC(to, amount),
+        }
+      },
       add(entity, pNode) {
         const node = getRef(pNode)
         if (!node) return
