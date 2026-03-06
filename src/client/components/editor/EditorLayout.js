@@ -1,7 +1,7 @@
 import { css } from '@firebolt-dev/css'
 import { useContext, useEffect, useState } from 'react'
 import { editorTheme as theme } from './editorTheme'
-import { EditorToolbar } from './EditorToolbar'
+import { MenuRow } from '../MenuRow'
 import { EditorUserMenu } from '../UserMenu'
 import { ExploreMenu } from '../ExploreMenu'
 import { LeftPanel } from './LeftPanel'
@@ -143,7 +143,7 @@ export function EditorLayout({ world, ui, children }) {
             <EditorHint visible={showEditor} />
             {/* Toolbar - logo always visible when ready, hammer only for builders */}
             {ready && (
-              <EditorToolbar
+              <MenuRow
                 world={world}
                 open={open}
                 onToggle={() => setOpen(!open)}
