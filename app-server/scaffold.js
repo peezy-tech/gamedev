@@ -95,7 +95,7 @@ function buildPackageJson({ packageName, sdkName, sdkVersion }) {
       'deploy:fly': 'bash scripts/fly-deploy.sh',
       'deploy:app': 'gamedev apps deploy',
       update: 'npm i gamedev@latest && gamedev update',
-      'update:engine': 'bash scripts/update-engine.sh',
+      'update:sdk': 'bash scripts/update-sdk.sh',
       typecheck: 'tsc --noEmit',
       'hyp:extract': 'node scripts/extract-hyp.mjs',
       'world:entities': 'node scripts/world-entities.mjs',
