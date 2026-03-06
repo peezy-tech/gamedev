@@ -140,7 +140,7 @@ export function EditorLayout({ world, ui, children }) {
             `}
           >
             {children}
-            <EditorHint />
+            <EditorHint visible={showEditor} />
             {/* Toolbar - logo always visible when ready, hammer only for builders */}
             {ready && (
               <EditorToolbar
@@ -299,9 +299,12 @@ function WalletConnectPopover({ auth, onClose, onSelect }) {
   )
 }
 
-function EditorHint() {
-  const { hint } = useContext(HintContext)
-  if (!hint) return null
+function EditorHint({ visible }) {
+  const { hint, setHint } = useContext(HintContext)
+  useEffect(() => {
+    if (!visible && hint) setHint(null)
+  }, [visible])
+  if (!visible || !hint) return null
   return (
     <div
       css={css`
