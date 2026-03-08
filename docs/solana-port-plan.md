@@ -275,14 +275,18 @@ Files:
 
 Checklist:
 
-- [ ] Re-evaluate whether the older swap modal concept still belongs in this runtime.
-- [ ] If yes, port it using the phase 1 and phase 2 wallet bindings instead of wallet-adapter APIs.
-- [ ] Keep swap code isolated from runtime auth and from the core Solana connect path.
-- [ ] Treat swap as additive UX, not a dependency for wallet connect or world-token transfer.
+- [x] Re-evaluate whether the older swap modal concept still belongs in this runtime.
+- [x] Do not port the older swap modal in this runtime; keep phase 2 focused on wallet connect plus world-token deposit/withdraw.
+- [x] Keep swap code isolated from runtime auth and from the core Solana connect path.
+- [x] Treat swap as additive UX, not a dependency for wallet connect or world-token transfer.
+
+Decision:
+
+Swap support is intentionally dropped for this port. The restored runtime path now covers wallet connect, wallet sync, and world-token deposit/withdraw without reintroducing a larger conversion UI surface.
 
 Done when:
 
-- [ ] Swap support is either intentionally dropped or ported onto the new Solana foundation.
+- [x] Swap support is either intentionally dropped or ported onto the new Solana foundation.
 
 ### Slice 5. Expand docs and test coverage to cover the full Solana surface
 
