@@ -203,6 +203,10 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
   const [transferError, setTransferError] = useState('')
   const [transferTxHash, setTransferTxHash] = useState('')
   const [copiedTxHash, setCopiedTxHash] = useState(false)
+  const [solanaNativeBalance, setSolanaNativeBalance] = useState(null)
+  const [solanaTokenBalance, setSolanaTokenBalance] = useState(null)
+  const [solanaBalancesPending, setSolanaBalancesPending] = useState(false)
+  const [solanaBalancesError, setSolanaBalancesError] = useState('')
 
   const setFeedbackError = useCallback(message => setFeedback({ type: 'error', message }), [])
   const setFeedbackSuccess = useCallback(message => setFeedback({ type: 'success', message }), [])
@@ -327,6 +331,57 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
   const worldSolanaConnected = !!runtimeResolvedSolanaWallet?.connected
   const worldSolanaAvailable = !!runtimeResolvedSolanaWallet?.available
   const worldSolanaCluster = typeof runtimeResolvedSolanaWallet?.cluster === 'string' ? runtimeResolvedSolanaWallet.cluster : 'mainnet'
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!world?.solana || !worldSolanaConnected || !worldSolanaAddress) {
+      setSolanaNativeBalance(null)
+      setSolanaTokenBalance(null)
+      setSolanaBalancesPending(false)
+      setSolanaBalancesError('')
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const loadBalances = async () => {
+      setSolanaBalancesPending(true)
+      setSolanaBalancesError('')
+
+      try {
+        const nativeBalance = await world.solana.getNativeBalance(worldSolanaAddress)
+        let tokenBalance = null
+        try {
+          tokenBalance = await world.solana.getWorldTokenBalance(worldSolanaAddress)
+        } catch (error) {
+          const message = error?.message || ''
+          if (message !== 'World token mint address not configured' && message !== 'Invalid world token mint address') {
+            throw error
+          }
+        }
+
+        if (cancelled) return
+        setSolanaNativeBalance(nativeBalance)
+        setSolanaTokenBalance(tokenBalance)
+      } catch (error) {
+        if (cancelled) return
+        setSolanaNativeBalance(null)
+        setSolanaTokenBalance(null)
+        setSolanaBalancesError(error?.message || 'Unable to load Solana balances.')
+      } finally {
+        if (!cancelled) {
+          setSolanaBalancesPending(false)
+        }
+      }
+    }
+
+    void loadBalances()
+
+    return () => {
+      cancelled = true
+    }
+  }, [world, worldSolanaConnected, worldSolanaAddress, worldSolanaCluster])
 
   const connectedSiteWalletRows = useMemo(() => {
     const rows = []
@@ -762,6 +817,29 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
               {worldSolanaAddress ? truncateAddress(worldSolanaAddress) : 'Not connected'}
             </div>
           </div>
+          <div className='usermenu-row'>
+            <div className='usermenu-row-label'>Native</div>
+            <div className='usermenu-row-value'>
+              {!worldSolanaConnected
+                ? 'Not connected'
+                : solanaBalancesPending
+                  ? 'Loading...'
+                  : `${formatBalance(solanaNativeBalance, 6)} SOL`}
+            </div>
+          </div>
+          <div className='usermenu-row'>
+            <div className='usermenu-row-label'>World Token</div>
+            <div className='usermenu-row-value'>
+              {!worldSolanaConnected
+                ? 'Not connected'
+                : solanaBalancesPending
+                ? 'Loading...'
+                : solanaTokenBalance === null
+                  ? 'Not configured'
+                  : formatBalance(solanaTokenBalance, 6)}
+            </div>
+          </div>
+          {solanaBalancesError && <div className='usermenu-error'>{solanaBalancesError}</div>}
           {!worldSolanaAvailable && <div className='usermenu-muted'>Link or enable a Solana wallet first.</div>}
           <div className='usermenu-inlineactions'>
             <button

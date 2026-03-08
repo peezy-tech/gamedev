@@ -97,6 +97,11 @@ export class Apps extends System {
           return null
         }
         return {
+          getAddress: () => solana.getAddress(),
+          isConnected: () => solana.isConnected(),
+          getNativeBalance: address => solana.getNativeBalance(address),
+          getTokenBalance: (mintAddress, address) => solana.getTokenBalance(mintAddress, address),
+          getWorldTokenBalance: address => solana.getWorldTokenBalance(address),
           connect: player => solana.connect(resolvePlayer(player)),
           disconnect: player => solana.disconnect(resolvePlayer(player)),
           deposit: (player, amount) => solana.deposit(entity, resolvePlayer(player), amount),

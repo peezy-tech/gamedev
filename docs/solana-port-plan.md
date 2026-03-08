@@ -236,15 +236,15 @@ Files:
 
 Checklist:
 
-- [ ] Add `getAddress()` and `isConnected()` helpers to `world.solana`.
-- [ ] Add native SOL balance lookup.
-- [ ] Add SPL token balance lookup for the configured world token mint.
-- [ ] Add a small amount/decimal normalization layer similar in spirit to `src/core/systems/EVMClient.js`.
-- [ ] Surface these values in the Solana account UI.
+- [x] Add `getAddress()` and `isConnected()` helpers to `world.solana`.
+- [x] Add native SOL balance lookup.
+- [x] Add SPL token balance lookup for the configured world token mint.
+- [x] Add a small amount/decimal normalization layer similar in spirit to `src/core/systems/EVMClient.js`.
+- [x] Surface these values in the Solana account UI.
 
 Done when:
 
-- [ ] `world.solana` can answer basic address and balance queries from scripts and UI.
+- [x] `world.solana` can answer basic address and balance queries from scripts and UI.
 
 ### Slice 3. Add a richer Solana transfer UX
 

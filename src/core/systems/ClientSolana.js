@@ -1,5 +1,15 @@
+import { address as normalizeSolanaAddress, createSolanaRpc } from '@solana/kit'
+import { TOKEN_PROGRAM_ADDRESS, fetchMaybeToken, fetchMint, findAssociatedTokenPda } from '@solana-program/token'
+
 import { uuid } from '../utils'
 import { System } from './System'
+
+const SOL_DECIMALS = 9
+const DEFAULT_SOLANA_RPC_URLS = {
+  mainnet: 'https://api.mainnet-beta.solana.com',
+  devnet: 'https://api.devnet.solana.com',
+  testnet: 'https://api.testnet.solana.com',
+}
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0
@@ -73,6 +83,25 @@ function sleep(ms) {
   })
 }
 
+function getRuntimeEnvString(name) {
+  if (typeof globalThis !== 'undefined' && typeof globalThis?.env?.[name] === 'string') {
+    return globalThis.env[name].trim()
+  }
+  if (typeof process !== 'undefined' && typeof process?.env?.[name] === 'string') {
+    return process.env[name].trim()
+  }
+  return ''
+}
+
+function normalizeRpcHttpUrl(value) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) return ''
+  if (normalized.startsWith('https://') || normalized.startsWith('http://')) return normalized
+  if (normalized.startsWith('wss://')) return `https://${normalized.slice('wss://'.length)}`
+  if (normalized.startsWith('ws://')) return `http://${normalized.slice('ws://'.length)}`
+  return normalized
+}
+
 export class ClientSolana extends System {
   constructor(world) {
     super(world)
@@ -81,6 +110,8 @@ export class ClientSolana extends System {
     this.connected = false
     this.cluster = 'mainnet'
     this.pendingOperations = new Map()
+    this.rpcClients = new Map()
+    this.mintAccountCache = new Map()
   }
 
   bind(binding = null) {
@@ -121,6 +152,74 @@ export class ClientSolana extends System {
       throw new Error('Solana wallet not connected')
     }
     return this.walletAdapter
+  }
+
+  _normalizeAddress(value, fieldName = 'address') {
+    if (!isNonEmptyString(value)) {
+      throw new Error(`${fieldName} is required`)
+    }
+    try {
+      return normalizeSolanaAddress(value.trim())
+    } catch {
+      throw new Error(`Invalid ${fieldName}`)
+    }
+  }
+
+  _getRpcUrl(cluster = this.cluster) {
+    const configuredUrl =
+      getRuntimeEnvString('PUBLIC_SOLANA_RPC_URL') ||
+      getRuntimeEnvString('PUBLIC_RPC_URL') ||
+      getRuntimeEnvString('RPC_URL')
+    return normalizeRpcHttpUrl(configuredUrl) || DEFAULT_SOLANA_RPC_URLS[cluster] || DEFAULT_SOLANA_RPC_URLS.mainnet
+  }
+
+  _getRpc(cluster = this.cluster) {
+    const rpcUrl = this._getRpcUrl(cluster)
+    let rpc = this.rpcClients.get(rpcUrl)
+    if (!rpc) {
+      rpc = createSolanaRpc(rpcUrl)
+      this.rpcClients.set(rpcUrl, rpc)
+    }
+    return rpc
+  }
+
+  _getConfiguredWorldTokenMintAddress() {
+    const configuredMint =
+      getRuntimeEnvString('PUBLIC_WORLD_TOKEN_MINT_ADDRESS') ||
+      getRuntimeEnvString('WORLD_TOKEN_MINT_ADDRESS')
+    if (!configuredMint) return null
+    try {
+      return normalizeSolanaAddress(configuredMint)
+    } catch {
+      throw new Error('Invalid world token mint address')
+    }
+  }
+
+  _formatAtomicUnits(amount, decimals) {
+    if (typeof amount !== 'bigint') {
+      throw new Error('Amount must be a bigint')
+    }
+    if (!Number.isInteger(decimals) || decimals < 0) {
+      throw new Error('Invalid decimals')
+    }
+    const scale = 10n ** BigInt(decimals)
+    const whole = amount / scale
+    const remainder = amount % scale
+    const fraction = remainder.toString().padStart(decimals, '0').replace(/0+$/, '')
+    const normalized = fraction ? `${whole.toString()}.${fraction}` : whole.toString()
+    const numericValue = Number(normalized)
+    if (!Number.isFinite(numericValue)) {
+      throw new Error('Amount exceeds supported number range')
+    }
+    return numericValue
+  }
+
+  async _fetchMintAccount(mintAddress) {
+    const cacheKey = `${this._getRpcUrl(this.cluster)}:${mintAddress}`
+    if (!this.mintAccountCache.has(cacheKey)) {
+      this.mintAccountCache.set(cacheKey, fetchMint(this._getRpc(), mintAddress))
+    }
+    return this.mintAccountCache.get(cacheKey)
   }
 
   _assertLocalPlayer(player, action) {
@@ -177,6 +276,36 @@ export class ClientSolana extends System {
       throw new Error('Invalid signed Solana transaction')
     }
     return normalized
+  }
+
+  async getNativeBalance(address = this.getAddress()) {
+    const ownerAddress = this._normalizeAddress(address, 'address')
+    const rpc = this._getRpc()
+    const { value: lamports } = await rpc.getBalance(ownerAddress).send()
+    return this._formatAtomicUnits(BigInt(lamports), SOL_DECIMALS)
+  }
+
+  async getTokenBalance(mintAddress = this._getConfiguredWorldTokenMintAddress(), address = this.getAddress()) {
+    if (!mintAddress) {
+      throw new Error('World token mint address not configured')
+    }
+    const ownerAddress = this._normalizeAddress(address, 'address')
+    const normalizedMintAddress = this._normalizeAddress(mintAddress, 'mintAddress')
+    const mintAccount = await this._fetchMintAccount(normalizedMintAddress)
+    const [tokenAddress] = await findAssociatedTokenPda({
+      owner: ownerAddress,
+      mint: normalizedMintAddress,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
+    const tokenAccount = await fetchMaybeToken(this._getRpc(), tokenAddress)
+    if (!tokenAccount.exists) {
+      return 0
+    }
+    return this._formatAtomicUnits(tokenAccount.data.amount, mintAccount.data.decimals)
+  }
+
+  async getWorldTokenBalance(address = this.getAddress()) {
+    return this.getTokenBalance(this._getConfiguredWorldTokenMintAddress(), address)
   }
 
   async _waitForAddress(timeoutMs = 2000) {
