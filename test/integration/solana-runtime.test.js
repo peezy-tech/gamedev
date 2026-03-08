@@ -29,7 +29,7 @@ function createTaskQueue() {
   }
 }
 
-async function createSolanaHarness() {
+async function createSolanaHarness({ serializeSignedTransactions = false } = {}) {
   const queue = createTaskQueue()
   const playerSigner = await generateKeyPairSigner()
   const worldSigner = await generateKeyPairSigner()
@@ -252,7 +252,15 @@ async function createSolanaHarness() {
         : decoded
       const signed = await partiallySignTransaction([playerSigner.keyPair], transactionToSign)
       tamperNextTransaction = false
-      return getTransactionEncoder().encode(signed)
+      const encoded = getTransactionEncoder().encode(signed)
+      if (serializeSignedTransactions) {
+        return {
+          serialize() {
+            return encoded
+          },
+        }
+      }
+      return encoded
     },
   })
 
@@ -273,8 +281,10 @@ async function createSolanaHarness() {
     },
     entityModifiedPackets,
     flush: queue.flush,
+    mintAddress,
     playerEntity,
     playerSigner,
+    playerTokenAccount,
     serverSolana,
     setTamperNextTransaction() {
       tamperNextTransaction = true
@@ -392,4 +402,103 @@ test('solana runtime validates withdraw responses and adds the world signer', as
   )
   assert.ok(harness.submittedTransactions[0].signatures[harness.playerSigner.address])
   assert.ok(harness.submittedTransactions[0].signatures[harness.worldSigner.address])
+})
+
+test('solana runtime supports injected-style signing and client balance helpers', async () => {
+  const harness = await createSolanaHarness({ serializeSignedTransactions: true })
+  const hadEnv = Object.prototype.hasOwnProperty.call(globalThis, 'env')
+  const previousEnv = globalThis.env
+
+  harness.clientSolana._fetchNativeBalance = async ownerAddress => {
+    assert.equal(ownerAddress, harness.playerSigner.address)
+    return 3_500_000_000n
+  }
+  harness.clientSolana._fetchMintAccount = async mintAddress => {
+    assert.equal(mintAddress, harness.mintAddress)
+    return {
+      data: {
+        decimals: 6,
+      },
+    }
+  }
+  harness.clientSolana._fetchMaybeTokenAccount = async tokenAddress => {
+    assert.equal(tokenAddress, harness.playerTokenAccount)
+    return {
+      exists: true,
+      address: tokenAddress,
+      data: {
+        amount: 1_250_000n,
+      },
+    }
+  }
+
+  globalThis.env = {
+    ...(previousEnv || {}),
+    PUBLIC_WORLD_TOKEN_MINT_ADDRESS: harness.mintAddress,
+  }
+
+  try {
+    harness.serverSolana.connect(harness.playerEntity)
+    await harness.flush()
+
+    assert.equal(harness.clientSolana.getAddress(), harness.playerSigner.address)
+    assert.equal(harness.clientSolana.isConnected(), true)
+    assert.equal(await harness.clientSolana.getNativeBalance(), 3.5)
+    assert.equal(await harness.clientSolana.getWorldTokenBalance(), 1.25)
+
+    const depositPromise = harness.clientSolana.deposit('0.25')
+    await harness.flush()
+    const result = await depositPromise
+
+    assert.ok(typeof result.signature === 'string' && result.signature.length > 0)
+    assert.equal(harness.submittedTransactions.length, 1)
+  } finally {
+    if (hadEnv) {
+      globalThis.env = previousEnv
+    } else {
+      delete globalThis.env
+    }
+  }
+})
+
+test('solana runtime emits operation lifecycle events for the richer transfer flow', async () => {
+  const harness = await createSolanaHarness()
+  harness.connectWallet()
+
+  const events = []
+  const onOperation = operation => {
+    events.push({
+      ...operation,
+    })
+  }
+
+  harness.clientSolana.on('operation', onOperation)
+
+  try {
+    harness.setTamperNextTransaction()
+    const failedDepositPromise = harness.clientSolana.deposit('0.1')
+    await harness.flush()
+    await assert.rejects(failedDepositPromise, /payload mismatch/)
+
+    assert.deepEqual(
+      events.map(event => event.status),
+      ['pending', 'signed', 'failed'],
+    )
+    assert.equal(events[0].kind, 'deposit')
+
+    events.length = 0
+
+    const withdrawPromise = harness.clientSolana.withdraw('0.2')
+    await harness.flush()
+    const result = await withdrawPromise
+
+    assert.deepEqual(
+      events.map(event => event.status),
+      ['pending', 'signed', 'confirmed'],
+    )
+    assert.equal(events[0].kind, 'withdraw')
+    assert.equal(events.at(-1).signature, result.signature)
+  } finally {
+    harness.clientSolana.off('operation', onOperation)
+  }
 })

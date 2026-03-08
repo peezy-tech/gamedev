@@ -1,6 +1,6 @@
 # Solana Port Plan
 
-Status: in progress
+Status: complete
 
 Last updated: 2026-03-08
 
@@ -299,14 +299,14 @@ Files:
 
 Checklist:
 
-- [ ] Add integration coverage for the non-Privy injected wallet path.
-- [ ] Add integration coverage for balance queries and client utility methods.
-- [ ] Add end-to-end transfer tests around the richer UI flow where practical.
-- [ ] Add final docs for the stable Solana scripting API and any user-facing commands or menus introduced in phase 2.
+- [x] Add integration coverage for the non-Privy injected wallet path.
+- [x] Add integration coverage for balance queries and client utility methods.
+- [x] Add end-to-end transfer tests around the richer UI flow where practical.
+- [x] Add final docs for the stable Solana scripting API and any user-facing commands or menus introduced in phase 2.
 
 Done when:
 
-- [ ] The expanded Solana surface is documented and covered beyond the initial connect/deposit/withdraw path.
+- [x] The expanded Solana surface is documented and covered beyond the initial connect/deposit/withdraw path.
 
 ## Explicitly Out Of Scope
 

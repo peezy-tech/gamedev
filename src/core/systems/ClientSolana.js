@@ -72,6 +72,7 @@ function createPendingOperation(kind, amount) {
     kind,
     amount,
     status: 'pending',
+    lastEventKey: '',
     promise,
     resolve,
     reject,
@@ -223,6 +224,16 @@ export class ClientSolana extends System {
     return this.mintAccountCache.get(cacheKey)
   }
 
+  async _fetchNativeBalance(address) {
+    const rpc = this._getRpc()
+    const { value: lamports } = await rpc.getBalance(address).send()
+    return BigInt(lamports)
+  }
+
+  async _fetchMaybeTokenAccount(tokenAddress) {
+    return fetchMaybeToken(this._getRpc(), tokenAddress)
+  }
+
   _assertLocalPlayer(player, action) {
     if (!player) return
     const playerId = player?.data?.id || player?.id
@@ -242,6 +253,9 @@ export class ClientSolana extends System {
   _emitOperationEvent(operation, payload = {}) {
     if (!operation?.requestId) return
     const status = payload.status || operation.status || 'pending'
+    const eventKey = `${status}:${payload.signature || ''}:${payload.error || ''}`
+    if (operation.lastEventKey === eventKey) return
+    operation.lastEventKey = eventKey
     operation.status = status
     this.emit('operation', {
       requestId: operation.requestId,
@@ -304,9 +318,8 @@ export class ClientSolana extends System {
 
   async getNativeBalance(address = this.getAddress()) {
     const ownerAddress = this._normalizeAddress(address, 'address')
-    const rpc = this._getRpc()
-    const { value: lamports } = await rpc.getBalance(ownerAddress).send()
-    return this._formatAtomicUnits(BigInt(lamports), SOL_DECIMALS)
+    const lamports = await this._fetchNativeBalance(ownerAddress)
+    return this._formatAtomicUnits(lamports, SOL_DECIMALS)
   }
 
   async getTokenBalance(mintAddress = this._getConfiguredWorldTokenMintAddress(), address = this.getAddress()) {
@@ -321,7 +334,7 @@ export class ClientSolana extends System {
       mint: normalizedMintAddress,
       tokenProgram: TOKEN_PROGRAM_ADDRESS,
     })
-    const tokenAccount = await fetchMaybeToken(this._getRpc(), tokenAddress)
+    const tokenAccount = await this._fetchMaybeTokenAccount(tokenAddress)
     if (!tokenAccount.exists) {
       return 0
     }

@@ -181,6 +181,26 @@ Returns the Solana helper API.
 const solana = world.solana()
 ```
 
+#### `getAddress()`
+
+Returns the connected in-world Solana wallet address, or `null` when not connected.
+
+#### `isConnected()`
+
+Returns `true` when an in-world Solana wallet is connected.
+
+#### `getNativeBalance(address?)`
+
+Returns the SOL balance for the provided address, or the active in-world wallet when omitted.
+
+#### `getTokenBalance(mintAddress, address?)`
+
+Returns the SPL token balance for the provided mint and owner address.
+
+#### `getWorldTokenBalance(address?)`
+
+Returns the SPL token balance for the configured world token mint.
+
 #### `connect(player?)`
 
 Prompts a player to connect a Solana wallet in-world.
