@@ -3,6 +3,8 @@
 import * as THREE from 'three'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@firebolt-dev/css'
+import { useActiveWallet } from '@privy-io/react-auth'
+import { useStandardWallets, useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
 
 import { createClientWorld } from '../core/createClientWorld'
 import { CoreUI } from './components/CoreUI'
@@ -12,12 +14,131 @@ import { createRuntimeWalletAdapter } from './wallet-adapter'
 
 export { System } from '../core/systems/System'
 
+function normalizeSolanaAddress(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function sameSolanaWallet(a, b) {
+  return normalizeSolanaAddress(a) === normalizeSolanaAddress(b)
+}
+
+function resolveSolanaCluster(chain) {
+  if (typeof chain !== 'string') return 'mainnet'
+  if (chain.includes('devnet')) return 'devnet'
+  if (chain.includes('testnet')) return 'testnet'
+  return 'mainnet'
+}
+
+function publishRuntimeSolanaWalletSnapshot(snapshot) {
+  if (typeof globalThis === 'undefined') return
+  const normalized = {
+    address: snapshot?.address || null,
+    connected: !!snapshot?.connected,
+    available: !!snapshot?.available,
+    cluster: snapshot?.cluster || 'mainnet',
+    updatedAt: Date.now(),
+  }
+  globalThis.__runtimeResolvedSolanaWallet = normalized
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.dispatchEvent === 'function' &&
+    typeof window.CustomEvent === 'function'
+  ) {
+    window.dispatchEvent(new window.CustomEvent('runtime-solana-wallet-snapshot', { detail: normalized }))
+  }
+}
+
+function PrivySolanaWalletBridge({ world }) {
+  const { wallet: activePrivyWallet } = useActiveWallet()
+  const { wallets: connectedSolanaWallets = [] } = useSolanaWallets()
+  const { wallets: standardSolanaWallets = [] } = useStandardWallets()
+
+  useEffect(() => {
+    const activeWallet =
+      activePrivyWallet?.type === 'solana'
+        ? connectedSolanaWallets.find(wallet => sameSolanaWallet(wallet.address, activePrivyWallet.address)) ||
+          connectedSolanaWallets[0] ||
+          null
+        : connectedSolanaWallets[0] || null
+
+    const standardWallet = activeWallet?.standardWallet || standardSolanaWallets[0] || null
+    const chain = activeWallet?.standardWallet?.chains?.[0] || standardWallet?.chains?.[0] || 'solana:mainnet'
+    const cluster = resolveSolanaCluster(chain)
+
+    const binding =
+      standardWallet || activeWallet
+        ? {
+            address: activeWallet?.address || null,
+            connected: !!activeWallet,
+            cluster,
+            getAddress: () => activeWallet?.address || null,
+            isConnected: () => !!activeWallet,
+            connect: async () => {
+              const connectFeature = standardWallet?.features?.['standard:connect']
+              if (!connectFeature?.connect) {
+                throw new Error('No Solana wallet is available')
+              }
+              await connectFeature.connect()
+            },
+            disconnect: async () => {
+              if (activeWallet) {
+                await activeWallet.disconnect()
+                return
+              }
+              const disconnectFeature = standardWallet?.features?.['standard:disconnect']
+              await disconnectFeature?.disconnect?.()
+            },
+            signMessage: async message => {
+              if (!activeWallet) {
+                throw new Error('Solana wallet not connected')
+              }
+              const result = await activeWallet.signMessage({ message })
+              return result?.signature || null
+            },
+            signTransaction: async transaction => {
+              if (!activeWallet) {
+                throw new Error('Solana wallet not connected')
+              }
+              const result = await activeWallet.signTransaction({
+                transaction,
+                chain,
+              })
+              return result?.signedTransaction || null
+            },
+          }
+        : null
+
+    world.solana?.bind?.(binding)
+    publishRuntimeSolanaWalletSnapshot({
+      address: activeWallet?.address || null,
+      connected: !!activeWallet,
+      available: !!standardWallet,
+      cluster,
+    })
+  }, [world, activePrivyWallet, connectedSolanaWallets, standardSolanaWallets])
+
+  useEffect(() => {
+    return () => {
+      world.solana?.bind?.(null)
+      publishRuntimeSolanaWalletSnapshot({
+        address: null,
+        connected: false,
+        available: false,
+        cluster: 'mainnet',
+      })
+    }
+  }, [world])
+
+  return null
+}
+
 export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
   const viewportRef = useRef()
   const cssLayerRef = useRef()
   const uiRef = useRef()
   const world = useMemo(() => createClientWorld(), [])
   const walletAdapter = useMemo(() => createRuntimeWalletAdapter(), [])
+  const shouldUsePrivySolanaBridge = typeof globalThis !== 'undefined' && globalThis.__runtimeAuth?.mode === 'privy'
   const [ui, setUI] = useState(world.ui.state)
   const [resolvedWsUrl, setResolvedWsUrl] = useState(null)
   const [apiBaseUrl, setApiBaseUrl] = useState(null)
@@ -161,6 +282,7 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
         }
       `}
     >
+      {shouldUsePrivySolanaBridge ? <PrivySolanaWalletBridge world={world} /> : null}
       <EditorLayout world={world} ui={ui}>
         <div className='App__viewport' ref={viewportRef}>
           <div className='App__cssLayer' ref={cssLayerRef} />

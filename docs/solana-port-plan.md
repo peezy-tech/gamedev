@@ -97,17 +97,17 @@ Files:
 
 Checklist:
 
-- [ ] Add a client bridge component in `src/client/world-client.js` so the bridge can bind directly to the `world` instance created there.
-- [ ] Read the active Solana wallet through the existing Privy Solana hooks rather than introducing wallet-adapter code.
-- [ ] Normalize the selected Solana wallet into a `bind(...)` shape for `world.solana`, similar to `world.evm.bind(...)` and `world.hyperliquid.bind(...)`.
-- [ ] Support at least: `address`, `connected`, `signMessage`, and `signTransaction` in the bound wallet interface.
-- [ ] Leave runtime auth and the existing `__runtimeAuth` flow unchanged.
-- [ ] Keep Solana wallet connect/disconnect UI separate from the existing runtime auth buttons in `src/client/components/UserMenu.js`.
+- [x] Add a client bridge component in `src/client/world-client.js` so the bridge can bind directly to the `world` instance created there.
+- [x] Read the active Solana wallet through the existing Privy Solana hooks rather than introducing wallet-adapter code.
+- [x] Normalize the selected Solana wallet into a `bind(...)` shape for `world.solana`, similar to `world.evm.bind(...)` and `world.hyperliquid.bind(...)`.
+- [x] Support at least: `address`, `connected`, `signMessage`, and `signTransaction` in the bound wallet interface.
+- [x] Leave runtime auth and the existing `__runtimeAuth` flow unchanged.
+- [x] Keep Solana wallet connect/disconnect UI separate from the existing runtime auth buttons in `src/client/components/UserMenu.js`.
 
 Done when:
 
-- [ ] The client can detect an active Privy Solana wallet and bind it to `world.solana`.
-- [ ] Disconnecting the Solana wallet clears only Solana state, not the runtime auth session.
+- [x] The client can detect an active Privy Solana wallet and bind it to `world.solana`.
+- [x] Disconnecting the Solana wallet clears only Solana state, not the runtime auth session.
 
 ### Slice 4. Replace the old connect flow with a nonce challenge
 
@@ -171,15 +171,15 @@ Files:
 
 Checklist:
 
-- [ ] Add a Solana-specific account section in `src/client/components/UserMenu.js`.
-- [ ] Show current Solana wallet address and connection state there.
-- [ ] Add connect and disconnect controls there that talk to `world.solana`.
-- [ ] Keep the existing runtime auth controls in `src/client/components/Sidebar.js` and `src/client/components/editor/EditorLayout.js` dedicated to runtime auth.
-- [ ] Do not merge Solana connect into the current `walletAuth` state object.
+- [x] Add a Solana-specific account section in `src/client/components/UserMenu.js`.
+- [x] Show current Solana wallet address and connection state there.
+- [x] Add connect and disconnect controls there that talk to `world.solana`.
+- [x] Keep the existing runtime auth controls in `src/client/components/Sidebar.js` and `src/client/components/editor/EditorLayout.js` dedicated to runtime auth.
+- [x] Do not merge Solana connect into the current `walletAuth` state object.
 
 Done when:
 
-- [ ] A developer can manually connect and disconnect a Solana wallet without touching runtime auth state.
+- [x] A developer can manually connect and disconnect a Solana wallet without touching runtime auth state.
 
 ### Slice 7. Add tests and docs for the phase 1 port
 

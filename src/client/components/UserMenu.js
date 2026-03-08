@@ -124,6 +124,12 @@ function getWalletChainLabel(chainType) {
   return 'Wallet'
 }
 
+function getSolanaClusterLabel(cluster) {
+  if (cluster === 'devnet') return 'Devnet'
+  if (cluster === 'testnet') return 'Testnet'
+  return 'Mainnet'
+}
+
 async function copyToClipboard(text) {
   const value = typeof text === 'string' ? text.trim() : ''
   if (!value) return false
@@ -209,6 +215,10 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
     if (typeof globalThis === 'undefined') return null
     return globalThis.__runtimeResolvedWallet || null
   })
+  const [runtimeResolvedSolanaWallet, setRuntimeResolvedSolanaWallet] = useState(() => {
+    if (typeof globalThis === 'undefined') return null
+    return globalThis.__runtimeResolvedSolanaWallet || null
+  })
 
   const { login } = useLogin({
     onError: error => {
@@ -249,6 +259,24 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
     window.addEventListener('runtime-wallet-snapshot', onRuntimeWalletSnapshot)
     return () => {
       window.removeEventListener('runtime-wallet-snapshot', onRuntimeWalletSnapshot)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {}
+
+    const setFromGlobal = () => {
+      setRuntimeResolvedSolanaWallet(globalThis.__runtimeResolvedSolanaWallet || null)
+    }
+    const onRuntimeSolanaWalletSnapshot = event => {
+      const nextSnapshot = event?.detail || null
+      setRuntimeResolvedSolanaWallet(nextSnapshot)
+    }
+
+    setFromGlobal()
+    window.addEventListener('runtime-solana-wallet-snapshot', onRuntimeSolanaWalletSnapshot)
+    return () => {
+      window.removeEventListener('runtime-solana-wallet-snapshot', onRuntimeSolanaWalletSnapshot)
     }
   }, [])
 
@@ -294,6 +322,11 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
 
     return getLatestConnectedWallet(connectedSolanaWallets)
   }, [activePrivyWallet, connectedSolanaWallets])
+
+  const worldSolanaAddress = typeof runtimeResolvedSolanaWallet?.address === 'string' ? runtimeResolvedSolanaWallet.address : ''
+  const worldSolanaConnected = !!runtimeResolvedSolanaWallet?.connected
+  const worldSolanaAvailable = !!runtimeResolvedSolanaWallet?.available
+  const worldSolanaCluster = typeof runtimeResolvedSolanaWallet?.cluster === 'string' ? runtimeResolvedSolanaWallet.cluster : 'mainnet'
 
   const connectedSiteWalletRows = useMemo(() => {
     const rows = []
@@ -530,11 +563,47 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
     setFeedbackSuccess,
   ])
 
+  const runWorldSolanaConnect = useCallback(async () => {
+    if (pendingAction === 'world-solana-connect' || pendingAction === 'world-solana-disconnect') return
+    clearFeedback()
+    if (!world?.solana) {
+      setFeedbackError('Solana wallet controls are unavailable.')
+      return
+    }
+    setPendingAction('world-solana-connect')
+    try {
+      await world.solana.connect()
+    } catch (error) {
+      setFeedbackError(toPrivyErrorMessage(error, 'Unable to connect Solana wallet.'))
+    } finally {
+      setPendingAction(current => (current === 'world-solana-connect' ? '' : current))
+    }
+  }, [clearFeedback, pendingAction, setFeedbackError, world])
+
+  const runWorldSolanaDisconnect = useCallback(async () => {
+    if (pendingAction === 'world-solana-connect' || pendingAction === 'world-solana-disconnect') return
+    clearFeedback()
+    if (!world?.solana) {
+      setFeedbackError('Solana wallet controls are unavailable.')
+      return
+    }
+    setPendingAction('world-solana-disconnect')
+    try {
+      await world.solana.disconnect()
+    } catch (error) {
+      setFeedbackError(toPrivyErrorMessage(error, 'Unable to disconnect Solana wallet.'))
+    } finally {
+      setPendingAction(current => (current === 'world-solana-disconnect' ? '' : current))
+    }
+  }, [clearFeedback, pendingAction, setFeedbackError, world])
+
   const isAuthenticated = ready && authenticated && user
 
   const renderWalletsSection = () => {
     const linkingEvm = pendingAction === 'link-wallet-evm'
     const linkingSolana = pendingAction === 'link-wallet-solana'
+    const connectingWorldSolana = pendingAction === 'world-solana-connect'
+    const disconnectingWorldSolana = pendingAction === 'world-solana-disconnect'
 
     return (
       <div className='usermenu-section'>
@@ -671,6 +740,50 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
             </div>
           </div>
         )}
+
+        <div className='usermenu-subsection-label'>Solana In World</div>
+        <div className='usermenu-solana-panel'>
+          <div className='usermenu-row'>
+            <div className='usermenu-row-label'>Status</div>
+            <div className='usermenu-row-value'>
+              <div className='usermenu-wallet-row'>
+                <span className={cls('usermenu-chip', { active: worldSolanaConnected })}>
+                  {worldSolanaConnected ? 'Connected' : worldSolanaAvailable ? 'Disconnected' : 'Unavailable'}
+                </span>
+                {(worldSolanaAvailable || worldSolanaConnected) && (
+                  <span className='usermenu-chip'>{getSolanaClusterLabel(worldSolanaCluster)}</span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className='usermenu-row'>
+            <div className='usermenu-row-label'>Wallet</div>
+            <div className='usermenu-row-value mono'>
+              {worldSolanaAddress ? truncateAddress(worldSolanaAddress) : 'Not connected'}
+            </div>
+          </div>
+          {!worldSolanaAvailable && <div className='usermenu-muted'>Link or enable a Solana wallet first.</div>}
+          <div className='usermenu-inlineactions'>
+            <button
+              className='usermenu-linkbtn'
+              disabled={!world?.solana || !worldSolanaAvailable || worldSolanaConnected || disconnectingWorldSolana}
+              onClick={() => {
+                void runWorldSolanaConnect()
+              }}
+            >
+              {connectingWorldSolana ? 'Connecting...' : 'Connect'}
+            </button>
+            <button
+              className='usermenu-linkbtn'
+              disabled={!world?.solana || !worldSolanaConnected || connectingWorldSolana}
+              onClick={() => {
+                void runWorldSolanaDisconnect()
+              }}
+            >
+              {disconnectingWorldSolana ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+          </div>
+        </div>
 
         <div className='usermenu-subsection-label'>Linked To Account</div>
         {!isAuthenticated ? (
@@ -1329,6 +1442,16 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
           display: flex;
           flex-direction: column;
           gap: 0.45rem;
+        }
+        .usermenu-solana-panel {
+          margin-top: 0.35rem;
+          border: 1px solid ${theme.borderLight};
+          border-radius: ${theme.radiusSmall};
+          background: rgba(0, 0, 0, 0.16);
+          padding: 0.55rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
         }
         .usermenu-transfer-head {
           display: flex;
