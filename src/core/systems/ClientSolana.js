@@ -60,6 +60,12 @@ function createPendingOperation(kind, amount) {
   }
 }
 
+function sleep(ms) {
+  return new Promise(resolve => {
+    setTimeout(resolve, ms)
+  })
+}
+
 export class ClientSolana extends System {
   constructor(world) {
     super(world)
@@ -166,12 +172,29 @@ export class ClientSolana extends System {
     return normalized
   }
 
+  async _waitForAddress(timeoutMs = 2000) {
+    const deadline = Date.now() + timeoutMs
+    let address = this.getAddress()
+    while (!address && Date.now() < deadline) {
+      await sleep(50)
+      address = this.getAddress()
+    }
+    return address || null
+  }
+
   async connect(player = this.world.entities.player) {
     this._assertLocalPlayer(player, 'connect')
     const walletAdapter = this._requireWalletAdapter()
     if (typeof walletAdapter.connect === 'function') {
       await walletAdapter.connect()
     }
+    const address = this.getAddress() || (await this._waitForAddress())
+    if (!address) {
+      throw new Error('Solana wallet not connected')
+    }
+    this.world.network.send('solanaConnectChallengeRequest', {
+      address,
+    })
     this.emit('connect-requested', this.getSnapshot())
   }
 
@@ -218,6 +241,9 @@ export class ClientSolana extends System {
 
   async onSolanaConnectChallenge({ challengeId, challenge }) {
     try {
+      if (!challengeId) {
+        throw new Error('Missing Solana challenge id')
+      }
       const address = this.getAddress()
       if (!address) {
         throw new Error('Solana wallet not connected')

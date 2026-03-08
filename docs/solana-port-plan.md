@@ -120,19 +120,19 @@ Files:
 
 Checklist:
 
-- [ ] Define a server-issued connect challenge with a nonce, issue time, and expiry.
-- [ ] Add a client request path that asks the server for a challenge before wallet binding is accepted.
-- [ ] Sign the challenge bytes on the client with the bound Solana wallet.
-- [ ] Verify the signed challenge on the server using `@solana/kit` re-exports for address/public-key/signature handling.
-- [ ] Reject replayed, expired, malformed, or mismatched signatures.
-- [ ] Persist the verified address to `player.data.solanaWallet`.
-- [ ] Broadcast the updated `solanaWallet` field to other clients.
-- [ ] Implement disconnect so it clears `player.data.solanaWallet` and emits the same update/event flow as connect.
+- [x] Define a server-issued connect challenge with a nonce, issue time, and expiry.
+- [x] Add a client request path that asks the server for a challenge before wallet binding is accepted.
+- [x] Sign the challenge bytes on the client with the bound Solana wallet.
+- [x] Verify the signed challenge on the server using `@solana/kit` re-exports for address/public-key/signature handling.
+- [x] Reject replayed, expired, malformed, or mismatched signatures.
+- [x] Persist the verified address to `player.data.solanaWallet`.
+- [x] Broadcast the updated `solanaWallet` field to other clients.
+- [x] Implement disconnect so it clears `player.data.solanaWallet` and emits the same update/event flow as connect.
 
 Done when:
 
-- [ ] The server never accepts a static cached signature as proof of wallet ownership.
-- [ ] Connect and disconnect update both script-visible state and remote clients.
+- [x] The server never accepts a static cached signature as proof of wallet ownership.
+- [x] Connect and disconnect update both script-visible state and remote clients.
 
 ### Slice 5. Rebuild deposit and withdraw with `@solana/kit` and `@solana-program/*`
 
