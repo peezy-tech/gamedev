@@ -13,6 +13,13 @@ function toUint8Array(value) {
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
   }
   if (Array.isArray(value)) return Uint8Array.from(value)
+  if (typeof value?.serialize === 'function') {
+    try {
+      return toUint8Array(value.serialize())
+    } catch {
+      return null
+    }
+  }
   return null
 }
 

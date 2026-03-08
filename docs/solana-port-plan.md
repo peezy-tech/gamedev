@@ -218,14 +218,14 @@ Files:
 
 Checklist:
 
-- [ ] Add an injected-wallet discovery path for worlds that do not use Privy.
-- [ ] Support the common provider shape exposed through `window.solana` and compatible injected providers.
-- [ ] Normalize injected providers into the same `world.solana.bind(...)` interface used by the Privy path.
-- [ ] Preserve the phase 1 client API so server code and scripts do not care where the signer came from.
+- [x] Add an injected-wallet discovery path for worlds that do not use Privy.
+- [x] Support the common provider shape exposed through `window.solana` and compatible injected providers.
+- [x] Normalize injected providers into the same `world.solana.bind(...)` interface used by the Privy path.
+- [x] Preserve the phase 1 client API so server code and scripts do not care where the signer came from.
 
 Done when:
 
-- [ ] A Solana wallet can be connected in a non-Privy world without adding any new dependency.
+- [x] A Solana wallet can be connected in a non-Privy world without adding any new dependency.
 
 ### Slice 2. Add first-class client Solana utilities
 
