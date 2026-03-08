@@ -193,7 +193,7 @@ Files:
 Checklist:
 
 - [x] Add an integration test for packet plumbing and client/server wallet connect flow.
-- [ ] Add an integration test for invalid challenge replay or expired challenge rejection.
+- [x] Add an integration test for invalid challenge replay or expired challenge rejection.
 - [ ] Add an integration test for deposit request/response validation with mocked or stubbed RPC edges.
 - [ ] Add an integration test for withdraw request/response validation with mocked or stubbed RPC edges.
 - [ ] Document `player.solanaWallet`, `player.connectSolana()`, `player.disconnectSolana()`, `player.depositTokens()`, and `player.withdrawTokens()`.

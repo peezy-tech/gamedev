@@ -302,3 +302,56 @@ test('solana runtime completes packet-driven connect and disconnect flow', async
   assert.equal(harness.clientPlayerEntity.data.solanaWallet, null)
   assert.equal(harness.entityModifiedPackets.at(-1)?.solanaWallet, null)
 })
+
+test('solana runtime rejects replayed and expired connect challenges', async () => {
+  const harness = await createSolanaHarness()
+  harness.connectWallet()
+
+  const recordedPackets = []
+  const captureSocket = {
+    ...harness.socket,
+    send(type, data) {
+      recordedPackets.push({ type, data })
+    },
+  }
+
+  await harness.serverSolana.onSolanaConnectChallengeRequest(captureSocket, {
+    address: harness.playerSigner.address,
+  })
+  const challengePacket = recordedPackets[0]
+  assert.equal(challengePacket.type, 'solanaConnectChallenge')
+
+  const challengeBytes = Uint8Array.from(Buffer.from(challengePacket.data.challenge, 'base64'))
+  const replaySignature = await signBytes(harness.playerSigner.keyPair.privateKey, challengeBytes)
+  const replayResponse = {
+    challengeId: challengePacket.data.challengeId,
+    address: harness.playerSigner.address,
+    signature: Buffer.from(replaySignature).toString('base64'),
+  }
+
+  await harness.serverSolana.onSolanaConnectResponse(harness.socket, replayResponse)
+  assert.equal(harness.playerEntity.data.solanaWallet, harness.playerSigner.address)
+
+  harness.serverSolana.onSolanaDisconnect(harness.socket)
+  assert.equal(harness.playerEntity.data.solanaWallet, null)
+
+  await harness.serverSolana.onSolanaConnectResponse(harness.socket, replayResponse)
+  assert.equal(harness.playerEntity.data.solanaWallet, null)
+
+  await harness.serverSolana.onSolanaConnectChallengeRequest(captureSocket, {
+    address: harness.playerSigner.address,
+  })
+  const expiredChallengePacket = recordedPackets.at(-1)
+  const expiredChallenge = harness.serverSolana.connectChallenges.get(harness.playerEntity.data.id)
+  expiredChallenge.expiresAt = Date.now() - 1
+  const expiredBytes = Uint8Array.from(Buffer.from(expiredChallengePacket.data.challenge, 'base64'))
+  const expiredSignature = await signBytes(harness.playerSigner.keyPair.privateKey, expiredBytes)
+
+  await harness.serverSolana.onSolanaConnectResponse(harness.socket, {
+    challengeId: expiredChallengePacket.data.challengeId,
+    address: harness.playerSigner.address,
+    signature: Buffer.from(expiredSignature).toString('base64'),
+  })
+
+  assert.equal(harness.playerEntity.data.solanaWallet, null)
+})
