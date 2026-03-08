@@ -375,3 +375,21 @@ test('solana runtime validates deposit request and response payloads', async () 
   assert.deepEqual(Object.keys(harness.submittedTransactions[0].signatures), [harness.playerSigner.address])
   assert.ok(harness.submittedTransactions[0].signatures[harness.playerSigner.address])
 })
+
+test('solana runtime validates withdraw responses and adds the world signer', async () => {
+  const harness = await createSolanaHarness()
+  harness.connectWallet()
+
+  const withdrawPromise = harness.clientSolana.withdraw('0.25')
+  await harness.flush()
+  const result = await withdrawPromise
+
+  assert.ok(typeof result.signature === 'string' && result.signature.length > 0)
+  assert.equal(harness.submittedTransactions.length, 1)
+  assert.deepEqual(
+    Object.keys(harness.submittedTransactions[0].signatures).sort(),
+    [harness.playerSigner.address, harness.worldSigner.address].sort(),
+  )
+  assert.ok(harness.submittedTransactions[0].signatures[harness.playerSigner.address])
+  assert.ok(harness.submittedTransactions[0].signatures[harness.worldSigner.address])
+})
