@@ -173,6 +173,39 @@ Returns:
 { hash, receipt }
 ```
 
+### `.solana()`
+
+Returns the Solana helper API.
+
+```js
+const solana = world.solana()
+```
+
+#### `connect(player?)`
+
+Prompts a player to connect a Solana wallet in-world.
+
+- `player`: optional [Player](/docs/scripting/world/Player.md). Defaults to the local player on the client.
+
+#### `disconnect(player?)`
+
+Disconnects a player's in-world Solana wallet and clears their synced `solanaWallet` field.
+
+#### `deposit(player, amount)`
+
+Requests a token deposit from the player's Solana wallet into the configured world token account.
+
+- `player`: target [Player](/docs/scripting/world/Player.md)
+- `amount`: decimal token amount as a number or string
+
+Returns a promise that resolves with the submitted Solana transaction signature.
+
+#### `withdraw(player, amount)`
+
+Requests a token withdrawal from the configured world token account back to the player's Solana wallet.
+
+Returns a promise that resolves with the submitted Solana transaction signature.
+
 ### `.hyperliquid()`
 
 Returns the Hyperliquid trading helper API.
