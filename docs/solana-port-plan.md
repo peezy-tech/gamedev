@@ -256,15 +256,15 @@ Files:
 
 Checklist:
 
-- [ ] Add a deposit form in the client UI for the configured world token.
-- [ ] Add a withdraw form in the client UI for the configured world token.
-- [ ] Show pending, signed, confirmed, and failed states in the UI.
-- [ ] Link submitted signatures to an explorer URL derived from the configured cluster.
-- [ ] Keep the richer transfer UX layered on top of the existing phase 1 API instead of bypassing it.
+- [x] Add a deposit form in the client UI for the configured world token.
+- [x] Add a withdraw form in the client UI for the configured world token.
+- [x] Show pending, signed, confirmed, and failed states in the UI.
+- [x] Link submitted signatures to an explorer URL derived from the configured cluster.
+- [x] Keep the richer transfer UX layered on top of the existing phase 1 API instead of bypassing it.
 
 Done when:
 
-- [ ] A user can initiate deposit and withdraw flows from the UI without custom scripting.
+- [x] A user can initiate deposit and withdraw flows from the UI without custom scripting.
 
 ### Slice 4. Add optional swap and token conversion UX
 

@@ -71,6 +71,7 @@ function createPendingOperation(kind, amount) {
     requestId,
     kind,
     amount,
+    status: 'pending',
     promise,
     resolve,
     reject,
@@ -234,7 +235,22 @@ export class ClientSolana extends System {
   _createPendingOperation(kind, amount) {
     const operation = createPendingOperation(kind, amount)
     this.pendingOperations.set(operation.requestId, operation)
+    this._emitOperationEvent(operation, { status: 'pending' })
     return operation
+  }
+
+  _emitOperationEvent(operation, payload = {}) {
+    if (!operation?.requestId) return
+    const status = payload.status || operation.status || 'pending'
+    operation.status = status
+    this.emit('operation', {
+      requestId: operation.requestId,
+      kind: operation.kind,
+      amount: operation.amount,
+      status,
+      signature: payload.signature || null,
+      error: payload.error || null,
+    })
   }
 
   _resolvePendingOperation(data) {
@@ -244,9 +260,17 @@ export class ClientSolana extends System {
     if (!operation) return
     this.pendingOperations.delete(requestId)
     if (data?.error) {
+      this._emitOperationEvent(operation, {
+        status: 'failed',
+        error: data.error,
+      })
       operation.reject(new Error(data.error))
       return
     }
+    this._emitOperationEvent(operation, {
+      status: 'confirmed',
+      signature: data?.signature || null,
+    })
     operation.resolve(data)
   }
 
@@ -414,13 +438,23 @@ export class ClientSolana extends System {
   }
 
   async onSolanaDepositSignatureRequest({ requestId, serializedTransaction }) {
+    const operation = this.pendingOperations.get(requestId)
     try {
       const signedTransactionBytes = await this.signTransactionBytes(decodeBase64(serializedTransaction))
+      if (operation) {
+        this._emitOperationEvent(operation, { status: 'signed' })
+      }
       this.world.network.send('solanaDepositSignatureResponse', {
         requestId,
         serializedTransaction: encodeBase64(signedTransactionBytes),
       })
     } catch (error) {
+      if (operation) {
+        this._emitOperationEvent(operation, {
+          status: 'failed',
+          error: error?.message || 'Failed to sign Solana deposit transaction',
+        })
+      }
       this.world.network.send('solanaDepositSignatureResponse', {
         requestId,
         error: error?.message || 'Failed to sign Solana deposit transaction',
@@ -433,13 +467,23 @@ export class ClientSolana extends System {
   }
 
   async onSolanaWithdrawSignatureRequest({ requestId, serializedTransaction }) {
+    const operation = this.pendingOperations.get(requestId)
     try {
       const signedTransactionBytes = await this.signTransactionBytes(decodeBase64(serializedTransaction))
+      if (operation) {
+        this._emitOperationEvent(operation, { status: 'signed' })
+      }
       this.world.network.send('solanaWithdrawSignatureResponse', {
         requestId,
         serializedTransaction: encodeBase64(signedTransactionBytes),
       })
     } catch (error) {
+      if (operation) {
+        this._emitOperationEvent(operation, {
+          status: 'failed',
+          error: error?.message || 'Failed to sign Solana withdraw transaction',
+        })
+      }
       this.world.network.send('solanaWithdrawSignatureResponse', {
         requestId,
         error: error?.message || 'Failed to sign Solana withdraw transaction',
@@ -453,6 +497,10 @@ export class ClientSolana extends System {
 
   destroy() {
     for (const operation of this.pendingOperations.values()) {
+      this._emitOperationEvent(operation, {
+        status: 'failed',
+        error: 'Solana operation was interrupted',
+      })
       operation.reject(new Error('Solana operation was interrupted'))
     }
     this.pendingOperations.clear()
