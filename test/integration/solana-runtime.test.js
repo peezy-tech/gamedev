@@ -355,3 +355,23 @@ test('solana runtime rejects replayed and expired connect challenges', async () 
 
   assert.equal(harness.playerEntity.data.solanaWallet, null)
 })
+
+test('solana runtime validates deposit request and response payloads', async () => {
+  const harness = await createSolanaHarness()
+  harness.connectWallet()
+  harness.setTamperNextTransaction()
+
+  const tamperedDepositPromise = harness.clientSolana.deposit('0.1')
+  await harness.flush()
+  await assert.rejects(tamperedDepositPromise, /payload mismatch/)
+  assert.equal(harness.submittedTransactions.length, 0)
+
+  const depositPromise = harness.clientSolana.deposit('0.5')
+  await harness.flush()
+  const result = await depositPromise
+
+  assert.ok(typeof result.signature === 'string' && result.signature.length > 0)
+  assert.equal(harness.submittedTransactions.length, 1)
+  assert.deepEqual(Object.keys(harness.submittedTransactions[0].signatures), [harness.playerSigner.address])
+  assert.ok(harness.submittedTransactions[0].signatures[harness.playerSigner.address])
+})
