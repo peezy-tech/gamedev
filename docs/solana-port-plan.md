@@ -197,12 +197,12 @@ Checklist:
 - [x] Add an integration test for deposit request/response validation with mocked or stubbed RPC edges.
 - [x] Add an integration test for withdraw request/response validation with mocked or stubbed RPC edges.
 - [x] Document `player.solanaWallet`, `player.connectSolana()`, `player.disconnectSolana()`, `player.depositTokens()`, and `player.withdrawTokens()`.
-- [ ] Document required Solana envs and the fact that phase 1 depends on Privy-backed Solana wallets.
+- [x] Document required Solana envs and the fact that phase 1 depends on Privy-backed Solana wallets.
 
 Done when:
 
-- [ ] The phase 1 path is documented in the current docs tree.
-- [ ] The key failure cases have automated coverage.
+- [x] The phase 1 path is documented in the current docs tree.
+- [x] The key failure cases have automated coverage.
 
 ## Phase 2
 
