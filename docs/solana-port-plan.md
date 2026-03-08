@@ -144,22 +144,22 @@ Files:
 
 Checklist:
 
-- [ ] Add or restore Solana server envs in `.env.example`: `RPC_URL`, `WORLD_PUBLIC_KEY`, `WORLD_PRIVATE_KEY`, and `WORLD_TOKEN_MINT_ADDRESS`.
-- [ ] Build a Solana RPC client in `src/core/systems/ServerSolana.js` using `@solana/kit`.
-- [ ] Use `@solana-program/token` helpers to derive token accounts and create token instructions.
-- [ ] Implement deposit transaction construction on the server.
-- [ ] Implement withdraw transaction construction on the server.
-- [ ] Send unsigned transaction bytes to the client for signing.
-- [ ] Sign transactions on the client through the bound Solana wallet interface.
-- [ ] Return signed transaction bytes to the server and complete submission/confirmation there.
-- [ ] Verify that the signed transaction still matches the expected player, mint, source/destination accounts, and amount before final submission.
-- [ ] Remove the legacy `Transaction.from(...)` and `serialize(...)` assumptions from the old `web3.js` version.
-- [ ] Replace the old withdraw-path bug pattern entirely instead of porting it forward.
+- [x] Add or restore Solana server envs in `.env.example`: `RPC_URL`, `WORLD_PUBLIC_KEY`, `WORLD_PRIVATE_KEY`, and `WORLD_TOKEN_MINT_ADDRESS`.
+- [x] Build a Solana RPC client in `src/core/systems/ServerSolana.js` using `@solana/kit`.
+- [x] Use `@solana-program/token` helpers to derive token accounts and create token instructions.
+- [x] Implement deposit transaction construction on the server.
+- [x] Implement withdraw transaction construction on the server.
+- [x] Send unsigned transaction bytes to the client for signing.
+- [x] Sign transactions on the client through the bound Solana wallet interface.
+- [x] Return signed transaction bytes to the server and complete submission/confirmation there.
+- [x] Verify that the signed transaction still matches the expected player, mint, source/destination accounts, and amount before final submission.
+- [x] Remove the legacy `Transaction.from(...)` and `serialize(...)` assumptions from the old `web3.js` version.
+- [x] Replace the old withdraw-path bug pattern entirely instead of porting it forward.
 
 Done when:
 
-- [ ] The server can request a deposit signature from the client and confirm the submitted transaction.
-- [ ] The server can request a withdraw signature from the client, add the world signer where required, and confirm the submitted transaction.
+- [x] The server can request a deposit signature from the client and confirm the submitted transaction.
+- [x] The server can request a withdraw signature from the client, add the world signer where required, and confirm the submitted transaction.
 
 ### Slice 6. Add a minimal Solana UI path for manual testing and developer use
 
