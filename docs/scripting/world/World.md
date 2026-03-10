@@ -112,37 +112,104 @@ Sets a query parameter in the browsers url
 
 Opens a link, defaults to new tab.
 
-### `.evm()`
+### `.evm(chainId?)`
 
 Returns the EVM helper API.
 
 ```js
 const evm = world.evm()
+const arbitrum = world.evm(42161)
 ```
+
+The API is available on both client and server, but it is not identical in both places:
+
+- On the client, it exposes wallet-backed read and write methods.
+- On the server, it is read-only and backed by a public viem client.
+
+If `chainId` is provided, the API is bound to that chain. On the client, write methods on a bound API will switch the wallet first when needed.
+
+If `chainId` is omitted:
+
+- On the client, it uses the active wallet chain when an EVM wallet is connected, otherwise Ethereum mainnet (`1`).
+- On the server, it defaults to Ethereum mainnet (`1`).
+
+Built-in supported chains:
+
+- Ethereum mainnet (`1`)
+- Optimism (`10`)
+- Polygon (`137`)
+- Arbitrum (`42161`)
+- Base (`8453`)
+
+`player.evm` is the replicated player wallet address, and `player.evmChainId` is the replicated active EVM chain id. On the local player, when an EVM wallet is connected, they typically match `world.evm().getAddress()` and `world.evm().getChainId()`.
+
+#### `utils`
+
+Shared EVM utility helpers, including address/units formatting helpers.
+
+#### `abis`
+
+Built-in ABI exports, including `erc20`.
 
 #### `getAddress()`
 
-Returns the connected EVM wallet address, or `null` when not connected.
+Returns the local connected EVM wallet address, or `null`.
+
+On the server this currently returns `null`.
 
 #### `isConnected()`
 
-Returns `true` when an EVM wallet is connected.
+Returns `true` when a local EVM wallet is connected.
+
+On the server this currently returns `false`.
+
+#### `getChainId()`
+
+Returns the current target chain id for this EVM API instance.
+
+#### `readContract(params)`
+
+Calls a read-only contract method.
+
+#### `waitForTransactionReceipt(params)`
+
+Waits for a transaction receipt by hash.
 
 #### `getNativeBalance(address?)`
 
-Returns native token balance for the provided address (or active wallet) as a number.
+Returns native token balance for the provided address as a number.
+
+On the client, `address` defaults to the active wallet. On the server, you should pass an address explicitly.
 
 #### `getTokenBalance(tokenAddress, address?, decimals = 18)`
 
 Returns ERC-20 token balance as a number.
 
+On the client, `address` defaults to the active wallet. On the server, you should pass an address explicitly.
+
 #### `getUSDCBalance(address?)`
 
-Returns Arbitrum USDC balance (`0xaf88...5831`) as a number.
+Returns USDC balance for the selected chain using the built-in token mapping.
+
+On the client, `address` defaults to the active wallet. On the server, you should pass an address explicitly.
+
+#### `sendTransaction(params)`
+
+Client-only. Sends a raw transaction through the connected wallet.
+
+#### `writeContract(params)`
+
+Client-only. Sends a contract write through the connected wallet.
+
+#### `switchChain(params)`
+
+Client-only. Switches the connected wallet to a different chain.
+
+On `world.evm(chainId)`, calling `switchChain()` with no args switches to the bound chain.
 
 #### `transferNative(to, amount)`
 
-Sends native token to an address.
+Client-only. Sends native token to an address.
 
 - `to`: recipient address
 - `amount`: decimal amount as number or string
@@ -155,7 +222,7 @@ Returns:
 
 #### `transferToken(tokenAddress, to, amount, decimals = 18)`
 
-Sends ERC-20 tokens to an address.
+Client-only. Sends ERC-20 tokens to an address.
 
 Returns:
 
@@ -165,7 +232,7 @@ Returns:
 
 #### `transferUSDC(to, amount)`
 
-Sends Arbitrum USDC (`0xaf88...5831`) using 6 decimals.
+Client-only. Sends USDC for the selected chain using the built-in token mapping.
 
 Returns:
 
