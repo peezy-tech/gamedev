@@ -18,7 +18,7 @@ import { Storage } from './Storage'
 import { assets } from './assets'
 import { cleaner } from './cleaner'
 import { admin } from './admin'
-import { parseBooleanEnvFlag } from './adminCredentials.js'
+import { createAgonesIdleController, resolveAgonesIdleControllerEnabled } from './agonesIdleShutdown.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
 import { getMaxUploadSizeBytes } from './worldLimits.js'
@@ -95,10 +95,6 @@ function derivePublicWsUrlFromApiUrl(apiUrl) {
 
 function hasValue(value) {
   return typeof value === 'string' && value.trim().length > 0
-}
-
-function isGameMatchWorldType(worldType) {
-  return typeof worldType === 'string' && worldType.trim().toLowerCase() === 'game_match'
 }
 
 function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
@@ -337,26 +333,17 @@ await world.init({
 
 const registryState = createRegistryState()
 let clientHtmlTemplateCache = null
-const DEFAULT_AGONES_IDLE_TIMEOUT_MS = 72 * 60 * 60 * 1000
-const MATCH_AGONES_IDLE_TIMEOUT_MS = 60 * 1000
-const AGONES_IDLE_TIMEOUT_MS = isGameMatchWorldType(world.settings?.worldType)
-  ? MATCH_AGONES_IDLE_TIMEOUT_MS
-  : DEFAULT_AGONES_IDLE_TIMEOUT_MS
+const AGONES_IDLE_TIMEOUT_MS = 72 * 60 * 60 * 1000
 const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
 const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
 const AGONES_SDK_HTTP_PORT =
   Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
-const agonesIdleControllerEnabled =
-  hasValue(process.env.PUBLIC_AUTH_URL) && parseBooleanEnvFlag(process.env.SHUTDOWN_IDLE, false)
+const agonesIdleControllerEnabled = resolveAgonesIdleControllerEnabled(process.env)
 const agonesShutdownUrl = `http://127.0.0.1:${AGONES_SDK_HTTP_PORT}/shutdown`
-const lobbyMatchCompletionUrl = resolveLobbyInternalEndpoint('/internal/matches/complete')
 const adminConnectionCounts = {
   main: 0,
   wss: 0,
 }
-let idleShutdownTimerId = null
-let idleShutdownRequested = false
-let matchCompletionFinalized = false
 
 function getAdminConnectionCount() {
   return adminConnectionCounts.main + adminConnectionCounts.wss
@@ -366,104 +353,26 @@ function getActiveSessionCount() {
   return (world?.network?.sockets?.size || 0) + getAdminConnectionCount()
 }
 
-function formatErrorMessage(err) {
-  if (err instanceof Error) return err.message
-  return String(err)
-}
-
-function clearIdleShutdownTimer(reason = 'active_session') {
-  if (!idleShutdownTimerId) return
-  clearTimeout(idleShutdownTimerId)
-  idleShutdownTimerId = null
-  console.info(`[agones-idle] cancelled idle shutdown (${reason})`)
-}
-
-async function requestMatchCompletion(reason = 'idle') {
-  if (!agonesIdleControllerEnabled || matchCompletionFinalized) return
-  if (getActiveSessionCount() > 0) return
-  if (!lobbyMatchCompletionUrl) return
-
-  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
-  if (!apiKey) return
-
-  try {
-    const response = await fetch(lobbyMatchCompletionUrl, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({ reason }),
-    })
-
-    if (response.status === 404) {
-      matchCompletionFinalized = true
-      console.info('[agones-idle] no match row found for completion; skipping future completion signals')
-      return
-    }
-    if (!response.ok) {
-      throw new Error(`lobby_status_${response.status}`)
-    }
-
-    matchCompletionFinalized = true
-    console.info(`[agones-idle] signaled match completion (${reason})`)
-  } catch (err) {
-    console.warn(`[agones-idle] failed to signal match completion (${formatErrorMessage(err)})`)
-  }
-}
-
-function scheduleIdleShutdown(reason = 'idle') {
-  if (!agonesIdleControllerEnabled || idleShutdownRequested || idleShutdownTimerId) return
-  idleShutdownTimerId = setTimeout(() => {
-    idleShutdownTimerId = null
-    void requestAgonesShutdown('idle_timeout_elapsed')
-  }, AGONES_IDLE_TIMEOUT_MS)
-  console.info(`[agones-idle] scheduling shutdown in ${AGONES_IDLE_TIMEOUT_MS / 1000}s (${reason})`)
-}
-
-async function requestAgonesShutdown(reason = 'idle') {
-  if (!agonesIdleControllerEnabled || idleShutdownRequested) return
-  const activeSessions = getActiveSessionCount()
-  if (activeSessions > 0) {
-    return
-  }
-  try {
-    await requestMatchCompletion('agones_shutdown_requested')
-    const response = await fetch(agonesShutdownUrl, { method: 'POST' })
-    if (!response.ok) {
-      throw new Error(`agones_sdk_status_${response.status}`)
-    }
-    idleShutdownRequested = true
-    console.info(`[agones-idle] requested Agones shutdown (${reason})`)
-  } catch (err) {
-    console.warn(`[agones-idle] failed to request Agones shutdown (${formatErrorMessage(err)})`)
-    scheduleIdleShutdown('retry_after_failed_shutdown')
-  }
-}
-
-function reconcileIdleShutdown(reason = 'state_change') {
-  if (!agonesIdleControllerEnabled || idleShutdownRequested) return
-  if (getActiveSessionCount() === 0) {
-    scheduleIdleShutdown(reason)
-  } else {
-    clearIdleShutdownTimer(reason)
-  }
-}
+const agonesIdleController = createAgonesIdleController({
+  enabled: agonesIdleControllerEnabled,
+  timeoutMs: AGONES_IDLE_TIMEOUT_MS,
+  shutdownUrl: agonesShutdownUrl,
+  getActiveSessionCount,
+})
 
 function updateAdminConnectionCount(channel, count) {
   const normalized = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
   if (adminConnectionCounts[channel] === normalized) return
   adminConnectionCounts[channel] = normalized
-  reconcileIdleShutdown(`admin_${channel}`)
+  agonesIdleController.reconcileIdleShutdown(`admin_${channel}`)
 }
 
 if (agonesIdleControllerEnabled) {
   world.network.on('playerJoined', () => {
-    reconcileIdleShutdown('player_joined')
+    agonesIdleController.reconcileIdleShutdown('player_joined')
   })
   world.network.on('playerLeft', () => {
-    reconcileIdleShutdown('player_left')
+    agonesIdleController.reconcileIdleShutdown('player_left')
   })
 }
 
@@ -787,7 +696,7 @@ if (useDualPort) {
 
 if (agonesIdleControllerEnabled) {
   console.info(`[agones-idle] enabled with timeout=${AGONES_IDLE_TIMEOUT_MS / 1000}s`)
-  reconcileIdleShutdown('startup')
+  agonesIdleController.reconcileIdleShutdown('startup')
 }
 
 void registerWithRegistry(registryState, {
@@ -803,7 +712,7 @@ async function worldNetwork(fastify) {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  clearIdleShutdownTimer('sigint')
+  agonesIdleController.clearIdleShutdownTimer('sigint')
   await world.network.save()
   await fastify.close()
   if (wssServer) await wssServer.close()
@@ -811,7 +720,7 @@ process.on('SIGINT', async () => {
 })
 
 process.on('SIGTERM', async () => {
-  clearIdleShutdownTimer('sigterm')
+  agonesIdleController.clearIdleShutdownTimer('sigterm')
   await world.network.save()
   await fastify.close()
   if (wssServer) await wssServer.close()
