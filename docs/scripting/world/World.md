@@ -240,12 +240,31 @@ Returns:
 { hash, receipt }
 ```
 
-### `.hyperliquid()`
+### `.hyperliquid(address?)`
 
-Returns the Hyperliquid trading helper API.
+Returns the Hyperliquid helper API.
+
+- `world.hyperliquid()` targets the connected wallet and supports reads, streams, and trading.
+- `world.hyperliquid(address)` targets an explicit EVM address for reads and account streaming.
+- Address-bound runtimes are watch-only. They never trade on behalf of the connected wallet.
+
+Market streams and account streams are client-only in this pass. Stream callbacks run from the runtime update loop, not directly from the websocket event handler. When the owning app script is destroyed, its listeners are cleaned up automatically. `unsubscribe()` is optional for destroy-time cleanup and is mainly for stopping a stream early.
 
 ```js
-const hl = world.hyperliquid()
+const localHl = world.hyperliquid()
+const watchedHl = world.hyperliquid('0x1234...')
+```
+
+You can also watch another player when they expose an EVM address:
+
+```js
+const player = world.getPlayer(playerId)
+if (player?.evm) {
+  const remoteHl = world.hyperliquid(player.evm)
+  await remoteHl.subscribeAccount(account => {
+    console.log(account.positions)
+  })
+}
 ```
 
 #### `getPrice(ticker)`
@@ -275,6 +294,92 @@ Returns open positions:
 #### `getAvailableTickers()`
 
 Returns a sorted ticker list available for trading.
+
+#### `subscribeMids(listener)`
+
+Subscribes to live mids for all markets.
+
+Returns:
+
+```js
+{ unsubscribe, failureSignal }
+```
+
+#### `subscribeTrades({ ticker }, listener)`
+
+Subscribes to live trade batches for a ticker.
+
+Returns:
+
+```js
+{ unsubscribe, failureSignal }
+```
+
+#### `subscribeOrderBook({ ticker, nSigFigs?, mantissa? }, listener)`
+
+Subscribes to the live order book for a ticker. `nSigFigs` and `mantissa` use Hyperliquid's optional aggregation settings.
+
+Returns:
+
+```js
+{ unsubscribe, failureSignal }
+```
+
+#### `subscribeCandles({ ticker, interval }, listener)`
+
+Subscribes to live candle updates for a ticker and interval.
+
+Supported intervals:
+- `1m`, `3m`, `5m`, `15m`, `30m`
+- `1h`, `2h`, `4h`, `8h`, `12h`
+- `1d`, `3d`, `1w`, `1M`
+
+Returns:
+
+```js
+{ unsubscribe, failureSignal }
+```
+
+#### `subscribeAccount(listener)`
+
+Subscribes to live account snapshots for the runtime target address.
+
+- On `world.hyperliquid()`, this watches the connected wallet.
+- On `world.hyperliquid(address)`, this watches that explicit address.
+- This stream is client-only in this pass.
+
+Listener payload:
+
+```js
+{
+  address: '0x1234...',
+  accountValue: 1234.56,
+  withdrawable: 1200.12,
+  totalMarginUsed: 34.44,
+  totalNotionalPosition: 4567.89,
+  positions: [
+    {
+      ticker: 'BTC',
+      size: 0.001,
+      entryPrice: 104000,
+      unrealizedPnl: 5.25,
+      liquidationPrice: 95000,
+      marginUsed: 15.2,
+      maxLeverage: 40,
+      leverage: { type: 'cross', value: 5 },
+    },
+  ],
+  timestamp: 1700000000000,
+}
+```
+
+Returns:
+
+```js
+{ unsubscribe, failureSignal }
+```
+
+The methods below are only available on the default connected-wallet runtime. On `world.hyperliquid(address)`, they throw a watch-only error.
 
 #### `buy(ticker, amount, slippage = 1)`
 

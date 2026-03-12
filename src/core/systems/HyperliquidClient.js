@@ -1,12 +1,39 @@
 import { System } from './System'
-import { HttpTransport, InfoClient, ExchangeClient } from '@nktkas/hyperliquid'
+import {
+  HttpTransport,
+  InfoClient,
+  ExchangeClient,
+  WebSocketTransport,
+  SubscriptionClient,
+} from '@nktkas/hyperliquid'
 import { PrivateKeySigner } from '@nktkas/hyperliquid/signing'
+import { getAddress } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 
 const ARBITRUM_CHAIN_ID = 42161
 const BRIDGE_ADDRESS = '0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7'
 const USDC_ADDRESS = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'
 const MIN_DEPOSIT_AMOUNT = 5
+const DEFAULT_RUNTIME_API_OWNER = Symbol('hyperliquid-runtime-owner')
+const DEFAULT_RUNTIME_API_ADDRESS = Symbol('hyperliquid-runtime-address')
+const HYPERLIQUID_CANDLE_INTERVALS = new Set([
+  '1m',
+  '3m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '2h',
+  '4h',
+  '8h',
+  '12h',
+  '1d',
+  '3d',
+  '1w',
+  '1M',
+])
+const HYPERLIQUID_ORDER_BOOK_SIG_FIGS = new Set([2, 3, 4, 5])
+const HYPERLIQUID_ORDER_BOOK_MANTISSAS = new Set([2, 5])
 
 const ERC20_ABI = [
   {
@@ -65,26 +92,180 @@ export class Hyperliquid extends System {
 
     this._assetIndexCache = null
     this.pendingDeposit = false
+    this.runtimeAPIs = new Map()
+    this.streamTransport = null
+    this.streamSubscriptionClient = null
+    this.streamTransportClosePromise = null
+    this.streams = new Map()
+    this.streamListenerId = 0
   }
 
   init() {
     this.world.inject({
       world: {
-        hyperliquid: () => ({
-          getPrice: ticker => this.getPrice(ticker),
-          getBalance: () => this.getBalance(),
-          getPositions: () => this.getPositions(),
-          getAvailableTickers: () => this.getAvailableTickers(),
-          buy: (ticker, amount, slippage) => this.buy(ticker, amount, slippage),
-          sell: (ticker, amount, slippage) => this.sell(ticker, amount, slippage),
-          closePosition: (ticker, slippage) => this.closePosition(ticker, slippage),
-          hasAgentKey: () => this.hasAgentKey(),
-          setupAgentKey: name => this.setupAgentKey(name),
-          deposit: amount => this.deposit(amount),
-          withdraw: (amount, destination) => this.withdraw(amount, destination),
-        }),
+        hyperliquid: (...args) => this.getRuntimeAPI(this._resolveInjectedRuntimeArgs(args)),
       },
     })
+  }
+
+  _resolveInjectedRuntimeArgs(args = []) {
+    if (!args.length) {
+      return { owner: null, address: null }
+    }
+
+    const [firstArg, secondArg = null] = args
+    if (
+      firstArg === null ||
+      firstArg === undefined ||
+      typeof firstArg === 'string' ||
+      typeof firstArg === 'number'
+    ) {
+      return { owner: null, address: firstArg ?? null }
+    }
+
+    return {
+      owner: firstArg,
+      address: secondArg,
+    }
+  }
+
+  _resolveRuntimeOptions(ownerOrOptions = null, maybeAddress = undefined) {
+    if (ownerOrOptions && typeof ownerOrOptions === 'object' && !Array.isArray(ownerOrOptions)) {
+      const hasOwner = Object.prototype.hasOwnProperty.call(ownerOrOptions, 'owner')
+      const hasAddress = Object.prototype.hasOwnProperty.call(ownerOrOptions, 'address')
+      if (hasOwner || hasAddress) {
+        return {
+          owner: ownerOrOptions.owner ?? null,
+          address: ownerOrOptions.address ?? null,
+        }
+      }
+    }
+
+    if (maybeAddress !== undefined) {
+      return {
+        owner: ownerOrOptions ?? null,
+        address: maybeAddress ?? null,
+      }
+    }
+
+    if (typeof ownerOrOptions === 'string' || ownerOrOptions === null || ownerOrOptions === undefined) {
+      return {
+        owner: null,
+        address: ownerOrOptions ?? null,
+      }
+    }
+
+    return {
+      owner: ownerOrOptions,
+      address: null,
+    }
+  }
+
+  _normalizeAddress(address, fieldName = 'address') {
+    if (typeof address !== 'string' || !address.trim()) {
+      throw new Error(`${fieldName} is required`)
+    }
+
+    try {
+      return getAddress(address.trim())
+    } catch {
+      throw new Error(`Invalid ${fieldName}`)
+    }
+  }
+
+  _normalizeRuntimeAddress(address) {
+    if (address === null || address === undefined) {
+      return null
+    }
+
+    return this._normalizeAddress(address, 'address')
+  }
+
+  _getRuntimeCache(owner, address) {
+    const ownerKey = owner ?? DEFAULT_RUNTIME_API_OWNER
+    let runtimeCache = this.runtimeAPIs.get(ownerKey)
+    if (!runtimeCache) {
+      runtimeCache = new Map()
+      this.runtimeAPIs.set(ownerKey, runtimeCache)
+    }
+    return runtimeCache
+  }
+
+  _createWatchOnlyRuntimeError(methodName) {
+    return new Error(
+      `Hyperliquid addressed runtimes are watch-only; ${methodName} is only available on world.hyperliquid()`
+    )
+  }
+
+  _getReadAddress(address = null) {
+    if (address !== null && address !== undefined) {
+      return this._normalizeRuntimeAddress(address)
+    }
+
+    if (!this.address) {
+      throw new Error('No wallet connected')
+    }
+
+    return this._normalizeAddress(this.address, 'address')
+  }
+
+  getRuntimeAPI(ownerOrOptions = null, maybeAddress = undefined) {
+    const { owner, address } = this._resolveRuntimeOptions(ownerOrOptions, maybeAddress)
+    const boundAddress = this._normalizeRuntimeAddress(address)
+    const runtimeCache = this._getRuntimeCache(owner, boundAddress)
+    const addressKey = boundAddress ?? DEFAULT_RUNTIME_API_ADDRESS
+    if (runtimeCache.has(addressKey)) {
+      return runtimeCache.get(addressKey)
+    }
+
+    const assertWritableRuntime = methodName => {
+      if (boundAddress !== null) {
+        throw this._createWatchOnlyRuntimeError(methodName)
+      }
+    }
+
+    const runtimeAPI = {
+      getPrice: ticker => this.getPrice(ticker),
+      getBalance: () => this.getBalance({ address: boundAddress }),
+      getPositions: () => this.getPositions({ address: boundAddress }),
+      getAvailableTickers: () => this.getAvailableTickers(),
+      subscribeMids: listener => this.subscribeMids(listener, { owner }),
+      subscribeTrades: (params, listener) => this.subscribeTrades(params, listener, { owner }),
+      subscribeOrderBook: (params, listener) => this.subscribeOrderBook(params, listener, { owner }),
+      subscribeCandles: (params, listener) => this.subscribeCandles(params, listener, { owner }),
+      subscribeAccount: listener => this.subscribeAccount(listener, { owner, address: boundAddress }),
+      buy: (ticker, amount, slippage) => {
+        assertWritableRuntime('buy')
+        return this.buy(ticker, amount, slippage)
+      },
+      sell: (ticker, amount, slippage) => {
+        assertWritableRuntime('sell')
+        return this.sell(ticker, amount, slippage)
+      },
+      closePosition: (ticker, slippage) => {
+        assertWritableRuntime('closePosition')
+        return this.closePosition(ticker, slippage)
+      },
+      hasAgentKey: () => {
+        assertWritableRuntime('hasAgentKey')
+        return this.hasAgentKey()
+      },
+      setupAgentKey: name => {
+        assertWritableRuntime('setupAgentKey')
+        return this.setupAgentKey(name)
+      },
+      deposit: amount => {
+        assertWritableRuntime('deposit')
+        return this.deposit(amount)
+      },
+      withdraw: (amount, destination) => {
+        assertWritableRuntime('withdraw')
+        return this.withdraw(amount, destination)
+      },
+    }
+
+    runtimeCache.set(addressKey, runtimeAPI)
+    return runtimeAPI
   }
 
   bind({ address, walletAdapter, isConnected } = {}) {
@@ -212,13 +393,596 @@ export class Hyperliquid extends System {
     return this.infoClient.allMids()
   }
 
+  _createStreamTransport() {
+    return new WebSocketTransport()
+  }
+
+  _createStreamSubscriptionClient(transport) {
+    return new SubscriptionClient({ transport })
+  }
+
+  _getStreamTransport() {
+    if (!this.streamTransport) {
+      this.streamTransport = this._createStreamTransport()
+    }
+    return this.streamTransport
+  }
+
+  _getStreamSubscriptionClient() {
+    if (!this.streamSubscriptionClient) {
+      this.streamSubscriptionClient = this._createStreamSubscriptionClient(this._getStreamTransport())
+    }
+    return this.streamSubscriptionClient
+  }
+
+  async _closeStreamTransport() {
+    if (this.streamTransportClosePromise) {
+      return this.streamTransportClosePromise
+    }
+    if (!this.streamTransport) {
+      this.streamSubscriptionClient = null
+      return
+    }
+
+    const transport = this.streamTransport
+    this.streamTransport = null
+    this.streamSubscriptionClient = null
+    this.streamTransportClosePromise = Promise.resolve()
+      .then(() => transport.close?.())
+      .finally(() => {
+        this.streamTransportClosePromise = null
+      })
+
+    return this.streamTransportClosePromise
+  }
+
+  _createStreamEntry({ key, channel = null, params = null, flushMode = 'latest' } = {}) {
+    return {
+      key,
+      channel,
+      params,
+      flushMode,
+      upstreamSubscription: null,
+      upstreamPromise: null,
+      teardownPromise: null,
+      listeners: new Map(),
+      pendingLatest: undefined,
+      pendingEvents: [],
+    }
+  }
+
+  _getStreamEntry(key) {
+    return this.streams.get(key) || null
+  }
+
+  _ensureStreamEntry(descriptor) {
+    const key = descriptor?.key
+    if (!key) {
+      throw new Error('Hyperliquid stream key is required')
+    }
+
+    let entry = this.streams.get(key)
+    if (entry) {
+      return entry
+    }
+
+    entry = this._createStreamEntry(descriptor)
+    this.streams.set(key, entry)
+    return entry
+  }
+
+  _getStreamListenerDeadHook(owner) {
+    if (!owner || typeof owner.getDeadHook !== 'function') {
+      return null
+    }
+    return owner.getDeadHook()
+  }
+
+  _addStreamListener(entry, callback, owner = null) {
+    if (!entry) {
+      throw new Error('Hyperliquid stream entry is required')
+    }
+    if (typeof callback !== 'function') {
+      throw new Error('Hyperliquid stream listener must be a function')
+    }
+
+    const listenerId = ++this.streamListenerId
+    const listener = {
+      id: listenerId,
+      callback,
+      owner,
+      deadHook: this._getStreamListenerDeadHook(owner),
+    }
+    entry.listeners.set(listenerId, listener)
+    return listener
+  }
+
+  _queueStreamPayload(entry, payload) {
+    if (!entry) return
+    if (entry.flushMode === 'queue') {
+      entry.pendingEvents.push(payload)
+      return
+    }
+    entry.pendingLatest = payload
+  }
+
+  async _ensureStreamUpstreamSubscription(entry, subscribeUpstream) {
+    if (!entry) {
+      throw new Error('Hyperliquid stream entry is required')
+    }
+    if (entry.upstreamSubscription) {
+      return entry.upstreamSubscription
+    }
+    if (entry.upstreamPromise) {
+      return entry.upstreamPromise
+    }
+
+    entry.upstreamPromise = Promise.resolve()
+      .then(() =>
+        subscribeUpstream(this._getStreamSubscriptionClient(), payload => {
+          this._queueStreamPayload(entry, payload)
+        })
+      )
+      .then(subscription => {
+        entry.upstreamSubscription = subscription
+        return subscription
+      })
+      .finally(() => {
+        entry.upstreamPromise = null
+      })
+
+    return entry.upstreamPromise
+  }
+
+  async _teardownStreamEntry(entry) {
+    if (!entry) {
+      return
+    }
+    if (entry.teardownPromise) {
+      return entry.teardownPromise
+    }
+
+    const upstreamSubscription = entry.upstreamSubscription
+    entry.upstreamSubscription = null
+    entry.pendingLatest = undefined
+    entry.pendingEvents.length = 0
+    this.streams.delete(entry.key)
+
+    entry.teardownPromise = Promise.resolve()
+      .then(() => upstreamSubscription?.unsubscribe?.())
+      .finally(() => {
+        entry.teardownPromise = null
+      })
+
+    return entry.teardownPromise
+  }
+
+  async _destroyStreams() {
+    const entries = Array.from(this.streams.values())
+    if (!entries.length) {
+      return
+    }
+
+    await Promise.allSettled(entries.map(entry => this._teardownStreamEntry(entry)))
+    this.streams.clear()
+  }
+
+  async _removeStreamListener(entry, listenerId) {
+    if (!entry?.listeners.has(listenerId)) {
+      return
+    }
+
+    entry.listeners.delete(listenerId)
+    if (entry.listeners.size > 0) {
+      return
+    }
+
+    await this._teardownStreamEntry(entry)
+  }
+
+  _getActiveStreamListeners(entry) {
+    const listeners = []
+
+    for (const [listenerId, listener] of entry.listeners) {
+      if (listener.deadHook?.dead) {
+        entry.listeners.delete(listenerId)
+        continue
+      }
+      listeners.push(listener)
+    }
+
+    if (entry.listeners.size === 0) {
+      void this._teardownStreamEntry(entry)
+    }
+
+    return listeners
+  }
+
+  _dispatchStreamPayload(entry, listeners, payload) {
+    for (const listener of listeners) {
+      try {
+        listener.callback(payload)
+      } catch (error) {
+        console.error(`[Hyperliquid] Market stream listener failed for ${entry.key}`, error)
+      }
+    }
+  }
+
+  _createStreamHandle(entry, listener, failureSignal) {
+    let unsubscribed = false
+
+    return {
+      failureSignal,
+      unsubscribe: async () => {
+        if (unsubscribed) {
+          return
+        }
+        unsubscribed = true
+        await this._removeStreamListener(entry, listener.id)
+      },
+    }
+  }
+
+  async subscribeMids(listener, { owner } = {}) {
+    const key = this._getAllMidsStreamKey()
+    const entry = this._ensureStreamEntry({
+      key,
+      channel: 'allMids',
+      flushMode: 'latest',
+    })
+    const localListener = this._addStreamListener(entry, listener, owner)
+
+    try {
+      const upstreamSubscription = await this._ensureStreamUpstreamSubscription(
+        entry,
+        (subscriptionClient, onPayload) => subscriptionClient.allMids(onPayload)
+      )
+      return this._createStreamHandle(entry, localListener, upstreamSubscription.failureSignal)
+    } catch (error) {
+      entry.listeners.delete(localListener.id)
+      if (entry.listeners.size === 0) {
+        this.streams.delete(entry.key)
+      }
+      throw error
+    }
+  }
+
+  async subscribeTrades({ ticker } = {}, listener, { owner } = {}) {
+    const descriptor = this._normalizeTradesStreamParams({ ticker })
+    const entry = this._ensureStreamEntry({
+      key: descriptor.key,
+      channel: 'trades',
+      params: {
+        coin: descriptor.coin,
+      },
+      flushMode: 'queue',
+    })
+    const localListener = this._addStreamListener(entry, listener, owner)
+
+    try {
+      const upstreamSubscription = await this._ensureStreamUpstreamSubscription(
+        entry,
+        (subscriptionClient, onPayload) => subscriptionClient.trades({ coin: descriptor.coin }, onPayload)
+      )
+      return this._createStreamHandle(entry, localListener, upstreamSubscription.failureSignal)
+    } catch (error) {
+      entry.listeners.delete(localListener.id)
+      if (entry.listeners.size === 0) {
+        this.streams.delete(entry.key)
+      }
+      throw error
+    }
+  }
+
+  async subscribeOrderBook({ ticker, nSigFigs = null, mantissa = null } = {}, listener, { owner } = {}) {
+    const descriptor = this._normalizeOrderBookStreamParams({ ticker, nSigFigs, mantissa })
+    const params = {
+      coin: descriptor.coin,
+    }
+    if (descriptor.nSigFigs !== null) {
+      params.nSigFigs = descriptor.nSigFigs
+    }
+    if (descriptor.mantissa !== null) {
+      params.mantissa = descriptor.mantissa
+    }
+
+    const entry = this._ensureStreamEntry({
+      key: descriptor.key,
+      channel: 'l2Book',
+      params,
+      flushMode: 'latest',
+    })
+    const localListener = this._addStreamListener(entry, listener, owner)
+
+    try {
+      const upstreamSubscription = await this._ensureStreamUpstreamSubscription(
+        entry,
+        (subscriptionClient, onPayload) => subscriptionClient.l2Book(params, onPayload)
+      )
+      return this._createStreamHandle(entry, localListener, upstreamSubscription.failureSignal)
+    } catch (error) {
+      entry.listeners.delete(localListener.id)
+      if (entry.listeners.size === 0) {
+        this.streams.delete(entry.key)
+      }
+      throw error
+    }
+  }
+
+  async subscribeCandles({ ticker, interval } = {}, listener, { owner } = {}) {
+    const descriptor = this._normalizeCandleStreamParams({ ticker, interval })
+    const params = {
+      coin: descriptor.coin,
+      interval: descriptor.interval,
+    }
+    const entry = this._ensureStreamEntry({
+      key: descriptor.key,
+      channel: 'candle',
+      params,
+      flushMode: 'latest',
+    })
+    const localListener = this._addStreamListener(entry, listener, owner)
+
+    try {
+      const upstreamSubscription = await this._ensureStreamUpstreamSubscription(
+        entry,
+        (subscriptionClient, onPayload) => subscriptionClient.candle(params, onPayload)
+      )
+      return this._createStreamHandle(entry, localListener, upstreamSubscription.failureSignal)
+    } catch (error) {
+      entry.listeners.delete(localListener.id)
+      if (entry.listeners.size === 0) {
+        this.streams.delete(entry.key)
+      }
+      throw error
+    }
+  }
+
+  async subscribeAccount(listener, { owner = null, address = null } = {}) {
+    const descriptor = this._normalizeAccountStreamParams({ address })
+    const params = {
+      user: descriptor.user,
+    }
+    const entry = this._ensureStreamEntry({
+      key: descriptor.key,
+      channel: 'clearinghouseState',
+      params,
+      flushMode: 'latest',
+    })
+    const localListener = this._addStreamListener(entry, listener, owner)
+
+    try {
+      const upstreamSubscription = await this._ensureStreamUpstreamSubscription(
+        entry,
+        (subscriptionClient, onPayload) =>
+          subscriptionClient.clearinghouseState(params, payload => {
+            onPayload(this._normalizeAccountSnapshotEvent(payload))
+          })
+      )
+      return this._createStreamHandle(entry, localListener, upstreamSubscription.failureSignal)
+    } catch (error) {
+      entry.listeners.delete(localListener.id)
+      if (entry.listeners.size === 0) {
+        this.streams.delete(entry.key)
+      }
+      throw error
+    }
+  }
+
+  _normalizeMarketTicker(ticker) {
+    if (typeof ticker !== 'string') {
+      throw new Error('Hyperliquid ticker must be a string')
+    }
+
+    const normalized = ticker.trim().toUpperCase()
+    if (!normalized) {
+      throw new Error('Hyperliquid ticker is required')
+    }
+
+    return normalized
+  }
+
+  _normalizeOptionalInteger(value, label) {
+    if (value === undefined || value === null || value === '') {
+      return null
+    }
+
+    const parsed =
+      typeof value === 'number' && Number.isInteger(value) ? value : Number.parseInt(String(value), 10)
+    if (!Number.isInteger(parsed)) {
+      throw new Error(`Hyperliquid ${label} must be an integer`)
+    }
+
+    return parsed
+  }
+
+  _normalizeCandleInterval(interval) {
+    if (typeof interval !== 'string') {
+      throw new Error('Hyperliquid candle interval must be a string')
+    }
+
+    const normalized = interval.trim()
+    if (!HYPERLIQUID_CANDLE_INTERVALS.has(normalized)) {
+      throw new Error(`Invalid Hyperliquid candle interval: ${interval}`)
+    }
+
+    return normalized
+  }
+
+  _normalizeOrderBookAggregation({ nSigFigs = null, mantissa = null } = {}) {
+    const normalizedSigFigs = this._normalizeOptionalInteger(nSigFigs, 'order book nSigFigs')
+    if (normalizedSigFigs !== null && !HYPERLIQUID_ORDER_BOOK_SIG_FIGS.has(normalizedSigFigs)) {
+      throw new Error(`Invalid Hyperliquid order book nSigFigs: ${nSigFigs}`)
+    }
+
+    let normalizedMantissa = this._normalizeOptionalInteger(mantissa, 'order book mantissa')
+    if (normalizedMantissa !== null && !HYPERLIQUID_ORDER_BOOK_MANTISSAS.has(normalizedMantissa)) {
+      throw new Error(`Invalid Hyperliquid order book mantissa: ${mantissa}`)
+    }
+
+    if (normalizedSigFigs !== 5) {
+      normalizedMantissa = null
+    }
+
+    return {
+      nSigFigs: normalizedSigFigs,
+      mantissa: normalizedMantissa,
+    }
+  }
+
+  _formatMarketStreamKeyPart(value) {
+    return value === null || value === undefined ? 'null' : String(value)
+  }
+
+  _parseHyperliquidNumber(value, fallback = 0) {
+    const parsed = Number.parseFloat(String(value ?? ''))
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  _normalizePosition(position) {
+    return {
+      ticker: position.coin,
+      size: this._parseHyperliquidNumber(position.szi),
+      entryPrice: this._parseHyperliquidNumber(position.entryPx),
+      unrealizedPnl: this._parseHyperliquidNumber(position.unrealizedPnl),
+      liquidationPrice:
+        position.liquidationPx === null || position.liquidationPx === undefined
+          ? null
+          : this._parseHyperliquidNumber(position.liquidationPx),
+    }
+  }
+
+  _normalizeAccountSnapshotPosition(position) {
+    return {
+      ...this._normalizePosition(position),
+      marginUsed: this._parseHyperliquidNumber(position.marginUsed),
+      maxLeverage: this._parseHyperliquidNumber(position.maxLeverage),
+      leverage: {
+        type: position.leverage?.type === 'isolated' ? 'isolated' : 'cross',
+        value: this._parseHyperliquidNumber(position.leverage?.value),
+      },
+    }
+  }
+
+  _normalizeAccountSnapshot(clearinghouseState, address) {
+    const normalizedAddress = this._normalizeAddress(address, 'address')
+    const positions = Array.isArray(clearinghouseState?.assetPositions)
+      ? clearinghouseState.assetPositions
+          .map(assetPosition => assetPosition?.position)
+          .filter(position => this._parseHyperliquidNumber(position?.szi) !== 0)
+          .map(position => this._normalizeAccountSnapshotPosition(position))
+      : []
+
+    return {
+      address: normalizedAddress,
+      accountValue: this._parseHyperliquidNumber(clearinghouseState?.marginSummary?.accountValue),
+      withdrawable: this._parseHyperliquidNumber(clearinghouseState?.withdrawable),
+      totalMarginUsed: this._parseHyperliquidNumber(clearinghouseState?.marginSummary?.totalMarginUsed),
+      totalNotionalPosition: this._parseHyperliquidNumber(clearinghouseState?.marginSummary?.totalNtlPos),
+      positions,
+      timestamp:
+        typeof clearinghouseState?.time === 'number'
+          ? clearinghouseState.time
+          : this._parseHyperliquidNumber(clearinghouseState?.time),
+    }
+  }
+
+  _normalizeAccountSnapshotEvent(event) {
+    return this._normalizeAccountSnapshot(event?.clearinghouseState, event?.user)
+  }
+
+  _getAllMidsStreamKey() {
+    return 'allMids'
+  }
+
+  _getClearinghouseStateStreamKey(address) {
+    return `clearinghouseState:${address}`
+  }
+
+  _normalizeAccountStreamParams({ address = null } = {}) {
+    const normalizedAddress = this._getReadAddress(address)
+    return {
+      address: normalizedAddress,
+      user: normalizedAddress,
+      key: this._getClearinghouseStateStreamKey(normalizedAddress),
+    }
+  }
+
+  update() {
+    for (const entry of this.streams.values()) {
+      const listeners = this._getActiveStreamListeners(entry)
+      if (!listeners.length) {
+        entry.pendingLatest = undefined
+        entry.pendingEvents.length = 0
+        continue
+      }
+
+      if (entry.flushMode === 'queue') {
+        if (!entry.pendingEvents.length) {
+          continue
+        }
+
+        const pendingEvents = entry.pendingEvents.slice()
+        entry.pendingEvents.length = 0
+        for (const payload of pendingEvents) {
+          this._dispatchStreamPayload(entry, listeners, payload)
+        }
+        continue
+      }
+
+      if (entry.pendingLatest === undefined) {
+        continue
+      }
+
+      const payload = entry.pendingLatest
+      entry.pendingLatest = undefined
+
+      this._dispatchStreamPayload(entry, listeners, payload)
+    }
+  }
+
+  _normalizeTradesStreamParams({ ticker } = {}) {
+    const coin = this._normalizeMarketTicker(ticker)
+    return {
+      ticker: coin,
+      coin,
+      key: `trades:${coin}`,
+    }
+  }
+
+  _normalizeOrderBookStreamParams({ ticker, nSigFigs = null, mantissa = null } = {}) {
+    const coin = this._normalizeMarketTicker(ticker)
+    const aggregation = this._normalizeOrderBookAggregation({ nSigFigs, mantissa })
+
+    return {
+      ticker: coin,
+      coin,
+      nSigFigs: aggregation.nSigFigs,
+      mantissa: aggregation.mantissa,
+      key: `l2Book:${coin}:${this._formatMarketStreamKeyPart(aggregation.nSigFigs)}:${this._formatMarketStreamKeyPart(
+        aggregation.mantissa
+      )}`,
+    }
+  }
+
+  _normalizeCandleStreamParams({ ticker, interval } = {}) {
+    const coin = this._normalizeMarketTicker(ticker)
+    const normalizedInterval = this._normalizeCandleInterval(interval)
+
+    return {
+      ticker: coin,
+      coin,
+      interval: normalizedInterval,
+      key: `candle:${coin}:${normalizedInterval}`,
+    }
+  }
+
   async _getMeta() {
     return this.infoClient.meta()
   }
 
-  async _getClearinghouseState() {
-    if (!this.address) throw new Error('No wallet connected')
-    return this.infoClient.clearinghouseState({ user: this.address })
+  async _getClearinghouseState({ address = null } = {}) {
+    return this.infoClient.clearinghouseState({ user: this._getReadAddress(address) })
   }
 
   async _getAssetIndex(ticker) {
@@ -258,24 +1022,21 @@ export class Hyperliquid extends System {
     return price
   }
 
-  async getBalance() {
-    const state = await this._getClearinghouseState()
+  // TODO: A future pass can serve getBalance/getPositions from the latest streamed
+  // account snapshot when the runtime already has one for its bound target address.
+  async getBalance({ address = null } = {}) {
+    const state = await this._getClearinghouseState({ address })
     return parseFloat(state?.marginSummary?.accountValue || 0)
   }
 
-  async getPositions() {
-    const state = await this._getClearinghouseState()
+  async getPositions({ address = null } = {}) {
+    const state = await this._getClearinghouseState({ address })
     if (!state?.assetPositions) return []
 
     return state.assetPositions
-      .filter(p => parseFloat(p.position.szi) !== 0)
-      .map(p => ({
-        ticker: p.position.coin,
-        size: parseFloat(p.position.szi),
-        entryPrice: parseFloat(p.position.entryPx),
-        unrealizedPnl: parseFloat(p.position.unrealizedPnl),
-        liquidationPrice: p.position.liquidationPx ? parseFloat(p.position.liquidationPx) : null,
-      }))
+      .map(assetPosition => assetPosition?.position)
+      .filter(position => this._parseHyperliquidNumber(position?.szi) !== 0)
+      .map(position => this._normalizePosition(position))
   }
 
   async buy(ticker, amount, slippage = 1) {
@@ -644,6 +1405,7 @@ export class Hyperliquid extends System {
   }
 
   async destroy() {
-    // no-op
+    await this._destroyStreams()
+    await this._closeStreamTransport()
   }
 }
