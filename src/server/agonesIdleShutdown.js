@@ -1,5 +1,3 @@
-import { parseBooleanEnvFlag } from './adminCredentials.js'
-
 function formatErrorMessage(err) {
   if (err instanceof Error) return err.message
   return String(err)
@@ -16,8 +14,10 @@ function createLogger(logger = console) {
   }
 }
 
-export function resolveAgonesIdleControllerEnabled(env = process.env) {
-  return parseBooleanEnvFlag(env?.SHUTDOWN_IDLE, false)
+export function resolveAgonesIdleShutdownTimeoutMs(env = process.env) {
+  const parsedTimeoutSeconds = Number.parseInt(String(env?.SHUTDOWN_IDLE ?? ''), 10)
+  if (!Number.isFinite(parsedTimeoutSeconds) || parsedTimeoutSeconds <= 0) return 0
+  return parsedTimeoutSeconds * 1000
 }
 
 export function createAgonesIdleController({
@@ -25,13 +25,14 @@ export function createAgonesIdleController({
   timeoutMs = 0,
   shutdownUrl,
   getActiveSessionCount,
+  beforeShutdown = null,
   fetchImpl = globalThis.fetch,
   logger = console,
 } = {}) {
   let idleShutdownTimerId = null
   let idleShutdownRequested = false
   const log = createLogger(logger)
-  const normalizedTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : 0
+  const normalizedTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 0
 
   function clearIdleShutdownTimer(reason = 'active_session') {
     if (!idleShutdownTimerId) return
@@ -41,7 +42,7 @@ export function createAgonesIdleController({
   }
 
   function scheduleIdleShutdown(reason = 'idle') {
-    if (!enabled || idleShutdownRequested || idleShutdownTimerId) return
+    if (!enabled || normalizedTimeoutMs <= 0 || idleShutdownRequested || idleShutdownTimerId) return
     idleShutdownTimerId = setTimeout(() => {
       idleShutdownTimerId = null
       void requestAgonesShutdown('idle_timeout_elapsed')
@@ -50,9 +51,19 @@ export function createAgonesIdleController({
   }
 
   async function requestAgonesShutdown(reason = 'idle') {
-    if (!enabled || idleShutdownRequested) return
+    if (!enabled || normalizedTimeoutMs <= 0 || idleShutdownRequested) return
     if (getActiveSessionCount() > 0) return
+    if (typeof beforeShutdown === 'function') {
+      try {
+        await beforeShutdown()
+      } catch (err) {
+        log.warn(`[agones-idle] failed to save world before shutdown (${formatErrorMessage(err)})`)
+        scheduleIdleShutdown('retry_after_failed_save')
+        return
+      }
+    }
     try {
+      if (getActiveSessionCount() > 0) return
       const response = await fetchImpl(shutdownUrl, { method: 'POST' })
       if (!response.ok) {
         throw new Error(`agones_sdk_status_${response.status}`)
@@ -66,7 +77,7 @@ export function createAgonesIdleController({
   }
 
   function reconcileIdleShutdown(reason = 'state_change') {
-    if (!enabled || idleShutdownRequested) return
+    if (!enabled || normalizedTimeoutMs <= 0 || idleShutdownRequested) return
     if (getActiveSessionCount() === 0) {
       scheduleIdleShutdown(reason)
     } else {

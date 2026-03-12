@@ -18,7 +18,7 @@ import { Storage } from './Storage'
 import { assets } from './assets'
 import { cleaner } from './cleaner'
 import { admin } from './admin'
-import { createAgonesIdleController, resolveAgonesIdleControllerEnabled } from './agonesIdleShutdown.js'
+import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from './agonesIdleShutdown.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
 import { getMaxUploadSizeBytes } from './worldLimits.js'
@@ -333,12 +333,12 @@ await world.init({
 
 const registryState = createRegistryState()
 let clientHtmlTemplateCache = null
-const AGONES_IDLE_TIMEOUT_MS = 72 * 60 * 60 * 1000
 const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
 const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
 const AGONES_SDK_HTTP_PORT =
   Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
-const agonesIdleControllerEnabled = resolveAgonesIdleControllerEnabled(process.env)
+const SHUTDOWN_IDLE = resolveAgonesIdleShutdownTimeoutMs(process.env)
+const agonesIdleControllerEnabled = SHUTDOWN_IDLE > 0
 const agonesShutdownUrl = `http://127.0.0.1:${AGONES_SDK_HTTP_PORT}/shutdown`
 const adminConnectionCounts = {
   main: 0,
@@ -355,9 +355,12 @@ function getActiveSessionCount() {
 
 const agonesIdleController = createAgonesIdleController({
   enabled: agonesIdleControllerEnabled,
-  timeoutMs: AGONES_IDLE_TIMEOUT_MS,
+  timeoutMs: SHUTDOWN_IDLE,
   shutdownUrl: agonesShutdownUrl,
   getActiveSessionCount,
+  beforeShutdown: async () => {
+    await world.network.save()
+  },
 })
 
 function updateAdminConnectionCount(channel, count) {
@@ -695,7 +698,7 @@ if (useDualPort) {
 }
 
 if (agonesIdleControllerEnabled) {
-  console.info(`[agones-idle] enabled with timeout=${AGONES_IDLE_TIMEOUT_MS / 1000}s`)
+  console.info(`[agones-idle] enabled with timeout=${SHUTDOWN_IDLE / 1000}s`)
   agonesIdleController.reconcileIdleShutdown('startup')
 }
 
