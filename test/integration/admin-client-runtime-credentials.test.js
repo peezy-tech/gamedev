@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { writePacket } from '../../src/core/packets.js'
-import { AdminClient, RUNTIME_CREDENTIAL_COMMAND } from '../../src/core/systems/AdminClient.js'
+import { AdminClient, ADMIN_SHUTDOWN_COMMAND, RUNTIME_CREDENTIAL_COMMAND } from '../../src/core/systems/AdminClient.js'
 
 function createAdminClient() {
   return new AdminClient({
@@ -119,4 +119,18 @@ test('runtime credentials API rejects invalid payloads', async () => {
   const client = createAdminClient()
   client.request = async () => ({ ok: true })
   await assert.rejects(() => client.getRuntimeCredentials(), err => err?.code === 'invalid_response')
+})
+
+test('admin shutdown API uses agones_shutdown command', async () => {
+  const client = createAdminClient()
+  let payload = null
+  client.request = async requestPayload => {
+    payload = requestPayload
+    return { ok: true }
+  }
+
+  const response = await client.requestAgonesShutdown()
+
+  assert.deepEqual(payload, { type: ADMIN_SHUTDOWN_COMMAND })
+  assert.deepEqual(response, { ok: true })
 })

@@ -10,6 +10,7 @@ import {
   isAdminCredentialRevealEnabled,
   handleRuntimeCredentialCommand,
 } from './adminCredentials.js'
+import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
 const SCRIPT_BLUEPRINT_FIELDS = new Set([
@@ -830,6 +831,26 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
         const lastOpId = normalizeOperationValue(data?.lastOpId) || undefined
 
         try {
+          if (data.type === ADMIN_SHUTDOWN_COMMAND) {
+            const commandResult = await handleAdminShutdownCommand({
+              canDeploy: capabilities.deploy,
+              beforeShutdown: async () => {
+                await world.network.save()
+              },
+            })
+            if (!commandResult.ok) {
+              sendPacket(ws, 'adminResult', {
+                ok: false,
+                error: commandResult.error,
+                reason: commandResult.reason,
+                requestId,
+              })
+              return
+            }
+            sendPacket(ws, 'adminResult', { ok: true, requestId })
+            return
+          }
+
           if (data.type === ADMIN_CREDENTIAL_COMMAND) {
             const commandResult = handleRuntimeCredentialCommand({
               canDeploy: capabilities.deploy,

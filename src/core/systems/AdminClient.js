@@ -24,6 +24,7 @@ function toWsUrl(baseUrl) {
 }
 
 export const RUNTIME_CREDENTIAL_COMMAND = 'runtime_credentials_get'
+export const ADMIN_SHUTDOWN_COMMAND = 'agones_shutdown'
 
 function normalizeRuntimeCredentialValue(value) {
   if (typeof value !== 'string') return null
@@ -561,5 +562,9 @@ export class AdminClient extends System {
     }
     this.runtimeCredentials = credentials
     return credentials
+  }
+
+  async requestAgonesShutdown({ timeoutMs = 10000 } = {}) {
+    return this.request({ type: ADMIN_SHUTDOWN_COMMAND }, { timeoutMs })
   }
 }
