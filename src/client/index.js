@@ -29,24 +29,6 @@ function hasValue(value) {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-function resolveRuntimeApiUrl() {
-  if (env.PUBLIC_API_URL) return env.PUBLIC_API_URL
-  if (typeof window === 'undefined') return null
-  return `${window.location.origin}/api`
-}
-
-function resolveStandaloneWsUrl(apiUrl) {
-  if (env.PUBLIC_WS_URL) return env.PUBLIC_WS_URL
-  if (apiUrl) {
-    return apiUrl
-      .replace(/\/api\/?$/, '/ws')
-      .replace(/^http:/, 'ws:')
-      .replace(/^https:/, 'wss:')
-  }
-  if (typeof window === 'undefined') return null
-  return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
-}
-
 function resolveAuthEndpoint(authBaseUrl, pathSuffix) {
   const base = authBaseUrl.replace(/\/+$/, '')
   const suffix = pathSuffix.replace(/^\/+/, '')
@@ -62,11 +44,6 @@ function createAuthError(message, status, { skipAuth = false } = {}) {
 
 const DEFAULT_EVM_CHAIN = arbitrum
 const DEFAULT_EVM_CHAIN_ID = DEFAULT_EVM_CHAIN.id
-
-function toHexString(value) {
-  const bytes = new TextEncoder().encode(String(value))
-  return `0x${[...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('')}`
-}
 
 function getEthereumWalletProvider() {
   if (typeof window === 'undefined') return null
@@ -124,10 +101,6 @@ function normalizeWalletAddressForChain(chain, address) {
   return chain === 'solana' ? normalizeSolanaAddress(address) : normalizeSiweAddress(address)
 }
 
-function normalizeSolanaNetwork(network) {
-  return network === 'devnet' ? 'devnet' : 'mainnet'
-}
-
 function toUint8Array(value) {
   if (!value) return null
   if (value instanceof Uint8Array) return value
@@ -137,44 +110,9 @@ function toUint8Array(value) {
   return null
 }
 
-function bytesToBase64(bytes) {
-  const chunkSize = 0x8000
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize)
-    binary += String.fromCharCode(...chunk)
-  }
-  return btoa(binary)
-}
-
 function readSolanaProviderAddress(provider) {
   const value = provider?.publicKey?.toBase58?.() || provider?.publicKey?.toString?.() || provider?.publicKey
   return normalizeSolanaAddress(value)
-}
-
-function readSolanaProviderNetwork(provider) {
-  const candidates = [
-    provider?.network,
-    provider?.cluster,
-    provider?.connection?.rpcEndpoint,
-    provider?.rpcEndpoint,
-  ]
-  for (const candidate of candidates) {
-    if (typeof candidate !== 'string') continue
-    const normalized = candidate.trim().toLowerCase()
-    if (!normalized) continue
-    if (normalized.includes('devnet')) return 'devnet'
-    if (normalized.includes('mainnet')) return 'mainnet'
-  }
-  return ''
-}
-
-function extractSolanaSignatureBytes(value) {
-  if (!value) return null
-  if (value.signature) {
-    return toUint8Array(value.signature)
-  }
-  return toUint8Array(value)
 }
 
 function buildSiweMessage({ domain, address, uri, chainId, nonce }) {
@@ -354,7 +292,8 @@ async function verifySiwsMessage(authBaseUrl, message, signature, { onStatus } =
 }
 
 async function signSiwePayload(provider, address, message, { onStatus } = {}) {
-  const encodedMessage = toHexString(message)
+  const bytes = new TextEncoder().encode(String(message))
+  const encodedMessage = `0x${[...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('')}`
   try {
     return await provider.request({ method: 'personal_sign', params: [encodedMessage, address] })
   } catch (firstError) {
@@ -374,11 +313,17 @@ async function signSiwsPayload(provider, message, { onStatus } = {}) {
   const messageBytes = new TextEncoder().encode(message)
   try {
     const signed = await provider.signMessage(messageBytes, 'utf8')
-    const signatureBytes = extractSolanaSignatureBytes(signed)
+    const signatureBytes = signed?.signature ? toUint8Array(signed.signature) : toUint8Array(signed)
     if (!signatureBytes || !signatureBytes.length) {
       throw new Error('Invalid SIWS signature payload')
     }
-    return bytesToBase64(signatureBytes)
+    const chunkSize = 0x8000
+    let binary = ''
+    for (let i = 0; i < signatureBytes.length; i += chunkSize) {
+      const chunk = signatureBytes.subarray(i, i + chunkSize)
+      binary += String.fromCharCode(...chunk)
+    }
+    return btoa(binary)
   } catch (err) {
     onStatus?.('error', err?.message || 'Wallet signature was rejected')
     throw createAuthError('Unable to sign SIWS payload', 401, { skipAuth: true })
@@ -412,7 +357,7 @@ async function performSiwsLoginWithProvider(provider, authBaseUrl, { network = '
   if (!provider || typeof provider.connect !== 'function') {
     throw createAuthError('No Solana wallet provider found', 401, { skipAuth: true })
   }
-  const normalizedNetwork = normalizeSolanaNetwork(network)
+  const normalizedNetwork = network === 'devnet' ? 'devnet' : 'mainnet'
   const address = await requestSolanaWalletAddress(provider)
   onStatus?.('auth', `Signing in with Solana ${address.slice(0, 4)}...${address.slice(-4)}...`)
 
@@ -462,23 +407,6 @@ async function fetchAuthMe(authBaseUrl) {
     throw createAuthError(error.message || error.error || 'Unable to fetch session', res.status)
   }
   return res.json()
-}
-
-async function createPrivyAuthSession(authBaseUrl, accessToken) {
-  const endpoint = resolveAuthEndpoint(authBaseUrl, 'privy/session')
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      accept: 'application/json',
-    },
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: 'Unable to authorize Privy session' }))
-    throw createAuthError(error.message || error.error || 'Unable to authorize Privy session', res.status)
-  }
-  return res.json().catch(() => null)
 }
 
 async function logoutAuthSession(authBaseUrl) {
@@ -543,14 +471,20 @@ async function exchangeForRuntimeSession(runtimeApiUrl, identityToken) {
 }
 
 async function getConnectionUrl(onStatus) {
-  const apiUrl = resolveRuntimeApiUrl()
+  const apiUrl = env.PUBLIC_API_URL || (typeof window === 'undefined' ? null : `${window.location.origin}/api`)
   const usesLobbyIdentity = hasValue(env.PUBLIC_AUTH_URL)
 
   if (!apiUrl) {
     throw new Error('PUBLIC_API_URL is required')
   }
 
-  const baseWsUrl = resolveStandaloneWsUrl(apiUrl)
+  const baseWsUrl = env.PUBLIC_WS_URL
+    ? env.PUBLIC_WS_URL
+    : apiUrl
+      ? apiUrl.replace(/\/api\/?$/, '/ws').replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
+      : typeof window === 'undefined'
+        ? null
+        : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
   if (!baseWsUrl) {
     throw new Error('PUBLIC_WS_URL is required for runtime connection')
   }
@@ -667,7 +601,20 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
       if (normalizedChain !== 'solana') return null
       const provider = getSolanaWalletProvider()
       if (!provider) return null
-      return readSolanaProviderNetwork(provider) || null
+      const candidates = [
+        provider.network,
+        provider.cluster,
+        provider.connection?.rpcEndpoint,
+        provider.rpcEndpoint,
+      ]
+      for (const candidate of candidates) {
+        if (typeof candidate !== 'string') continue
+        const normalized = candidate.trim().toLowerCase()
+        if (!normalized) continue
+        if (normalized.includes('devnet')) return 'devnet'
+        if (normalized.includes('mainnet')) return 'mainnet'
+      }
+      return null
     },
     subscribeAccountChanges(listener, { chain = 'ethereum' } = {}) {
       if (typeof listener !== 'function') {
@@ -712,17 +659,6 @@ const PRIVY_WALLET_WAIT_MS = 7000
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function createPrivyBridgeState(authBaseUrl) {
-  return {
-    authBaseUrl,
-    ready: false,
-    authenticated: false,
-    login: null,
-    logout: null,
-    getAccessToken: null,
-  }
 }
 
 async function waitForPrivyReady(state, timeoutMs = PRIVY_WALLET_WAIT_MS) {
@@ -777,7 +713,19 @@ async function ensurePrivySession(state, { onStatus, allowLogin = false } = {}) 
     return false
   }
 
-  await createPrivyAuthSession(state.authBaseUrl, normalizedAccessToken)
+  const res = await fetch(resolveAuthEndpoint(state.authBaseUrl, 'privy/session'), {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${normalizedAccessToken}`,
+      accept: 'application/json',
+    },
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Unable to authorize Privy session' }))
+    throw createAuthError(error.message || error.error || 'Unable to authorize Privy session', res.status)
+  }
+  await res.json().catch(() => null)
   return true
 }
 
@@ -871,21 +819,18 @@ function createRuntimeWalletBridge() {
   }
 }
 
-function normalizePrivyWallets(wallets) {
-  if (!Array.isArray(wallets)) return []
-  return wallets.filter(wallet => {
-    if (wallet?.type !== 'ethereum') return false
-    return typeof wallet?.address === 'string' && wallet.address.trim().length > 0
-  })
-}
-
 function PrivyWalletBridgeSync({ bridge, children }) {
   const { ready, wallets } = useWallets()
 
   useEffect(() => {
     bridge?.setSnapshot({
       ready,
-      wallets: normalizePrivyWallets(wallets),
+      wallets: Array.isArray(wallets)
+        ? wallets.filter(wallet => {
+            if (wallet?.type !== 'ethereum') return false
+            return typeof wallet?.address === 'string' && wallet.address.trim().length > 0
+          })
+        : [],
     })
   }, [bridge, ready, wallets])
 
@@ -960,7 +905,16 @@ function PrivyRuntimeAuthSync({ state, children }) {
 
 const authBaseUrl = hasValue(env.PUBLIC_AUTH_URL) ? env.PUBLIC_AUTH_URL : null
 const privyAppId = hasValue(env.PUBLIC_PRIVY_APP_ID) ? env.PUBLIC_PRIVY_APP_ID : ''
-const privyBridgeState = privyAppId ? createPrivyBridgeState(authBaseUrl) : null
+const privyBridgeState = privyAppId
+  ? {
+      authBaseUrl,
+      ready: false,
+      authenticated: false,
+      login: null,
+      logout: null,
+      getAccessToken: null,
+    }
+  : null
 const runtimeWalletBridge = createRuntimeWalletBridge()
 if (typeof globalThis !== 'undefined') {
   globalThis.__runtimeAuth = privyBridgeState

@@ -91,6 +91,8 @@ export class Hyperliquid extends System {
     this.exchangeClient = null
 
     this._assetIndexCache = null
+    this._resolvedMarketCatalog = null
+    this._resolvedMarketCatalogPromise = null
     this.pendingDeposit = false
     this.runtimeAPIs = new Map()
     this.streamTransport = null
@@ -229,6 +231,9 @@ export class Hyperliquid extends System {
       getBalance: () => this.getBalance({ address: boundAddress }),
       getPositions: () => this.getPositions({ address: boundAddress }),
       getAvailableTickers: () => this.getAvailableTickers(),
+      getPerpMarkets: options => this.getPerpMarkets(options),
+      getSpotMarkets: () => this.getSpotMarkets(),
+      getMarketCatalog: () => this.getMarketCatalog(),
       subscribeMids: listener => this.subscribeMids(listener, { owner }),
       subscribeTrades: (params, listener) => this.subscribeTrades(params, listener, { owner }),
       subscribeOrderBook: (params, listener) => this.subscribeOrderBook(params, listener, { owner }),
@@ -387,10 +392,6 @@ export class Hyperliquid extends System {
       }
       throw new Error(`Failed to switch to Arbitrum: ${error?.message || error}`)
     }
-  }
-
-  async _getAllMids() {
-    return this.infoClient.allMids()
   }
 
   _createStreamTransport() {
@@ -648,7 +649,7 @@ export class Hyperliquid extends System {
   }
 
   async subscribeTrades({ ticker } = {}, listener, { owner } = {}) {
-    const descriptor = this._normalizeTradesStreamParams({ ticker })
+    const descriptor = await this._normalizeTradesStreamParams({ ticker })
     const entry = this._ensureStreamEntry({
       key: descriptor.key,
       channel: 'trades',
@@ -675,7 +676,7 @@ export class Hyperliquid extends System {
   }
 
   async subscribeOrderBook({ ticker, nSigFigs = null, mantissa = null } = {}, listener, { owner } = {}) {
-    const descriptor = this._normalizeOrderBookStreamParams({ ticker, nSigFigs, mantissa })
+    const descriptor = await this._normalizeOrderBookStreamParams({ ticker, nSigFigs, mantissa })
     const params = {
       coin: descriptor.coin,
     }
@@ -710,7 +711,7 @@ export class Hyperliquid extends System {
   }
 
   async subscribeCandles({ ticker, interval } = {}, listener, { owner } = {}) {
-    const descriptor = this._normalizeCandleStreamParams({ ticker, interval })
+    const descriptor = await this._normalizeCandleStreamParams({ ticker, interval })
     const params = {
       coin: descriptor.coin,
       interval: descriptor.interval,
@@ -839,9 +840,240 @@ export class Hyperliquid extends System {
     return Number.isFinite(parsed) ? parsed : fallback
   }
 
-  _normalizePosition(position) {
+  _normalizeNullableHyperliquidNumber(value) {
+    if (value === null || value === undefined) return null
+    return this._parseHyperliquidNumber(value, null)
+  }
+
+  _normalizeSpotToken(token) {
+    if (!token || typeof token !== 'object') return null
     return {
-      ticker: position.coin,
+      index: Number.isFinite(token.index) ? token.index : null,
+      name: token.name || null,
+      fullName: token.fullName || null,
+      szDecimals: Number.isFinite(token.szDecimals) ? token.szDecimals : null,
+      weiDecimals: Number.isFinite(token.weiDecimals) ? token.weiDecimals : null,
+      tokenId: token.tokenId || null,
+      isCanonical: !!token.isCanonical,
+      deployerTradingFeeShare: this._parseHyperliquidNumber(token.deployerTradingFeeShare),
+      evmContractAddress: token.evmContract?.address || null,
+      evmExtraWeiDecimals:
+        token.evmContract && Number.isFinite(token.evmContract.evm_extra_wei_decimals)
+          ? token.evmContract.evm_extra_wei_decimals
+          : null,
+    }
+  }
+
+  _formatBuilderRuntimeTicker(assetName, dex) {
+    const normalizedAssetName = String(assetName || '').trim()
+    if (!normalizedAssetName) return ''
+    if (normalizedAssetName.includes(':')) return normalizedAssetName
+    if (!dex) return normalizedAssetName
+    return `${dex}:${normalizedAssetName}`
+  }
+
+  _stripTrailingZeros(value) {
+    const normalized = String(value ?? '').trim()
+    if (!normalized.includes('.')) return normalized
+    return normalized.replace(/\.?0+$/, '')
+  }
+
+  _normalizePerpMarket(asset, assetCtx, { venue, dex, dexLabel, dexIndex }, assetIndex) {
+    const assetName = String(asset?.name || '').trim()
+    const runtimeTicker = venue === 'builder' ? this._formatBuilderRuntimeTicker(assetName, dex) : assetName
+    const ticker = this._normalizeMarketTicker(runtimeTicker)
+    const assetId =
+      venue === 'builder' && Number.isFinite(dexIndex) && Number.isFinite(assetIndex)
+        ? 100000 + dexIndex * 10000 + assetIndex
+        : Number.isFinite(assetIndex)
+          ? assetIndex
+          : null
+    return {
+      ticker,
+      symbol: ticker,
+      runtimeTicker,
+      streamCoin: runtimeTicker,
+      midPriceKey: runtimeTicker,
+      asset: this._normalizeMarketTicker(assetName),
+      assetIndex: Number.isFinite(assetIndex) ? assetIndex : null,
+      assetId,
+      marketType: 'perp',
+      venue,
+      dex,
+      dexLabel,
+      dexIndex,
+      szDecimals: Number.isFinite(asset?.szDecimals) ? asset.szDecimals : null,
+      maxLeverage: Number.isFinite(asset?.maxLeverage) ? asset.maxLeverage : null,
+      marginTableId: Number.isFinite(asset?.marginTableId) ? asset.marginTableId : null,
+      onlyIsolated: !!asset?.onlyIsolated,
+      isDelisted: !!asset?.isDelisted,
+      marginMode: asset?.marginMode || null,
+      markPrice: this._parseHyperliquidNumber(assetCtx?.markPx),
+      midPrice: this._normalizeNullableHyperliquidNumber(assetCtx?.midPx),
+      oraclePrice: this._parseHyperliquidNumber(assetCtx?.oraclePx),
+      funding: this._parseHyperliquidNumber(assetCtx?.funding),
+      openInterest: this._parseHyperliquidNumber(assetCtx?.openInterest),
+      premium: this._normalizeNullableHyperliquidNumber(assetCtx?.premium),
+      impactPrices: Array.isArray(assetCtx?.impactPxs) ? assetCtx.impactPxs.slice() : [],
+      dayBaseVolume: this._parseHyperliquidNumber(assetCtx?.dayBaseVlm),
+      dayNotionalVolume: this._parseHyperliquidNumber(assetCtx?.dayNtlVlm),
+      prevDayPrice: this._parseHyperliquidNumber(assetCtx?.prevDayPx),
+    }
+  }
+
+  _normalizePerpMarketsFromMetaAndContexts(payload, descriptor) {
+    const [meta, assetCtxs] = Array.isArray(payload) ? payload : []
+    if (!meta || !Array.isArray(meta.universe)) return []
+    const markets = meta.universe
+      .map((asset, index) =>
+        this._normalizePerpMarket(asset, Array.isArray(assetCtxs) ? assetCtxs[index] : null, descriptor, index)
+      )
+      .filter(market => market.asset)
+    return this._sortMarketCatalogEntries(markets)
+  }
+
+  _normalizeSpotMarketsFromMetaAndContexts(payload) {
+    const [spotMeta, assetCtxs] = Array.isArray(payload) ? payload : []
+    if (!spotMeta || !Array.isArray(spotMeta.universe) || !Array.isArray(spotMeta.tokens)) return []
+
+    const tokenMap = new Map()
+    spotMeta.tokens.forEach(token => {
+      const normalized = this._normalizeSpotToken(token)
+      if (normalized && normalized.index !== null) {
+        tokenMap.set(normalized.index, normalized)
+      }
+    })
+
+    const markets = spotMeta.universe
+      .map(market => {
+        if (!market || !Array.isArray(market.tokens) || market.tokens.length < 2) return null
+        const baseToken = tokenMap.get(market.tokens[0])
+        const quoteToken = tokenMap.get(market.tokens[1])
+        if (!baseToken || !quoteToken) return null
+
+        const assetCtx = Array.isArray(assetCtxs) ? assetCtxs[market.index] : null
+        const runtimeTicker = `${baseToken.name}/${quoteToken.name}`
+        const ticker = this._normalizeMarketTicker(runtimeTicker)
+        const pairIndex = Number.isFinite(market.index) ? market.index : null
+        const pairId = typeof market.name === 'string' && market.name.trim() ? market.name.trim() : runtimeTicker
+        return {
+          ticker,
+          symbol: ticker,
+          runtimeTicker,
+          streamCoin: pairId,
+          midPriceKey: pairId,
+          marketType: 'spot',
+          venue: 'spot',
+          pairId,
+          pairIndex,
+          assetId: Number.isFinite(pairIndex) ? 10000 + pairIndex : null,
+          isCanonical: !!market.isCanonical,
+          baseToken,
+          quoteToken,
+          szDecimals: baseToken.szDecimals,
+          markPrice: this._parseHyperliquidNumber(assetCtx?.markPx),
+          midPrice: this._normalizeNullableHyperliquidNumber(assetCtx?.midPx),
+          circulatingSupply: this._parseHyperliquidNumber(assetCtx?.circulatingSupply),
+          totalSupply: this._parseHyperliquidNumber(assetCtx?.totalSupply),
+          dayBaseVolume: this._parseHyperliquidNumber(assetCtx?.dayBaseVlm),
+          dayNotionalVolume: this._parseHyperliquidNumber(assetCtx?.dayNtlVlm),
+          prevDayPrice: this._parseHyperliquidNumber(assetCtx?.prevDayPx),
+        }
+      })
+      .filter(Boolean)
+
+    return this._sortMarketCatalogEntries(markets)
+  }
+
+  _getSpotPrimaryMarkets(spotMarkets = []) {
+    const primaryMarkets = new Map()
+
+    for (const market of spotMarkets) {
+      const baseName = String(market?.baseToken?.name || '').trim()
+      if (!baseName) continue
+
+      const current = primaryMarkets.get(baseName)
+      if (!current) {
+        primaryMarkets.set(baseName, market)
+        continue
+      }
+
+      const currentQuote = String(current?.quoteToken?.name || '').trim().toUpperCase()
+      const nextQuote = String(market?.quoteToken?.name || '').trim().toUpperCase()
+      const prefersNext =
+        (!!market?.isCanonical && !current?.isCanonical) ||
+        (nextQuote === 'USDC' && currentQuote !== 'USDC')
+      if (prefersNext) {
+        primaryMarkets.set(baseName, market)
+      }
+    }
+
+    return primaryMarkets
+  }
+
+  _normalizeSpotPositions(spotClearinghouseState, spotMarkets = []) {
+    if (!spotClearinghouseState || !Array.isArray(spotClearinghouseState.balances) || !spotMarkets.length) return []
+
+    const primaryMarkets = this._getSpotPrimaryMarkets(spotMarkets)
+
+    return spotClearinghouseState.balances
+      .map(balance => {
+        const baseName = String(balance?.coin || '').trim()
+        const market = primaryMarkets.get(baseName)
+        if (!market) return null
+
+        const size = this._parseHyperliquidNumber(balance?.total)
+        if (!size) return null
+
+        const entryNotional = this._parseHyperliquidNumber(balance?.entryNtl)
+        const markPrice = market.midPrice ?? market.markPrice ?? null
+        return {
+          ticker: market.ticker,
+          size,
+          entryPrice: size > 0 && entryNotional > 0 ? entryNotional / size : null,
+          unrealizedPnl: markPrice !== null && entryNotional > 0 ? size * markPrice - entryNotional : 0,
+          liquidationPrice: null,
+        }
+      })
+      .filter(Boolean)
+  }
+
+  _sortMarketCatalogEntries(markets) {
+    const typeOrder = {
+      perp: 0,
+      spot: 1,
+    }
+    const venueOrder = {
+      core: 0,
+      builder: 1,
+      spot: 2,
+    }
+
+    return markets.slice().sort((left, right) => {
+      const leftType = left?.marketType || ''
+      const rightType = right?.marketType || ''
+      if (leftType !== rightType) {
+        return (typeOrder[leftType] ?? Number.MAX_SAFE_INTEGER) - (typeOrder[rightType] ?? Number.MAX_SAFE_INTEGER)
+      }
+
+      const leftVenue = left?.venue || ''
+      const rightVenue = right?.venue || ''
+      if (leftVenue !== rightVenue) {
+        return (venueOrder[leftVenue] ?? Number.MAX_SAFE_INTEGER) - (venueOrder[rightVenue] ?? Number.MAX_SAFE_INTEGER)
+      }
+
+      const leftDex = left?.dex || ''
+      const rightDex = right?.dex || ''
+      if (leftDex !== rightDex) return leftDex.localeCompare(rightDex)
+
+      return String(left?.ticker || '').localeCompare(String(right?.ticker || ''))
+    })
+  }
+
+  _normalizePosition(position, { dex = null } = {}) {
+    const runtimeTicker = dex ? this._formatBuilderRuntimeTicker(position?.coin, dex) : String(position?.coin || '').trim()
+    return {
+      ticker: this._normalizeMarketTicker(runtimeTicker),
       size: this._parseHyperliquidNumber(position.szi),
       entryPrice: this._parseHyperliquidNumber(position.entryPx),
       unrealizedPnl: this._parseHyperliquidNumber(position.unrealizedPnl),
@@ -941,39 +1173,39 @@ export class Hyperliquid extends System {
     }
   }
 
-  _normalizeTradesStreamParams({ ticker } = {}) {
-    const coin = this._normalizeMarketTicker(ticker)
+  async _normalizeTradesStreamParams({ ticker } = {}) {
+    const market = await this._resolveMarketDescriptor(ticker)
     return {
-      ticker: coin,
-      coin,
-      key: `trades:${coin}`,
+      ticker: market.ticker,
+      coin: market.streamCoin || market.runtimeTicker || market.ticker,
+      key: `trades:${market.ticker}`,
     }
   }
 
-  _normalizeOrderBookStreamParams({ ticker, nSigFigs = null, mantissa = null } = {}) {
-    const coin = this._normalizeMarketTicker(ticker)
+  async _normalizeOrderBookStreamParams({ ticker, nSigFigs = null, mantissa = null } = {}) {
+    const market = await this._resolveMarketDescriptor(ticker)
     const aggregation = this._normalizeOrderBookAggregation({ nSigFigs, mantissa })
 
     return {
-      ticker: coin,
-      coin,
+      ticker: market.ticker,
+      coin: market.streamCoin || market.runtimeTicker || market.ticker,
       nSigFigs: aggregation.nSigFigs,
       mantissa: aggregation.mantissa,
-      key: `l2Book:${coin}:${this._formatMarketStreamKeyPart(aggregation.nSigFigs)}:${this._formatMarketStreamKeyPart(
-        aggregation.mantissa
-      )}`,
+      key: `l2Book:${market.ticker}:${this._formatMarketStreamKeyPart(
+        aggregation.nSigFigs
+      )}:${this._formatMarketStreamKeyPart(aggregation.mantissa)}`,
     }
   }
 
-  _normalizeCandleStreamParams({ ticker, interval } = {}) {
-    const coin = this._normalizeMarketTicker(ticker)
+  async _normalizeCandleStreamParams({ ticker, interval } = {}) {
+    const market = await this._resolveMarketDescriptor(ticker)
     const normalizedInterval = this._normalizeCandleInterval(interval)
 
     return {
-      ticker: coin,
-      coin,
+      ticker: market.ticker,
+      coin: market.streamCoin || market.runtimeTicker || market.ticker,
       interval: normalizedInterval,
-      key: `candle:${coin}:${normalizedInterval}`,
+      key: `candle:${market.ticker}:${normalizedInterval}`,
     }
   }
 
@@ -981,29 +1213,209 @@ export class Hyperliquid extends System {
     return this.infoClient.meta()
   }
 
-  async _getClearinghouseState({ address = null } = {}) {
-    return this.infoClient.clearinghouseState({ user: this._getReadAddress(address) })
+  async _getMetaAndAssetCtxs({ dex = null } = {}) {
+    if (typeof this.infoClient?.metaAndAssetCtxs !== 'function') {
+      const meta = typeof this.infoClient?.meta === 'function' ? await this.infoClient.meta() : { universe: [] }
+      return [meta, []]
+    }
+    if (dex === null || dex === undefined || dex === '') {
+      return this.infoClient.metaAndAssetCtxs()
+    }
+    return this.infoClient.metaAndAssetCtxs({ dex })
   }
 
-  async _getAssetIndex(ticker) {
-    if (!this._assetIndexCache) {
-      const meta = await this._getMeta()
-      this._assetIndexCache = {}
-      meta.universe.forEach((asset, index) => {
-        this._assetIndexCache[asset.name] = index
-      })
+  async _getSpotMetaAndAssetCtxs() {
+    if (typeof this.infoClient?.spotMetaAndAssetCtxs !== 'function') {
+      return [{ universe: [], tokens: [] }, []]
+    }
+    return this.infoClient.spotMetaAndAssetCtxs()
+  }
+
+  async _getPerpDexs() {
+    if (typeof this.infoClient?.perpDexs !== 'function') return []
+    return this.infoClient.perpDexs()
+  }
+
+  async _getAllMids({ dex = null } = {}) {
+    if (dex === null || dex === undefined || dex === '') {
+      return this.infoClient.allMids()
+    }
+    return this.infoClient.allMids({ dex })
+  }
+
+  async _getClearinghouseState({ address = null, dex = null } = {}) {
+    if (typeof this.infoClient?.clearinghouseState !== 'function') return null
+    const request = { user: this._getReadAddress(address) }
+    if (dex !== null && dex !== undefined && dex !== '') {
+      request.dex = dex
+    }
+    return this.infoClient.clearinghouseState(request)
+  }
+
+  async _getSpotClearinghouseState({ address = null } = {}) {
+    if (typeof this.infoClient?.spotClearinghouseState !== 'function') return null
+    return this.infoClient.spotClearinghouseState({ user: this._getReadAddress(address) })
+  }
+
+  async _buildPerpMarkets(options = {}) {
+    const includeBuilderDexs = options?.includeBuilderDexs !== false
+    const [coreMetaAndCtxs, perpDexs] = await Promise.all([
+      this._getMetaAndAssetCtxs(),
+      includeBuilderDexs ? this._getPerpDexs() : [],
+    ])
+
+    const corePerps = this._normalizePerpMarketsFromMetaAndContexts(coreMetaAndCtxs, {
+      venue: 'core',
+      dex: null,
+      dexLabel: null,
+      dexIndex: null,
+    })
+
+    if (!includeBuilderDexs || !Array.isArray(perpDexs) || perpDexs.length <= 1) {
+      return corePerps
     }
 
-    const index = this._assetIndexCache[ticker]
-    if (index === undefined) {
-      throw new Error(`Unknown asset: ${ticker}`)
+    const builderDexEntries = perpDexs
+      .map((dex, dexIndex) => ({ dex, dexIndex }))
+      .filter(entry => entry.dexIndex > 0 && entry.dex && typeof entry.dex.name === 'string' && entry.dex.name)
+
+    const builderResults = await Promise.allSettled(
+      builderDexEntries.map(entry => this._getMetaAndAssetCtxs({ dex: entry.dex.name }))
+    )
+
+    const builderPerps = []
+    builderResults.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return
+      const dexEntry = builderDexEntries[index]
+      builderPerps.push(
+        ...this._normalizePerpMarketsFromMetaAndContexts(result.value, {
+          venue: 'builder',
+          dex: dexEntry.dex.name,
+          dexLabel: dexEntry.dex.fullName || dexEntry.dex.name,
+          dexIndex: dexEntry.dexIndex,
+        })
+      )
+    })
+
+    return this._sortMarketCatalogEntries(corePerps.concat(builderPerps))
+  }
+
+  async _buildSpotMarkets() {
+    const spotMetaAndCtxs = await this._getSpotMetaAndAssetCtxs()
+    return this._normalizeSpotMarketsFromMetaAndContexts(spotMetaAndCtxs)
+  }
+
+  async _buildMarketCatalog(options = {}) {
+    const includeBuilderDexs = options?.includeBuilderDexs !== false
+    const [spot, perps] = await Promise.all([
+      this._buildSpotMarkets(),
+      this._buildPerpMarkets({ includeBuilderDexs }),
+    ])
+    const corePerps = perps.filter(market => market.venue === 'core')
+    const builderPerps = perps.filter(market => market.venue === 'builder')
+    return {
+      corePerps,
+      builderPerps,
+      spot,
+      all: this._sortMarketCatalogEntries(corePerps.concat(builderPerps, spot)),
     }
-    return index
+  }
+
+  async _getResolvedMarketCatalog() {
+    if (this._resolvedMarketCatalog) {
+      return this._resolvedMarketCatalog
+    }
+    if (this._resolvedMarketCatalogPromise) {
+      return this._resolvedMarketCatalogPromise
+    }
+
+    this._resolvedMarketCatalogPromise = this._buildMarketCatalog({ includeBuilderDexs: true })
+      .then(catalog => {
+        this._resolvedMarketCatalog = catalog
+        return catalog
+      })
+      .finally(() => {
+        this._resolvedMarketCatalogPromise = null
+      })
+
+    return this._resolvedMarketCatalogPromise
+  }
+
+  async _resolveMarketDescriptor(ticker) {
+    const normalizedTicker = this._normalizeMarketTicker(ticker)
+    const catalog = await this._getResolvedMarketCatalog()
+    const market = catalog.all.find(entry => this._normalizeMarketTicker(entry?.ticker) === normalizedTicker)
+    if (market) return market
+    throw new Error(`Unknown market: ${normalizedTicker}`)
+  }
+
+  async _getBuilderDexNames() {
+    const catalog = await this._getResolvedMarketCatalog()
+    return Array.from(new Set(catalog.builderPerps.map(market => market.dex).filter(Boolean)))
+  }
+
+  async _getBuilderClearinghouseStates({ address = null } = {}) {
+    const dexNames = await this._getBuilderDexNames()
+    if (!dexNames.length) return []
+
+    const results = await Promise.allSettled(
+      dexNames.map(async dex => ({
+        dex,
+        state: await this._getClearinghouseState({ address, dex }),
+      }))
+    )
+
+    return results.filter(result => result.status === 'fulfilled').map(result => result.value)
+  }
+
+  _formatOrderPrice(price, market) {
+    const safePrice = this._parseHyperliquidNumber(price, null)
+    if (safePrice === null || safePrice <= 0) {
+      throw new Error(`Invalid price for ${market?.ticker || 'market'}`)
+    }
+
+    const szDecimals = Number.isFinite(market?.szDecimals) ? Math.max(0, market.szDecimals) : 0
+    const maxDecimals = market?.marketType === 'spot' ? Math.max(0, 8 - szDecimals) : Math.max(0, 6 - szDecimals)
+    const magnitude = Math.floor(Math.log10(Math.abs(safePrice)))
+    const maxSigFigDecimals = Math.max(0, 4 - magnitude)
+    const decimals = Math.min(maxDecimals, maxSigFigDecimals)
+    return this._stripTrailingZeros(safePrice.toFixed(decimals))
+  }
+
+  _formatOrderSize(amount, market) {
+    const safeAmount = this._parseHyperliquidNumber(amount, null)
+    if (safeAmount === null || safeAmount <= 0) {
+      throw new Error('Amount must be greater than 0')
+    }
+
+    const decimals = Number.isFinite(market?.szDecimals) ? Math.max(0, market.szDecimals) : 0
+    return this._stripTrailingZeros(safeAmount.toFixed(decimals))
+  }
+
+  _getSpotUsdBalance(spotClearinghouseState) {
+    if (!spotClearinghouseState || !Array.isArray(spotClearinghouseState.balances)) return 0
+    return spotClearinghouseState.balances.reduce((sum, balance) => {
+      const coin = String(balance?.coin || '').trim().toUpperCase()
+      if (coin !== 'USDC') return sum
+      return sum + this._parseHyperliquidNumber(balance?.total)
+    }, 0)
   }
 
   async getAvailableTickers() {
     const meta = await this._getMeta()
     return meta.universe.map(asset => asset.name).sort()
+  }
+
+  async getPerpMarkets(options = {}) {
+    return this._buildPerpMarkets(options)
+  }
+
+  async getSpotMarkets() {
+    return this._buildSpotMarkets()
+  }
+
+  async getMarketCatalog() {
+    return this._buildMarketCatalog({ includeBuilderDexs: true })
   }
 
   async _placeOrder(orders) {
@@ -1016,46 +1428,97 @@ export class Hyperliquid extends System {
   }
 
   async getPrice(ticker) {
-    const mids = await this._getAllMids()
-    const price = parseFloat(mids[ticker])
-    if (!price) throw new Error(`No price for ${ticker}`)
-    return price
+    const market = await this._resolveMarketDescriptor(ticker)
+    const mids = await this._getAllMids({ dex: market.venue === 'builder' ? market.dex : null })
+    const candidateKeys = [
+      market.midPriceKey,
+      market.streamCoin,
+      market.runtimeTicker,
+      market.ticker,
+    ].filter(Boolean)
+
+    for (const key of candidateKeys) {
+      const price = this._parseHyperliquidNumber(mids?.[key], null)
+      if (price !== null && price > 0) {
+        return price
+      }
+    }
+
+    const fallbackPrice = market.midPrice ?? market.markPrice ?? null
+    if (fallbackPrice !== null && fallbackPrice > 0) {
+      return fallbackPrice
+    }
+
+    throw new Error(`No price for ${market.ticker}`)
   }
 
   // TODO: A future pass can serve getBalance/getPositions from the latest streamed
   // account snapshot when the runtime already has one for its bound target address.
   async getBalance({ address = null } = {}) {
-    const state = await this._getClearinghouseState({ address })
-    return parseFloat(state?.marginSummary?.accountValue || 0)
+    const [coreState, builderStates, spotState] = await Promise.all([
+      this._getClearinghouseState({ address }),
+      this._getBuilderClearinghouseStates({ address }),
+      this._getSpotClearinghouseState({ address }),
+    ])
+
+    const coreAccountValue = this._parseHyperliquidNumber(coreState?.marginSummary?.accountValue)
+    const builderAccountValue = builderStates.reduce(
+      (sum, entry) => sum + this._parseHyperliquidNumber(entry?.state?.marginSummary?.accountValue),
+      0
+    )
+
+    return coreAccountValue + builderAccountValue + this._getSpotUsdBalance(spotState)
   }
 
   async getPositions({ address = null } = {}) {
-    const state = await this._getClearinghouseState({ address })
-    if (!state?.assetPositions) return []
+    const [coreState, builderStates, spotState, catalog] = await Promise.all([
+      this._getClearinghouseState({ address }),
+      this._getBuilderClearinghouseStates({ address }),
+      this._getSpotClearinghouseState({ address }),
+      this._getResolvedMarketCatalog(),
+    ])
 
-    return state.assetPositions
-      .map(assetPosition => assetPosition?.position)
-      .filter(position => this._parseHyperliquidNumber(position?.szi) !== 0)
-      .map(position => this._normalizePosition(position))
+    const corePositions = Array.isArray(coreState?.assetPositions)
+      ? coreState.assetPositions
+          .map(assetPosition => assetPosition?.position)
+          .filter(position => this._parseHyperliquidNumber(position?.szi) !== 0)
+          .map(position => this._normalizePosition(position))
+      : []
+
+    const builderPositions = builderStates.flatMap(entry => {
+      if (!Array.isArray(entry?.state?.assetPositions)) return []
+      return entry.state.assetPositions
+        .map(assetPosition => assetPosition?.position)
+        .filter(position => this._parseHyperliquidNumber(position?.szi) !== 0)
+        .map(position => this._normalizePosition(position, { dex: entry.dex }))
+    })
+
+    const spotPositions = this._normalizeSpotPositions(spotState, catalog.spot)
+    return corePositions.concat(builderPositions, spotPositions)
   }
 
   async buy(ticker, amount, slippage = 1) {
     this._requireWallet()
 
-    const assetIndex = await this._getAssetIndex(ticker)
-    const currentPrice = await this.getPrice(ticker)
+    const market = await this._resolveMarketDescriptor(ticker)
+    if (!Number.isFinite(market?.assetId)) {
+      throw new Error(`No tradable asset id for ${market?.ticker || ticker}`)
+    }
+
+    const currentPrice = await this.getPrice(market.ticker)
 
     const slippageMultiplier = 1 + slippage / 100
-    const price = (currentPrice * slippageMultiplier).toFixed(ticker === 'BTC' ? 0 : 2)
+    const price = this._formatOrderPrice(currentPrice * slippageMultiplier, market)
+    const size = this._formatOrderSize(amount, market)
 
-    console.log(`[Hyperliquid] buy: ${amount} ${ticker} @ ${price} (${slippage}% slippage)`)
+    console.log(`[Hyperliquid] buy: ${size} ${market.ticker} @ ${price} (${slippage}% slippage)`)
 
     return this._placeOrder([
       {
-        a: assetIndex,
+        a: market.assetId,
         b: true,
         p: price,
-        s: String(amount),
+        s: size,
         r: false,
         t: { limit: { tif: 'Ioc' } },
       },
@@ -1065,20 +1528,25 @@ export class Hyperliquid extends System {
   async sell(ticker, amount, slippage = 1) {
     this._requireWallet()
 
-    const assetIndex = await this._getAssetIndex(ticker)
-    const currentPrice = await this.getPrice(ticker)
+    const market = await this._resolveMarketDescriptor(ticker)
+    if (!Number.isFinite(market?.assetId)) {
+      throw new Error(`No tradable asset id for ${market?.ticker || ticker}`)
+    }
+
+    const currentPrice = await this.getPrice(market.ticker)
 
     const slippageMultiplier = 1 - slippage / 100
-    const price = (currentPrice * slippageMultiplier).toFixed(ticker === 'BTC' ? 0 : 2)
+    const price = this._formatOrderPrice(currentPrice * slippageMultiplier, market)
+    const size = this._formatOrderSize(amount, market)
 
-    console.log(`[Hyperliquid] sell: ${amount} ${ticker} @ ${price} (${slippage}% slippage)`)
+    console.log(`[Hyperliquid] sell: ${size} ${market.ticker} @ ${price} (${slippage}% slippage)`)
 
     return this._placeOrder([
       {
-        a: assetIndex,
+        a: market.assetId,
         b: false,
         p: price,
-        s: String(amount),
+        s: size,
         r: false,
         t: { limit: { tif: 'Ioc' } },
       },
@@ -1086,17 +1554,18 @@ export class Hyperliquid extends System {
   }
 
   async closePosition(ticker, slippage = 1) {
+    const market = await this._resolveMarketDescriptor(ticker)
     const positions = await this.getPositions()
-    const position = positions.find(p => p.ticker === ticker)
+    const position = positions.find(p => p.ticker === market.ticker)
 
-    if (!position) throw new Error(`No open position for ${ticker}`)
+    if (!position) throw new Error(`No open position for ${market.ticker}`)
 
-    console.log(`[Hyperliquid] closePosition: ${ticker} size=${position.size}`)
+    console.log(`[Hyperliquid] closePosition: ${market.ticker} size=${position.size}`)
 
     if (position.size > 0) {
-      return this.sell(ticker, Math.abs(position.size), slippage)
+      return this.sell(market.ticker, Math.abs(position.size), slippage)
     }
-    return this.buy(ticker, Math.abs(position.size), slippage)
+    return this.buy(market.ticker, Math.abs(position.size), slippage)
   }
 
   async withdraw(amount, destination) {

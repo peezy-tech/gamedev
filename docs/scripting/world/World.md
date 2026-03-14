@@ -269,15 +269,18 @@ if (player?.evm) {
 
 #### `getPrice(ticker)`
 
-Returns the current mid price.
+Returns the current mid price for core perps, spot pairs, and builder/HIP-3 perps.
 
 #### `getBalance()`
 
-Returns account value in USD.
+Returns the connected account's combined readable balance:
+- core perp account value
+- builder perp account values
+- spot USDC balance
 
 #### `getPositions()`
 
-Returns open positions:
+Returns open positions across core perps, builder perps, and primary spot holdings:
 
 ```js
 [
@@ -293,7 +296,72 @@ Returns open positions:
 
 #### `getAvailableTickers()`
 
-Returns a sorted ticker list available for trading.
+Returns a sorted ticker list for the main perpetual venue.
+
+#### `getPerpMarkets({ includeBuilderDexs = true }?)`
+
+Returns normalized perpetual market metadata plus live context fields.
+
+Core perps use plain tickers like `BTC`.
+Builder perps use `DEX:ASSET` tickers like `test:ABC`.
+
+```js
+[
+  {
+    ticker: 'BTC',
+    marketType: 'perp',
+    venue: 'core',
+    dex: null,
+    maxLeverage: 50,
+    markPrice: 104000,
+    midPrice: 104010,
+    funding: 0.0001,
+    openInterest: 12345.67,
+  },
+  {
+    ticker: 'test:ABC',
+    marketType: 'perp',
+    venue: 'builder',
+    dex: 'test',
+    dexLabel: 'Test Dex',
+    markPrice: 1.23,
+  },
+]
+```
+
+#### `getSpotMarkets()`
+
+Returns normalized spot market metadata plus live context fields.
+
+Spot markets use `BASE/QUOTE` tickers like `HYPE/USDC`.
+
+```js
+[
+  {
+    ticker: 'HYPE/USDC',
+    marketType: 'spot',
+    venue: 'spot',
+    pairId: '@107',
+    baseToken: { name: 'HYPE' },
+    quoteToken: { name: 'USDC' },
+    markPrice: 21.4,
+    midPrice: 21.41,
+  },
+]
+```
+
+#### `getMarketCatalog()`
+
+Returns grouped markets:
+
+```js
+{
+  corePerps: [...],
+  builderPerps: [...],
+  spot: [...],
+  all: [...],
+}
+```
 
 #### `subscribeMids(listener)`
 
@@ -309,6 +377,11 @@ Returns:
 
 Subscribes to live trade batches for a ticker.
 
+Works with:
+- core perps like `BTC`
+- spot pairs like `HYPE/USDC`
+- builder perps like `xyz:XYZ100`
+
 Returns:
 
 ```js
@@ -319,6 +392,8 @@ Returns:
 
 Subscribes to the live order book for a ticker. `nSigFigs` and `mantissa` use Hyperliquid's optional aggregation settings.
 
+Works with perp, spot, and builder/HIP-3 market tickers.
+
 Returns:
 
 ```js
@@ -328,6 +403,8 @@ Returns:
 #### `subscribeCandles({ ticker, interval }, listener)`
 
 Subscribes to live candle updates for a ticker and interval.
+
+Works with perp, spot, and builder/HIP-3 market tickers.
 
 Supported intervals:
 - `1m`, `3m`, `5m`, `15m`, `30m`
@@ -383,15 +460,15 @@ The methods below are only available on the default connected-wallet runtime. On
 
 #### `buy(ticker, amount, slippage = 1)`
 
-Places an IOC buy order.
+Places an IOC buy order for a core perp, spot pair, or builder/HIP-3 perp.
 
 #### `sell(ticker, amount, slippage = 1)`
 
-Places an IOC sell order.
+Places an IOC sell order for a core perp, spot pair, or builder/HIP-3 perp.
 
 #### `closePosition(ticker, slippage = 1)`
 
-Closes the full open position for a ticker.
+Closes the full open position or spot holding for a ticker.
 
 #### `hasAgentKey()`
 

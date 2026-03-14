@@ -504,6 +504,386 @@ test('Hyperliquid returns sorted ticker list', async () => {
   assert.deepEqual(tickers, ['BTC', 'ETH', 'SOL'])
 })
 
+test('Hyperliquid returns normalized perp, spot, and builder market catalogs', async () => {
+  const metaAndAssetCtxCalls = []
+  const hl = new Hyperliquid({})
+  hl.infoClient = {
+    async meta() {
+      return {
+        universe: [{ name: 'ETH' }, { name: 'BTC' }],
+      }
+    },
+    async metaAndAssetCtxs(params = {}) {
+      metaAndAssetCtxCalls.push(params)
+      if (params.dex === 'launchpad') {
+        return [
+          {
+            universe: [
+              {
+                name: 'MOON',
+                szDecimals: 0,
+                maxLeverage: 3,
+                marginTableId: 4,
+              },
+            ],
+          },
+          [
+            {
+              markPx: '1.23',
+              midPx: '1.24',
+              oraclePx: '1.22',
+              funding: '0.0005',
+              openInterest: '9876',
+              premium: null,
+              impactPxs: ['1.20', '1.28'],
+              dayBaseVlm: '12345',
+              dayNtlVlm: '15000',
+              prevDayPx: '1.10',
+            },
+          ],
+        ]
+      }
+
+      return [
+        {
+          universe: [
+            {
+              name: 'ETH',
+              szDecimals: 4,
+              maxLeverage: 25,
+              marginTableId: 1,
+              marginMode: 'noCross',
+            },
+            {
+              name: 'BTC',
+              szDecimals: 5,
+              maxLeverage: 50,
+              marginTableId: 2,
+              onlyIsolated: true,
+            },
+          ],
+        },
+        [
+          {
+            markPx: '2100',
+            midPx: '2101',
+            oraclePx: '2099',
+            funding: '0.0001',
+            openInterest: '111',
+            premium: '0.2',
+            impactPxs: ['2098', '2102'],
+            dayBaseVlm: '22',
+            dayNtlVlm: '46200',
+            prevDayPx: '2000',
+          },
+          {
+            markPx: '104000',
+            midPx: null,
+            oraclePx: '103900',
+            funding: '-0.0002',
+            openInterest: '333',
+            premium: null,
+            impactPxs: null,
+            dayBaseVlm: '4',
+            dayNtlVlm: '416000',
+            prevDayPx: '101000',
+          },
+        ],
+      ]
+    },
+    async perpDexs() {
+      return [null, { name: 'launchpad', fullName: 'Launchpad Dex' }]
+    },
+    async spotMetaAndAssetCtxs() {
+      return [
+        {
+          universe: [{ tokens: [0, 1], name: '@107', index: 0, isCanonical: true }],
+          tokens: [
+            {
+              name: 'HYPE',
+              szDecimals: 2,
+              weiDecimals: 18,
+              index: 0,
+              tokenId: '0x01',
+              isCanonical: true,
+              evmContract: { address: getAddress('0x00000000000000000000000000000000000000AA'), evm_extra_wei_decimals: 0 },
+              fullName: 'Hyperliquid',
+              deployerTradingFeeShare: '0.1',
+            },
+            {
+              name: 'USDC',
+              szDecimals: 6,
+              weiDecimals: 6,
+              index: 1,
+              tokenId: '0x02',
+              isCanonical: true,
+              evmContract: { address: getAddress('0x00000000000000000000000000000000000000BB'), evm_extra_wei_decimals: 0 },
+              fullName: 'USD Coin',
+              deployerTradingFeeShare: '0',
+            },
+          ],
+        },
+        [
+          {
+            prevDayPx: '20',
+            dayNtlVlm: '1000000',
+            markPx: '21.4',
+            midPx: '21.41',
+            circulatingSupply: '5000000',
+            coin: 'HYPE',
+            totalSupply: '10000000',
+            dayBaseVlm: '47000',
+          },
+        ],
+      ]
+    },
+  }
+
+  const perps = await hl.getPerpMarkets()
+  const spot = await hl.getSpotMarkets()
+  const catalog = await hl.getMarketCatalog()
+
+  assert.deepEqual(perps.map(market => market.ticker), ['BTC', 'ETH', 'LAUNCHPAD:MOON'])
+  assert.equal(perps[0].venue, 'core')
+  assert.equal(perps[0].ticker, 'BTC')
+  assert.equal(perps[0].midPrice, null)
+  assert.equal(perps[1].marginMode, 'noCross')
+  assert.equal(perps[2].venue, 'builder')
+  assert.equal(perps[2].ticker, 'LAUNCHPAD:MOON')
+  assert.equal(perps[2].runtimeTicker, 'launchpad:MOON')
+  assert.equal(perps[2].dex, 'launchpad')
+  assert.equal(perps[2].dexLabel, 'Launchpad Dex')
+  assert.deepEqual(perps[2].impactPrices, ['1.20', '1.28'])
+
+  assert.equal(spot.length, 1)
+  assert.equal(spot[0].ticker, 'HYPE/USDC')
+  assert.equal(spot[0].marketType, 'spot')
+  assert.equal(spot[0].pairId, '@107')
+  assert.equal(spot[0].baseToken.fullName, 'Hyperliquid')
+  assert.equal(spot[0].quoteToken.name, 'USDC')
+
+  assert.deepEqual(catalog.corePerps.map(market => market.ticker), ['BTC', 'ETH'])
+  assert.deepEqual(catalog.builderPerps.map(market => market.ticker), ['LAUNCHPAD:MOON'])
+  assert.deepEqual(catalog.spot.map(market => market.ticker), ['HYPE/USDC'])
+  assert.deepEqual(catalog.all.map(market => market.ticker), ['BTC', 'ETH', 'LAUNCHPAD:MOON', 'HYPE/USDC'])
+  assert.deepEqual(metaAndAssetCtxCalls, [{}, { dex: 'launchpad' }, {}, { dex: 'launchpad' }])
+})
+
+test('Hyperliquid can exclude builder dex markets from perp catalog', async () => {
+  const hl = new Hyperliquid({})
+  hl.infoClient = {
+    async metaAndAssetCtxs() {
+      return [
+        {
+          universe: [{ name: 'BTC', szDecimals: 5, maxLeverage: 50, marginTableId: 2 }],
+        },
+        [
+          {
+            markPx: '104000',
+            midPx: '104010',
+            oraclePx: '103900',
+            funding: '0.0001',
+            openInterest: '333',
+            premium: null,
+            impactPxs: null,
+            dayBaseVlm: '4',
+            dayNtlVlm: '416000',
+            prevDayPx: '101000',
+          },
+        ],
+      ]
+    },
+    async perpDexs() {
+      throw new Error('perpDexs should not be called when includeBuilderDexs is false')
+    },
+  }
+
+  const perps = await hl.getPerpMarkets({ includeBuilderDexs: false })
+  assert.deepEqual(perps.map(market => market.ticker), ['BTC'])
+})
+
+test('Hyperliquid aggregates core, builder, and spot account reads', async () => {
+  const watchedAddress = getAddress('0x00000000000000000000000000000000000000AA')
+  const hl = new Hyperliquid({})
+  hl.infoClient = {
+    async metaAndAssetCtxs(params = {}) {
+      if (params.dex === 'launchpad') {
+        return [
+          {
+            universe: [{ name: 'MOON', szDecimals: 0 }],
+          },
+          [{ markPx: '1.25', midPx: '1.26' }],
+        ]
+      }
+      return [
+        {
+          universe: [{ name: 'BTC', szDecimals: 5 }],
+        },
+        [{ markPx: '104000', midPx: '104010' }],
+      ]
+    },
+    async perpDexs() {
+      return [null, { name: 'launchpad', fullName: 'Launchpad Dex' }]
+    },
+    async spotMetaAndAssetCtxs() {
+      return [
+        {
+          universe: [{ tokens: [0, 1], name: '@107', index: 0, isCanonical: true }],
+          tokens: [
+            { name: 'HYPE', szDecimals: 2, weiDecimals: 18, index: 0 },
+            { name: 'USDC', szDecimals: 6, weiDecimals: 6, index: 1 },
+          ],
+        },
+        [{ markPx: '21.4', midPx: '21.41' }],
+      ]
+    },
+    async clearinghouseState({ user, dex }) {
+      assert.equal(user, watchedAddress)
+      if (dex === 'launchpad') {
+        return {
+          marginSummary: { accountValue: '250' },
+          assetPositions: [
+            {
+              position: {
+                coin: 'MOON',
+                szi: '4',
+                entryPx: '1.2',
+                unrealizedPnl: '0.24',
+                liquidationPx: null,
+              },
+            },
+          ],
+        }
+      }
+      return {
+        marginSummary: { accountValue: '1000' },
+        assetPositions: [
+          {
+            position: {
+              coin: 'BTC',
+              szi: '0.01',
+              entryPx: '100000',
+              unrealizedPnl: '40',
+              liquidationPx: '90000',
+            },
+          },
+        ],
+      }
+    },
+    async spotClearinghouseState({ user }) {
+      assert.equal(user, watchedAddress)
+      return {
+        balances: [
+          { coin: 'HYPE', token: 0, total: '5', hold: '0', entryNtl: '100' },
+          { coin: 'USDC', token: 1, total: '50', hold: '0', entryNtl: '50' },
+        ],
+      }
+    },
+  }
+
+  assert.equal(await hl.getBalance({ address: watchedAddress }), 1300)
+  assert.deepEqual(await hl.getPositions({ address: watchedAddress }), [
+    {
+      ticker: 'BTC',
+      size: 0.01,
+      entryPrice: 100000,
+      unrealizedPnl: 40,
+      liquidationPrice: 90000,
+    },
+    {
+      ticker: 'LAUNCHPAD:MOON',
+      size: 4,
+      entryPrice: 1.2,
+      unrealizedPnl: 0.24,
+      liquidationPrice: null,
+    },
+    {
+      ticker: 'HYPE/USDC',
+      size: 5,
+      entryPrice: 20,
+      unrealizedPnl: 7.049999999999997,
+      liquidationPrice: null,
+    },
+  ])
+})
+
+test('Hyperliquid resolves venue-aware prices and orders', async () => {
+  const hl = new Hyperliquid({})
+  const placedOrders = []
+  hl.walletAdapter = {}
+  hl.exchangeClient = {
+    async order(payload) {
+      placedOrders.push(payload)
+      return 'order-ok'
+    },
+  }
+  hl._resolveMarketDescriptor = async ticker => {
+    const normalized = hl._normalizeMarketTicker(ticker)
+    if (normalized === 'HYPE/USDC') {
+      return {
+        ticker: 'HYPE/USDC',
+        runtimeTicker: 'HYPE/USDC',
+        streamCoin: '@107',
+        midPriceKey: '@107',
+        marketType: 'spot',
+        venue: 'spot',
+        assetId: 10107,
+        szDecimals: 2,
+      }
+    }
+    return {
+      ticker: 'LAUNCHPAD:MOON',
+      runtimeTicker: 'launchpad:MOON',
+      streamCoin: 'launchpad:MOON',
+      midPriceKey: 'launchpad:MOON',
+      marketType: 'perp',
+      venue: 'builder',
+      dex: 'launchpad',
+      assetId: 110000,
+      szDecimals: 0,
+    }
+  }
+  hl._getAllMids = async ({ dex = null } = {}) => {
+    if (dex === 'launchpad') {
+      return { 'launchpad:MOON': '1.2345' }
+    }
+    return { '@107': '21.41' }
+  }
+
+  assert.equal(await hl.getPrice('hype/usdc'), 21.41)
+  assert.equal(await hl.buy('hype/usdc', 1.239, 2), 'order-ok')
+  assert.equal(await hl.sell('launchpad:moon', 2.8, 1), 'order-ok')
+
+  assert.deepEqual(placedOrders, [
+    {
+      orders: [
+        {
+          a: 10107,
+          b: true,
+          p: '21.838',
+          s: '1.24',
+          r: false,
+          t: { limit: { tif: 'Ioc' } },
+        },
+      ],
+      grouping: 'na',
+    },
+    {
+      orders: [
+        {
+          a: 110000,
+          b: false,
+          p: '1.2222',
+          s: '3',
+          r: false,
+          t: { limit: { tif: 'Ioc' } },
+        },
+      ],
+      grouping: 'na',
+    },
+  ])
+})
+
 test('Hyperliquid injects a stable runtime API per owner and address', () => {
   let injected = null
   const world = {
@@ -545,6 +925,9 @@ test('Hyperliquid injects a stable runtime API per owner and address', () => {
   assert.equal(typeof ownerAWatchRuntime.subscribeTrades, 'function')
   assert.equal(typeof ownerAWatchRuntime.subscribeOrderBook, 'function')
   assert.equal(typeof ownerAWatchRuntime.subscribeCandles, 'function')
+  assert.equal(typeof ownerAWatchRuntime.getPerpMarkets, 'function')
+  assert.equal(typeof ownerAWatchRuntime.getSpotMarkets, 'function')
+  assert.equal(typeof ownerAWatchRuntime.getMarketCatalog, 'function')
   assert.equal(typeof ownerAWatchRuntime.buy, 'function')
   assert.equal(typeof ownerAWatchRuntime.withdraw, 'function')
 })
@@ -640,6 +1023,14 @@ function createHyperliquidMarketStreamHarness(methodNames, world = {}) {
     clientCreations += 1
     assert.equal(providedTransport, transport)
     return client
+  }
+  hl._resolveMarketDescriptor = async ticker => {
+    const normalized = hl._normalizeMarketTicker(ticker)
+    return {
+      ticker: normalized,
+      runtimeTicker: normalized,
+      streamCoin: normalized,
+    }
   }
 
   return {
@@ -769,21 +1160,29 @@ test('Hyperliquid tracks many local listeners on one shared stream entry', () =>
   assert.deepEqual(entry.pendingEvents, [])
 })
 
-test('Hyperliquid normalizes market stream params into deterministic keys', () => {
+test('Hyperliquid normalizes market stream params into deterministic keys', async () => {
   const hl = new Hyperliquid({})
+  hl._resolveMarketDescriptor = async ticker => {
+    const normalized = hl._normalizeMarketTicker(ticker)
+    return {
+      ticker: normalized,
+      runtimeTicker: normalized,
+      streamCoin: normalized,
+    }
+  }
 
-  const trades = hl._normalizeTradesStreamParams({ ticker: ' btc ' })
-  const orderBook = hl._normalizeOrderBookStreamParams({
+  const trades = await hl._normalizeTradesStreamParams({ ticker: ' btc ' })
+  const orderBook = await hl._normalizeOrderBookStreamParams({
     ticker: ' eth ',
     nSigFigs: '3',
     mantissa: '2',
   })
-  const orderBookWithSigFigsFive = hl._normalizeOrderBookStreamParams({
+  const orderBookWithSigFigsFive = await hl._normalizeOrderBookStreamParams({
     ticker: 'eth',
     nSigFigs: 5,
     mantissa: '2',
   })
-  const candles = hl._normalizeCandleStreamParams({ ticker: ' sol ', interval: '1m' })
+  const candles = await hl._normalizeCandleStreamParams({ ticker: ' sol ', interval: '1m' })
 
   assert.equal(hl._getAllMidsStreamKey(), 'allMids')
   assert.deepEqual(trades, {
@@ -811,7 +1210,7 @@ test('Hyperliquid normalizes market stream params into deterministic keys', () =
     interval: '1m',
     key: 'candle:SOL:1m',
   })
-  assert.throws(() => hl._normalizeCandleStreamParams({ ticker: 'SOL', interval: '10m' }), {
+  await assert.rejects(async () => hl._normalizeCandleStreamParams({ ticker: 'SOL', interval: '10m' }), {
     message: 'Invalid Hyperliquid candle interval: 10m',
   })
 })
@@ -1239,6 +1638,35 @@ test('Hyperliquid flushes trades in arrival order during update', async () => {
     [{ px: '101000' }],
     [{ px: '102000' }],
     [{ px: '103000' }],
+  ])
+})
+
+test('Hyperliquid resolves spot pair ids and builder symbols for live streams', async () => {
+  const { hl, calls } = createHyperliquidMarketStreamHarness(['trades', 'l2Book', 'candle'])
+  hl._resolveMarketDescriptor = async ticker => {
+    const normalized = hl._normalizeMarketTicker(ticker)
+    if (normalized === 'HYPE/USDC') {
+      return {
+        ticker: 'HYPE/USDC',
+        runtimeTicker: 'HYPE/USDC',
+        streamCoin: '@107',
+      }
+    }
+    return {
+      ticker: 'LAUNCHPAD:MOON',
+      runtimeTicker: 'launchpad:MOON',
+      streamCoin: 'launchpad:MOON',
+    }
+  }
+
+  await hl.subscribeTrades({ ticker: 'hype/usdc' }, () => {})
+  await hl.subscribeOrderBook({ ticker: 'launchpad:moon', nSigFigs: 5, mantissa: 2 }, () => {})
+  await hl.subscribeCandles({ ticker: 'launchpad:moon', interval: '1m' }, () => {})
+
+  assert.deepEqual(calls.map(call => [call.methodName, call.params]), [
+    ['trades', { coin: '@107' }],
+    ['l2Book', { coin: 'launchpad:MOON', nSigFigs: 5, mantissa: 2 }],
+    ['candle', { coin: 'launchpad:MOON', interval: '1m' }],
   ])
 })
 
