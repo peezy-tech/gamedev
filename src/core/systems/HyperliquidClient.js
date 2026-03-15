@@ -878,6 +878,11 @@ export class Hyperliquid extends System {
     return normalized.replace(/\.?0+$/, '')
   }
 
+  _warnMarketCatalogFailure(scope, error) {
+    const message = error?.message || String(error)
+    console.warn(`[Hyperliquid] Market catalog ${scope} failed: ${message}`)
+  }
+
   _normalizePerpMarket(asset, assetCtx, { venue, dex, dexLabel, dexIndex }, assetIndex) {
     const assetName = String(asset?.name || '').trim()
     const runtimeTicker = venue === 'builder' ? this._formatBuilderRuntimeTicker(assetName, dex) : assetName
@@ -924,11 +929,20 @@ export class Hyperliquid extends System {
   _normalizePerpMarketsFromMetaAndContexts(payload, descriptor) {
     const [meta, assetCtxs] = Array.isArray(payload) ? payload : []
     if (!meta || !Array.isArray(meta.universe)) return []
-    const markets = meta.universe
-      .map((asset, index) =>
-        this._normalizePerpMarket(asset, Array.isArray(assetCtxs) ? assetCtxs[index] : null, descriptor, index)
-      )
-      .filter(market => market.asset)
+    const markets = []
+
+    meta.universe.forEach((asset, index) => {
+      try {
+        const market = this._normalizePerpMarket(asset, Array.isArray(assetCtxs) ? assetCtxs[index] : null, descriptor, index)
+        if (market?.asset) {
+          markets.push(market)
+        }
+      } catch (error) {
+        const label = descriptor?.venue === 'builder' ? `builder perp ${descriptor?.dex || 'unknown'}` : 'core perp'
+        this._warnMarketCatalogFailure(`${label} normalization`, error)
+      }
+    })
+
     return this._sortMarketCatalogEntries(markets)
   }
 
@@ -946,6 +960,7 @@ export class Hyperliquid extends System {
 
     const markets = spotMeta.universe
       .map(market => {
+        try {
         if (!market || !Array.isArray(market.tokens) || market.tokens.length < 2) return null
         const baseToken = tokenMap.get(market.tokens[0])
         const quoteToken = tokenMap.get(market.tokens[1])
@@ -978,6 +993,10 @@ export class Hyperliquid extends System {
           dayBaseVolume: this._parseHyperliquidNumber(assetCtx?.dayBaseVlm),
           dayNotionalVolume: this._parseHyperliquidNumber(assetCtx?.dayNtlVlm),
           prevDayPrice: this._parseHyperliquidNumber(assetCtx?.prevDayPx),
+        }
+        } catch (error) {
+          this._warnMarketCatalogFailure('spot market normalization', error)
+          return null
         }
       })
       .filter(Boolean)
@@ -1259,17 +1278,28 @@ export class Hyperliquid extends System {
 
   async _buildPerpMarkets(options = {}) {
     const includeBuilderDexs = options?.includeBuilderDexs !== false
-    const [coreMetaAndCtxs, perpDexs] = await Promise.all([
+    const [coreMetaResult, perpDexsResult] = await Promise.allSettled([
       this._getMetaAndAssetCtxs(),
       includeBuilderDexs ? this._getPerpDexs() : [],
     ])
 
-    const corePerps = this._normalizePerpMarketsFromMetaAndContexts(coreMetaAndCtxs, {
-      venue: 'core',
-      dex: null,
-      dexLabel: null,
-      dexIndex: null,
-    })
+    const corePerps =
+      coreMetaResult.status === 'fulfilled'
+        ? this._normalizePerpMarketsFromMetaAndContexts(coreMetaResult.value, {
+            venue: 'core',
+            dex: null,
+            dexLabel: null,
+            dexIndex: null,
+          })
+        : []
+    if (coreMetaResult.status !== 'fulfilled') {
+      this._warnMarketCatalogFailure('core perps', coreMetaResult.reason)
+    }
+
+    const perpDexs = perpDexsResult.status === 'fulfilled' ? perpDexsResult.value : []
+    if (perpDexsResult.status !== 'fulfilled') {
+      this._warnMarketCatalogFailure('builder dex discovery', perpDexsResult.reason)
+    }
 
     if (!includeBuilderDexs || !Array.isArray(perpDexs) || perpDexs.length <= 1) {
       return corePerps
@@ -1285,8 +1315,11 @@ export class Hyperliquid extends System {
 
     const builderPerps = []
     builderResults.forEach((result, index) => {
-      if (result.status !== 'fulfilled') return
       const dexEntry = builderDexEntries[index]
+      if (result.status !== 'fulfilled') {
+        this._warnMarketCatalogFailure(`builder perp ${dexEntry?.dex?.name || 'unknown'}`, result.reason)
+        return
+      }
       builderPerps.push(
         ...this._normalizePerpMarketsFromMetaAndContexts(result.value, {
           venue: 'builder',
@@ -1301,16 +1334,29 @@ export class Hyperliquid extends System {
   }
 
   async _buildSpotMarkets() {
-    const spotMetaAndCtxs = await this._getSpotMetaAndAssetCtxs()
-    return this._normalizeSpotMarketsFromMetaAndContexts(spotMetaAndCtxs)
+    try {
+      const spotMetaAndCtxs = await this._getSpotMetaAndAssetCtxs()
+      return this._normalizeSpotMarketsFromMetaAndContexts(spotMetaAndCtxs)
+    } catch (error) {
+      this._warnMarketCatalogFailure('spot markets', error)
+      return []
+    }
   }
 
   async _buildMarketCatalog(options = {}) {
     const includeBuilderDexs = options?.includeBuilderDexs !== false
-    const [spot, perps] = await Promise.all([
+    const [spotResult, perpsResult] = await Promise.allSettled([
       this._buildSpotMarkets(),
       this._buildPerpMarkets({ includeBuilderDexs }),
     ])
+    const spot = spotResult.status === 'fulfilled' ? spotResult.value : []
+    const perps = perpsResult.status === 'fulfilled' ? perpsResult.value : []
+    if (spotResult.status !== 'fulfilled') {
+      this._warnMarketCatalogFailure('spot catalog assembly', spotResult.reason)
+    }
+    if (perpsResult.status !== 'fulfilled') {
+      this._warnMarketCatalogFailure('perp catalog assembly', perpsResult.reason)
+    }
     const corePerps = perps.filter(market => market.venue === 'core')
     const builderPerps = perps.filter(market => market.venue === 'builder')
     return {
@@ -1415,7 +1461,7 @@ export class Hyperliquid extends System {
   }
 
   async getMarketCatalog() {
-    return this._buildMarketCatalog({ includeBuilderDexs: true })
+    return this._getResolvedMarketCatalog()
   }
 
   async _placeOrder(orders) {

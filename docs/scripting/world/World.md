@@ -64,6 +64,18 @@ Subscribes to both engine events (eg when players `enter` or `leave` the world) 
 | `enter` | `{ playerId }` | fires when a player joins; avatar is not yet loaded |
 | `leave` | `{ playerId }` | fires when a player leaves |
 | `avatarLoaded` | `{ playerId }` | fires when a remote player's avatar finishes loading and is ready (eg. safe to call `player.ragdoll()`) |
+| `command` | `{ playerId, cmd, value, args }` | fires when a player submits a slash command in chat, like `/tower goto BTC` |
+
+#### Slash commands in app scripts
+
+Slash commands entered through the chat UI are available to app scripts through `world.on('command', callback)`.
+
+The payload shape is:
+
+- `playerId`: the player who issued the command
+- `cmd`: the first token after `/`
+- `value`: the raw remainder of the command after `cmd`
+- `args`: the tokenized command array, including `cmd` at `args[0]`
 
 ### `.off(event, callback)`
 
