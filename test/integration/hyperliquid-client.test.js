@@ -669,6 +669,168 @@ test('Hyperliquid returns normalized perp, spot, and builder market catalogs', a
   assert.deepEqual(metaAndAssetCtxCalls, [{}, { dex: 'launchpad' }, {}, { dex: 'launchpad' }])
 })
 
+test('Hyperliquid market catalog tolerates spot endpoint failures', async () => {
+  const warnings = []
+  const hl = new Hyperliquid({})
+  hl._warnMarketCatalogFailure = (scope, error) => {
+    warnings.push([scope, error?.message || String(error)])
+  }
+  hl.infoClient = {
+    async metaAndAssetCtxs() {
+      return [
+        {
+          universe: [{ name: 'BTC', szDecimals: 5, maxLeverage: 50, marginTableId: 2 }],
+        },
+        [
+          {
+            markPx: '104000',
+            midPx: '104010',
+            oraclePx: '103900',
+            funding: '0.0001',
+            openInterest: '333',
+            premium: null,
+            impactPxs: null,
+            dayBaseVlm: '4',
+            dayNtlVlm: '416000',
+            prevDayPx: '101000',
+          },
+        ],
+      ]
+    },
+    async perpDexs() {
+      return [null]
+    },
+    async spotMetaAndAssetCtxs() {
+      throw new Error('spot endpoint offline')
+    },
+  }
+
+  const catalog = await hl.getMarketCatalog()
+
+  assert.deepEqual(catalog.corePerps.map(market => market.ticker), ['BTC'])
+  assert.deepEqual(catalog.builderPerps, [])
+  assert.deepEqual(catalog.spot, [])
+  assert.deepEqual(catalog.all.map(market => market.ticker), ['BTC'])
+  assert.deepEqual(warnings, [['spot markets', 'spot endpoint offline']])
+})
+
+test('Hyperliquid market catalog tolerates builder dex discovery failures', async () => {
+  const warnings = []
+  const hl = new Hyperliquid({})
+  hl._warnMarketCatalogFailure = (scope, error) => {
+    warnings.push([scope, error?.message || String(error)])
+  }
+  hl.infoClient = {
+    async metaAndAssetCtxs() {
+      return [
+        {
+          universe: [{ name: 'BTC', szDecimals: 5, maxLeverage: 50, marginTableId: 2 }],
+        },
+        [
+          {
+            markPx: '104000',
+            midPx: '104010',
+            oraclePx: '103900',
+            funding: '0.0001',
+            openInterest: '333',
+            premium: null,
+            impactPxs: null,
+            dayBaseVlm: '4',
+            dayNtlVlm: '416000',
+            prevDayPx: '101000',
+          },
+        ],
+      ]
+    },
+    async perpDexs() {
+      throw new Error('perp dex discovery offline')
+    },
+    async spotMetaAndAssetCtxs() {
+      return [
+        {
+          universe: [{ tokens: [0, 1], name: '@107', index: 0, isCanonical: true }],
+          tokens: [
+            { name: 'HYPE', szDecimals: 2, weiDecimals: 18, index: 0 },
+            { name: 'USDC', szDecimals: 6, weiDecimals: 6, index: 1 },
+          ],
+        },
+        [{ markPx: '21.4', midPx: '21.41' }],
+      ]
+    },
+  }
+
+  const catalog = await hl.getMarketCatalog()
+
+  assert.deepEqual(catalog.corePerps.map(market => market.ticker), ['BTC'])
+  assert.deepEqual(catalog.builderPerps, [])
+  assert.deepEqual(catalog.spot.map(market => market.ticker), ['HYPE/USDC'])
+  assert.deepEqual(catalog.all.map(market => market.ticker), ['BTC', 'HYPE/USDC'])
+  assert.deepEqual(warnings, [['builder dex discovery', 'perp dex discovery offline']])
+})
+
+test('Hyperliquid getMarketCatalog caches repeated public catalog reads', async () => {
+  const calls = {
+    metaAndAssetCtxs: 0,
+    perpDexs: 0,
+    spotMetaAndAssetCtxs: 0,
+  }
+  const hl = new Hyperliquid({})
+  hl.infoClient = {
+    async metaAndAssetCtxs() {
+      calls.metaAndAssetCtxs += 1
+      return [
+        {
+          universe: [{ name: 'BTC', szDecimals: 5, maxLeverage: 50, marginTableId: 2 }],
+        },
+        [
+          {
+            markPx: '104000',
+            midPx: '104010',
+            oraclePx: '103900',
+            funding: '0.0001',
+            openInterest: '333',
+            premium: null,
+            impactPxs: null,
+            dayBaseVlm: '4',
+            dayNtlVlm: '416000',
+            prevDayPx: '101000',
+          },
+        ],
+      ]
+    },
+    async perpDexs() {
+      calls.perpDexs += 1
+      return [null]
+    },
+    async spotMetaAndAssetCtxs() {
+      calls.spotMetaAndAssetCtxs += 1
+      return [
+        {
+          universe: [{ tokens: [0, 1], name: '@107', index: 0, isCanonical: true }],
+          tokens: [
+            { name: 'HYPE', szDecimals: 2, weiDecimals: 18, index: 0 },
+            { name: 'USDC', szDecimals: 6, weiDecimals: 6, index: 1 },
+          ],
+        },
+        [{ markPx: '21.4', midPx: '21.41' }],
+      ]
+    },
+  }
+
+  const first = await hl.getMarketCatalog()
+  const second = await hl.getMarketCatalog()
+  const third = await hl.getMarketCatalog()
+
+  assert.deepEqual(first.all.map(market => market.ticker), ['BTC', 'HYPE/USDC'])
+  assert.equal(second, first)
+  assert.equal(third, first)
+  assert.deepEqual(calls, {
+    metaAndAssetCtxs: 1,
+    perpDexs: 1,
+    spotMetaAndAssetCtxs: 1,
+  })
+})
+
 test('Hyperliquid can exclude builder dex markets from perp catalog', async () => {
   const hl = new Hyperliquid({})
   hl.infoClient = {
