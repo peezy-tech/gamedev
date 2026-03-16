@@ -4,7 +4,7 @@ import { getAddress } from 'viem'
 
 import { EVM } from '../../src/core/systems/EVMClient.js'
 import { EVM as ServerEVM } from '../../src/core/systems/EVMServer.js'
-import { Hyperliquid } from '../../src/core/systems/HyperliquidClient.js'
+import { Hyperliquid } from '../../src/core/systems/Hyperliquid.js'
 
 test('EVM client tracks bound wallet state', () => {
   const evm = new EVM({})

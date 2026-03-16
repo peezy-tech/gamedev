@@ -9,7 +9,7 @@ import { ServerMonitor } from './systems/ServerMonitor'
 import { ServerAIScripts } from './systems/ServerAIScripts'
 import { ServerAI } from './systems/ServerAI'
 import { EVM } from './systems/EVMServer'
-import { Hyperliquid } from './systems/HyperliquidClient'
+import { Hyperliquid } from './systems/Hyperliquid'
 
 export function createServerWorld() {
   const world = new World()
