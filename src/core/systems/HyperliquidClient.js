@@ -251,22 +251,25 @@ export class Hyperliquid extends System {
       getSpotMarkets: () => this.getSpotMarkets(),
       getMarketCatalog: () => this.getMarketCatalog(),
       getCandles: params => this.getCandles(params),
+      getOrderStatus: params => this.getOrderStatus(params, { address: boundAddress }),
+      getUserFills: params => this.getUserFills(params, { address: boundAddress }),
+      getUserFillsByTime: params => this.getUserFillsByTime(params, { address: boundAddress }),
       subscribeMids: listener => this.subscribeMids(listener, { owner }),
       subscribeTrades: (params, listener) => this.subscribeTrades(params, listener, { owner }),
       subscribeOrderBook: (params, listener) => this.subscribeOrderBook(params, listener, { owner }),
       subscribeCandles: (params, listener) => this.subscribeCandles(params, listener, { owner }),
       subscribeAccount: listener => this.subscribeAccount(listener, { owner, address: boundAddress }),
-      buy: (ticker, amount, slippage) => {
+      buy: (ticker, amount, slippage, options) => {
         assertWritableRuntime('buy')
-        return this.buy(ticker, amount, slippage)
+        return this.buy(ticker, amount, slippage, options)
       },
-      sell: (ticker, amount, slippage) => {
+      sell: (ticker, amount, slippage, options) => {
         assertWritableRuntime('sell')
-        return this.sell(ticker, amount, slippage)
+        return this.sell(ticker, amount, slippage, options)
       },
-      closePosition: (ticker, slippage) => {
+      closePosition: (ticker, slippage, options) => {
         assertWritableRuntime('closePosition')
-        return this.closePosition(ticker, slippage)
+        return this.closePosition(ticker, slippage, options)
       },
       hasAgentKey: () => {
         assertWritableRuntime('hasAgentKey')
@@ -852,6 +855,72 @@ export class Hyperliquid extends System {
     }
   }
 
+  _normalizeOrderIdentifier(value) {
+    if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+      return value
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) {
+        throw new Error('Hyperliquid order oid or cloid is required')
+      }
+      if (/^0x[0-9a-fA-F]{32}$/.test(trimmed)) {
+        return trimmed.toLowerCase()
+      }
+      const parsed = Number.parseInt(trimmed, 10)
+      if (Number.isInteger(parsed) && parsed > 0) {
+        return parsed
+      }
+    }
+
+    throw new Error('Hyperliquid order oid or cloid is invalid')
+  }
+
+  _normalizeOptionalCloid(value) {
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value !== 'string') {
+      throw new Error('Hyperliquid cloid must be a string')
+    }
+
+    const normalized = value.trim().toLowerCase()
+    if (!/^0x[0-9a-f]{32}$/.test(normalized)) {
+      throw new Error('Invalid Hyperliquid cloid')
+    }
+    return normalized
+  }
+
+  _normalizeTradeOrderOptions(options = null) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      return {
+        cloid: null,
+      }
+    }
+
+    return {
+      cloid: this._normalizeOptionalCloid(options.cloid),
+    }
+  }
+
+  _normalizeTradeRequestArgs(slippageOrOptions = 1, maybeOptions = null) {
+    let resolvedSlippage = slippageOrOptions
+    let orderOptions = maybeOptions
+
+    if (
+      slippageOrOptions &&
+      typeof slippageOrOptions === 'object' &&
+      !Array.isArray(slippageOrOptions)
+    ) {
+      resolvedSlippage = 1
+      orderOptions = slippageOrOptions
+    }
+
+    return {
+      slippage: this._parseHyperliquidNumber(resolvedSlippage, 1),
+      orderOptions: this._normalizeTradeOrderOptions(orderOptions),
+    }
+  }
+
   _formatMarketStreamKeyPart(value) {
     return value === null || value === undefined ? 'null' : String(value)
   }
@@ -879,6 +948,132 @@ export class Hyperliquid extends System {
       v: this._parseHyperliquidNumber(candle?.v, null),
       n: this._normalizeOptionalInteger(candle?.n, 'candle trade count'),
     }
+  }
+
+  _normalizeOrderStatusParams(params = {}, { address = null } = {}) {
+    const request =
+      params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : { oid: params }
+    const oid = this._normalizeOrderIdentifier(
+      request.oid ?? request.cloid ?? request.orderId ?? request.clientOrderId
+    )
+    const user = this._getReadAddress(request.user ?? request.address ?? address)
+
+    return {
+      user,
+      oid,
+    }
+  }
+
+  _normalizeUserFillsParams(params = {}, { address = null } = {}) {
+    const request =
+      params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : {}
+    const aggregateByTime =
+      typeof request.aggregateByTime === 'boolean' ? request.aggregateByTime : undefined
+
+    return {
+      user: this._getReadAddress(request.user ?? request.address ?? address),
+      aggregateByTime,
+    }
+  }
+
+  _normalizeUserFillsByTimeParams(params = {}, { address = null } = {}) {
+    const request =
+      params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : {}
+    const startTime = this._normalizeOptionalInteger(request.startTime, 'user fills startTime')
+    if (startTime === null) {
+      throw new Error('Hyperliquid user fills startTime is required')
+    }
+
+    const endTime = this._normalizeOptionalInteger(request.endTime, 'user fills endTime')
+    if (endTime !== null && endTime < startTime) {
+      throw new Error('Hyperliquid user fills endTime must be after startTime')
+    }
+
+    const base = this._normalizeUserFillsParams(request, { address })
+    return {
+      ...base,
+      startTime,
+      endTime,
+    }
+  }
+
+  _normalizeOrderStatusResponse(response) {
+    if (!response || response.status === 'unknownOid') {
+      return {
+        status: 'unknown',
+      }
+    }
+
+    const rawOrder = response?.order?.order || {}
+    const coin = String(rawOrder.coin || '').trim()
+    let ticker = null
+    if (coin) {
+      try {
+        ticker = this._normalizeMarketTicker(coin)
+      } catch {
+        ticker = coin
+      }
+    }
+
+    return {
+      status: 'order',
+      order: {
+        oid: Number.isFinite(rawOrder.oid) ? rawOrder.oid : this._normalizeOptionalInteger(rawOrder.oid, 'order oid'),
+        cloid: this._normalizeOptionalCloid(rawOrder.cloid),
+        coin: coin || null,
+        ticker,
+        side: rawOrder.side === 'B' ? 'buy' : rawOrder.side === 'A' ? 'sell' : null,
+        limitPrice: this._parseHyperliquidNumber(rawOrder.limitPx, null),
+        size: this._parseHyperliquidNumber(rawOrder.sz, null),
+        originalSize: this._parseHyperliquidNumber(rawOrder.origSz, null),
+        reduceOnly: !!rawOrder.reduceOnly,
+        orderType: rawOrder.orderType || null,
+        tif: rawOrder.tif || null,
+        timestamp: this._normalizeOptionalInteger(rawOrder.timestamp, 'order timestamp'),
+        status: response?.order?.status || null,
+        statusTimestamp: this._normalizeOptionalInteger(response?.order?.statusTimestamp, 'order status timestamp'),
+      },
+    }
+  }
+
+  _normalizeUserFill(fill) {
+    const coin = String(fill?.coin || '').trim()
+    let ticker = null
+    if (coin) {
+      try {
+        ticker = this._normalizeMarketTicker(coin)
+      } catch {
+        ticker = coin
+      }
+    }
+
+    return {
+      coin: coin || null,
+      ticker,
+      price: this._parseHyperliquidNumber(fill?.px, null),
+      size: this._parseHyperliquidNumber(fill?.sz, null),
+      side: fill?.side === 'B' ? 'buy' : fill?.side === 'A' ? 'sell' : null,
+      time: this._normalizeOptionalInteger(fill?.time, 'fill time'),
+      startPosition: this._parseHyperliquidNumber(fill?.startPosition, null),
+      dir: typeof fill?.dir === 'string' ? fill.dir : null,
+      closedPnl: this._parseHyperliquidNumber(fill?.closedPnl, 0),
+      hash: typeof fill?.hash === 'string' ? fill.hash : null,
+      oid: this._normalizeOptionalInteger(fill?.oid, 'fill oid'),
+      crossed: !!fill?.crossed,
+      fee: this._parseHyperliquidNumber(fill?.fee, 0),
+      tid: this._normalizeOptionalInteger(fill?.tid, 'fill tid'),
+      feeToken: typeof fill?.feeToken === 'string' ? fill.feeToken : null,
+      twapId: this._normalizeOptionalInteger(fill?.twapId, 'fill twapId'),
+      cloid: this._normalizeOptionalCloid(fill?.cloid),
+    }
+  }
+
+  _normalizeUserFillResponse(response) {
+    if (!Array.isArray(response)) {
+      return []
+    }
+
+    return response.map(fill => this._normalizeUserFill(fill))
   }
 
   _normalizeSpotToken(token) {
@@ -1546,13 +1741,64 @@ export class Hyperliquid extends System {
     return candles.map(candle => this._normalizeCandlePoint(candle, descriptor))
   }
 
-  async _placeOrder(orders) {
+  async getOrderStatus(params = {}, { address = null } = {}) {
+    if (typeof this.infoClient?.orderStatus !== 'function') {
+      throw new Error('Hyperliquid order status is unavailable')
+    }
+
+    const descriptor = this._normalizeOrderStatusParams(params, { address })
+    const response = await this.infoClient.orderStatus({
+      user: descriptor.user,
+      oid: descriptor.oid,
+    })
+    return this._normalizeOrderStatusResponse(response)
+  }
+
+  async getUserFills(params = {}, { address = null } = {}) {
+    if (typeof this.infoClient?.userFills !== 'function') {
+      return []
+    }
+
+    const descriptor = this._normalizeUserFillsParams(params, { address })
+    const response = await this.infoClient.userFills({
+      user: descriptor.user,
+      aggregateByTime: descriptor.aggregateByTime,
+    })
+    return this._normalizeUserFillResponse(response)
+  }
+
+  async getUserFillsByTime(params = {}, { address = null } = {}) {
+    if (typeof this.infoClient?.userFillsByTime !== 'function') {
+      return []
+    }
+
+    const descriptor = this._normalizeUserFillsByTimeParams(params, { address })
+    const response = await this.infoClient.userFillsByTime({
+      user: descriptor.user,
+      startTime: descriptor.startTime,
+      endTime: descriptor.endTime,
+      aggregateByTime: descriptor.aggregateByTime,
+    })
+    return this._normalizeUserFillResponse(response)
+  }
+
+  async _placeOrder(orders, options = null) {
     this._requireWallet()
+    const orderOptions = this._normalizeTradeOrderOptions(options)
+    const normalizedOrders = Array.isArray(orders)
+      ? orders.map((order, index) => {
+          if (!orderOptions.cloid || index > 0) return order
+          return {
+            ...order,
+            c: orderOptions.cloid,
+          }
+        })
+      : orders
     console.log(
       '[Hyperliquid] placeOrder: signing with',
       this.agentKey ? `agent (${this.agentAddress})` : 'main wallet'
     )
-    return this.exchangeClient.order({ orders, grouping: 'na' })
+    return this.exchangeClient.order({ orders: normalizedOrders, grouping: 'na' })
   }
 
   async getPrice(ticker) {
@@ -1625,8 +1871,9 @@ export class Hyperliquid extends System {
     return corePositions.concat(builderPositions, spotPositions)
   }
 
-  async buy(ticker, amount, slippage = 1) {
+  async buy(ticker, amount, slippage = 1, options = null) {
     this._requireWallet()
+    const { slippage: resolvedSlippage, orderOptions } = this._normalizeTradeRequestArgs(slippage, options)
 
     const market = await this._resolveMarketDescriptor(ticker)
     if (!Number.isFinite(market?.assetId)) {
@@ -1635,11 +1882,11 @@ export class Hyperliquid extends System {
 
     const currentPrice = await this.getPrice(market.ticker)
 
-    const slippageMultiplier = 1 + slippage / 100
+    const slippageMultiplier = 1 + resolvedSlippage / 100
     const price = this._formatOrderPrice(currentPrice * slippageMultiplier, market)
     const size = this._formatOrderSize(amount, market)
 
-    console.log(`[Hyperliquid] buy: ${size} ${market.ticker} @ ${price} (${slippage}% slippage)`)
+    console.log(`[Hyperliquid] buy: ${size} ${market.ticker} @ ${price} (${resolvedSlippage}% slippage)`)
 
     return this._placeOrder([
       {
@@ -1650,11 +1897,12 @@ export class Hyperliquid extends System {
         r: false,
         t: { limit: { tif: 'Ioc' } },
       },
-    ])
+    ], orderOptions)
   }
 
-  async sell(ticker, amount, slippage = 1) {
+  async sell(ticker, amount, slippage = 1, options = null) {
     this._requireWallet()
+    const { slippage: resolvedSlippage, orderOptions } = this._normalizeTradeRequestArgs(slippage, options)
 
     const market = await this._resolveMarketDescriptor(ticker)
     if (!Number.isFinite(market?.assetId)) {
@@ -1663,11 +1911,11 @@ export class Hyperliquid extends System {
 
     const currentPrice = await this.getPrice(market.ticker)
 
-    const slippageMultiplier = 1 - slippage / 100
+    const slippageMultiplier = 1 - resolvedSlippage / 100
     const price = this._formatOrderPrice(currentPrice * slippageMultiplier, market)
     const size = this._formatOrderSize(amount, market)
 
-    console.log(`[Hyperliquid] sell: ${size} ${market.ticker} @ ${price} (${slippage}% slippage)`)
+    console.log(`[Hyperliquid] sell: ${size} ${market.ticker} @ ${price} (${resolvedSlippage}% slippage)`)
 
     return this._placeOrder([
       {
@@ -1678,10 +1926,11 @@ export class Hyperliquid extends System {
         r: false,
         t: { limit: { tif: 'Ioc' } },
       },
-    ])
+    ], orderOptions)
   }
 
-  async closePosition(ticker, slippage = 1) {
+  async closePosition(ticker, slippage = 1, options = null) {
+    const { slippage: resolvedSlippage, orderOptions } = this._normalizeTradeRequestArgs(slippage, options)
     const market = await this._resolveMarketDescriptor(ticker)
     const positions = await this.getPositions()
     const position = positions.find(p => p.ticker === market.ticker)
@@ -1691,9 +1940,9 @@ export class Hyperliquid extends System {
     console.log(`[Hyperliquid] closePosition: ${market.ticker} size=${position.size}`)
 
     if (position.size > 0) {
-      return this.sell(market.ticker, Math.abs(position.size), slippage)
+      return this.sell(market.ticker, Math.abs(position.size), resolvedSlippage, orderOptions)
     }
-    return this.buy(market.ticker, Math.abs(position.size), slippage)
+    return this.buy(market.ticker, Math.abs(position.size), resolvedSlippage, orderOptions)
   }
 
   async withdraw(amount, destination) {

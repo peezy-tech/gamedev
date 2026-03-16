@@ -259,6 +259,7 @@ Returns the Hyperliquid helper API.
 - `world.hyperliquid()` targets the connected wallet and supports reads, streams, and trading.
 - `world.hyperliquid(address)` targets an explicit EVM address for reads and account streaming.
 - Address-bound runtimes are watch-only. They never trade on behalf of the connected wallet.
+- On the server, Hyperliquid is available as a read-only helper for catalog, account, candle, order, and fills queries.
 
 Market streams and account streams are client-only in this pass. Stream callbacks run from the runtime update loop, not directly from the websocket event handler. When the owning app script is destroyed, its listeners are cleaned up automatically. `unsubscribe()` is optional for destroy-time cleanup and is mainly for stopping a stream early.
 
@@ -400,6 +401,38 @@ If `startTime` is omitted, the runtime derives it from `limit`.
 ]
 ```
 
+#### `getOrderStatus({ oid | cloid, address? })`
+
+Returns the normalized order status for the runtime target address.
+
+```js
+{
+  status: 'order',
+  order: {
+    oid: 42,
+    cloid: '0x1234...',
+    ticker: 'BTC',
+    side: 'buy',
+    status: 'filled',
+    statusTimestamp: 1700000000123,
+  },
+}
+```
+
+If the order is unknown, this returns:
+
+```js
+{ status: 'unknown' }
+```
+
+#### `getUserFills({ aggregateByTime? }?)`
+
+Returns normalized recent fills for the runtime target address.
+
+#### `getUserFillsByTime({ startTime, endTime?, aggregateByTime? })`
+
+Returns normalized fills for the runtime target address within a time window.
+
 #### `subscribeMids(listener)`
 
 Subscribes to live mids for all markets.
@@ -495,15 +528,15 @@ Returns:
 
 The methods below are only available on the default connected-wallet runtime. On `world.hyperliquid(address)`, they throw a watch-only error.
 
-#### `buy(ticker, amount, slippage = 1)`
+#### `buy(ticker, amount, slippage = 1, { cloid? }?)`
 
 Places an IOC buy order for a core perp, spot pair, or builder/HIP-3 perp.
 
-#### `sell(ticker, amount, slippage = 1)`
+#### `sell(ticker, amount, slippage = 1, { cloid? }?)`
 
 Places an IOC sell order for a core perp, spot pair, or builder/HIP-3 perp.
 
-#### `closePosition(ticker, slippage = 1)`
+#### `closePosition(ticker, slippage = 1, { cloid? }?)`
 
 Closes the full open position or spot holding for a ticker.
 

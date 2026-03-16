@@ -592,11 +592,11 @@ export class ServerNetwork extends System {
   }
 
   onCommand = async (socket, data) => {
-    const { args } = data
+    const { cmd = data?.args?.[0] || '', value = '', args = [] } = data
     // handle slash commands
     const player = socket.player
     const playerId = player.data.id
-    const [cmd, arg1, arg2] = args
+    const [, arg1, arg2] = args
     // become admin command
     if (cmd === 'admin') {
       const code = arg1
@@ -671,7 +671,7 @@ export class ServerNetwork extends System {
     }
     // emit event for all except admin
     if (cmd !== 'admin') {
-      this.world.events.emit('command', { playerId, args })
+      this.world.events.emit('command', { playerId, cmd, value, args })
     }
   }
 

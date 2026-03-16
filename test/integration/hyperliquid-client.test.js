@@ -1013,7 +1013,7 @@ test('Hyperliquid resolves venue-aware prices and orders', async () => {
   }
 
   assert.equal(await hl.getPrice('hype/usdc'), 21.41)
-  assert.equal(await hl.buy('hype/usdc', 1.239, 2), 'order-ok')
+  assert.equal(await hl.buy('hype/usdc', 1.239, 2, { cloid: '0x1234567890abcdef1234567890abcdef' }), 'order-ok')
   assert.equal(await hl.sell('launchpad:moon', 2.8, 1), 'order-ok')
 
   assert.deepEqual(placedOrders, [
@@ -1026,6 +1026,7 @@ test('Hyperliquid resolves venue-aware prices and orders', async () => {
           s: '1.24',
           r: false,
           t: { limit: { tif: 'Ioc' } },
+          c: '0x1234567890abcdef1234567890abcdef',
         },
       ],
       grouping: 'na',
@@ -1091,8 +1092,173 @@ test('Hyperliquid injects a stable runtime API per owner and address', () => {
   assert.equal(typeof ownerAWatchRuntime.getSpotMarkets, 'function')
   assert.equal(typeof ownerAWatchRuntime.getMarketCatalog, 'function')
   assert.equal(typeof ownerAWatchRuntime.getCandles, 'function')
+  assert.equal(typeof ownerAWatchRuntime.getOrderStatus, 'function')
+  assert.equal(typeof ownerAWatchRuntime.getUserFills, 'function')
+  assert.equal(typeof ownerAWatchRuntime.getUserFillsByTime, 'function')
   assert.equal(typeof ownerAWatchRuntime.buy, 'function')
   assert.equal(typeof ownerAWatchRuntime.withdraw, 'function')
+})
+
+test('Hyperliquid verification reads use the bound target address and normalize results', async () => {
+  let injected = null
+  const hl = new Hyperliquid({
+    inject(runtime) {
+      injected = runtime
+    },
+  })
+  hl.init()
+  hl.bind({
+    address: '0x00000000000000000000000000000000000000CC',
+    isConnected: false,
+  })
+
+  const calls = []
+  hl.infoClient = {
+    async orderStatus(params) {
+      calls.push(['orderStatus', params])
+      return {
+        status: 'order',
+        order: {
+          order: {
+            coin: 'BTC',
+            side: 'B',
+            limitPx: '101000',
+            sz: '0.02',
+            oid: 42,
+            timestamp: 1700000000000,
+            origSz: '0.02',
+            cloid: '0x1234567890abcdef1234567890abcdef',
+            reduceOnly: false,
+            orderType: 'Market',
+            tif: 'Ioc',
+          },
+          status: 'filled',
+          statusTimestamp: 1700000000123,
+        },
+      }
+    },
+    async userFills(params) {
+      calls.push(['userFills', params])
+      return [
+        {
+          coin: 'BTC',
+          px: '101100',
+          sz: '0.02',
+          side: 'B',
+          time: 1700000000200,
+          startPosition: '0',
+          dir: 'Open Long',
+          closedPnl: '0',
+          hash: '0x1111111111111111111111111111111111111111111111111111111111111111',
+          oid: 42,
+          crossed: true,
+          fee: '0.2',
+          tid: 777,
+          feeToken: 'USDC',
+          twapId: null,
+          cloid: '0x1234567890abcdef1234567890abcdef',
+        },
+      ]
+    },
+    async userFillsByTime(params) {
+      calls.push(['userFillsByTime', params])
+      return [
+        {
+          coin: 'BTC',
+          px: '101100',
+          sz: '0.02',
+          side: 'A',
+          time: 1700000000300,
+          startPosition: '0.02',
+          dir: 'Close Long',
+          closedPnl: '12.5',
+          hash: '0x2222222222222222222222222222222222222222222222222222222222222222',
+          oid: 42,
+          crossed: true,
+          fee: '0.1',
+          tid: 778,
+          feeToken: 'USDC',
+          twapId: null,
+          cloid: '0x1234567890abcdef1234567890abcdef',
+        },
+      ]
+    },
+  }
+
+  const watchedRuntime = injected.world.hyperliquid('0x00000000000000000000000000000000000000AA')
+
+  assert.deepEqual(await watchedRuntime.getOrderStatus({ cloid: '0x1234567890ABCDEF1234567890ABCDEF' }), {
+    status: 'order',
+    order: {
+      oid: 42,
+      cloid: '0x1234567890abcdef1234567890abcdef',
+      coin: 'BTC',
+      ticker: 'BTC',
+      side: 'buy',
+      limitPrice: 101000,
+      size: 0.02,
+      originalSize: 0.02,
+      reduceOnly: false,
+      orderType: 'Market',
+      tif: 'Ioc',
+      timestamp: 1700000000000,
+      status: 'filled',
+      statusTimestamp: 1700000000123,
+    },
+  })
+  assert.deepEqual(await watchedRuntime.getUserFills(), [
+    {
+      coin: 'BTC',
+      ticker: 'BTC',
+      price: 101100,
+      size: 0.02,
+      side: 'buy',
+      time: 1700000000200,
+      startPosition: 0,
+      dir: 'Open Long',
+      closedPnl: 0,
+      hash: '0x1111111111111111111111111111111111111111111111111111111111111111',
+      oid: 42,
+      crossed: true,
+      fee: 0.2,
+      tid: 777,
+      feeToken: 'USDC',
+      twapId: null,
+      cloid: '0x1234567890abcdef1234567890abcdef',
+    },
+  ])
+  assert.deepEqual(await watchedRuntime.getUserFillsByTime({ startTime: 1700000000000 }), [
+    {
+      coin: 'BTC',
+      ticker: 'BTC',
+      price: 101100,
+      size: 0.02,
+      side: 'sell',
+      time: 1700000000300,
+      startPosition: 0.02,
+      dir: 'Close Long',
+      closedPnl: 12.5,
+      hash: '0x2222222222222222222222222222222222222222222222222222222222222222',
+      oid: 42,
+      crossed: true,
+      fee: 0.1,
+      tid: 778,
+      feeToken: 'USDC',
+      twapId: null,
+      cloid: '0x1234567890abcdef1234567890abcdef',
+    },
+  ])
+
+  assert.deepEqual(calls, [
+    ['orderStatus', { user: getAddress('0x00000000000000000000000000000000000000AA'), oid: '0x1234567890abcdef1234567890abcdef' }],
+    ['userFills', { user: getAddress('0x00000000000000000000000000000000000000AA'), aggregateByTime: undefined }],
+    ['userFillsByTime', {
+      user: getAddress('0x00000000000000000000000000000000000000AA'),
+      startTime: 1700000000000,
+      endTime: null,
+      aggregateByTime: undefined,
+    }],
+  ])
 })
 
 test('Hyperliquid runtime pull reads use the bound target address', async () => {
