@@ -375,6 +375,31 @@ Returns grouped markets:
 }
 ```
 
+#### `getCandles({ ticker, interval, limit?, startTime?, endTime? })`
+
+Returns normalized candle snapshots for a ticker and interval.
+
+Works with perp, spot, and builder/HIP-3 market tickers.
+
+If `startTime` is omitted, the runtime derives it from `limit`.
+
+```js
+[
+  {
+    t: 1710000000000,
+    T: 1710000060000,
+    s: 'BTC',
+    i: '1m',
+    o: 62100.2,
+    c: 62140.5,
+    h: 62155.1,
+    l: 62098.8,
+    v: 18.4,
+    n: 124,
+  },
+]
+```
+
 #### `subscribeMids(listener)`
 
 Subscribes to live mids for all markets.

@@ -1090,6 +1090,7 @@ test('Hyperliquid injects a stable runtime API per owner and address', () => {
   assert.equal(typeof ownerAWatchRuntime.getPerpMarkets, 'function')
   assert.equal(typeof ownerAWatchRuntime.getSpotMarkets, 'function')
   assert.equal(typeof ownerAWatchRuntime.getMarketCatalog, 'function')
+  assert.equal(typeof ownerAWatchRuntime.getCandles, 'function')
   assert.equal(typeof ownerAWatchRuntime.buy, 'function')
   assert.equal(typeof ownerAWatchRuntime.withdraw, 'function')
 })
@@ -1829,6 +1830,81 @@ test('Hyperliquid resolves spot pair ids and builder symbols for live streams', 
     ['trades', { coin: '@107' }],
     ['l2Book', { coin: 'launchpad:MOON', nSigFigs: 5, mantissa: 2 }],
     ['candle', { coin: 'launchpad:MOON', interval: '1m' }],
+  ])
+})
+
+test('Hyperliquid gets candle snapshots for spot and builder markets', async () => {
+  const hl = new Hyperliquid({})
+  const calls = []
+  hl.infoClient = {
+    async candleSnapshot(params) {
+      calls.push(params)
+      return [
+        {
+          t: 600000,
+          T: 660000,
+          s: params.coin,
+          i: params.interval,
+          o: '1.10',
+          c: '1.15',
+          h: '1.20',
+          l: '1.05',
+          v: '4200',
+          n: 12,
+        },
+      ]
+    },
+  }
+  hl._resolveMarketDescriptor = async ticker => {
+    const normalized = hl._normalizeMarketTicker(ticker)
+    if (normalized === 'HYPE/USDC') {
+      return {
+        ticker: 'HYPE/USDC',
+        runtimeTicker: 'HYPE/USDC',
+        streamCoin: '@107',
+      }
+    }
+    return {
+      ticker: 'LAUNCHPAD:MOON',
+      runtimeTicker: 'launchpad:MOON',
+      streamCoin: 'launchpad:MOON',
+    }
+  }
+
+  const spot = await hl.getCandles({ ticker: 'hype/usdc', interval: '1m', endTime: 900000, limit: 3 })
+  const builder = await hl.getCandles({ ticker: 'launchpad:moon', interval: '1m', startTime: 1200000, endTime: 1260000 })
+
+  assert.deepEqual(calls, [
+    { coin: '@107', interval: '1m', startTime: 720000, endTime: 900000 },
+    { coin: 'launchpad:MOON', interval: '1m', startTime: 1200000, endTime: 1260000 },
+  ])
+  assert.deepEqual(spot, [
+    {
+      t: 600000,
+      T: 660000,
+      s: 'HYPE/USDC',
+      i: '1m',
+      o: 1.1,
+      c: 1.15,
+      h: 1.2,
+      l: 1.05,
+      v: 4200,
+      n: 12,
+    },
+  ])
+  assert.deepEqual(builder, [
+    {
+      t: 600000,
+      T: 660000,
+      s: 'LAUNCHPAD:MOON',
+      i: '1m',
+      o: 1.1,
+      c: 1.15,
+      h: 1.2,
+      l: 1.05,
+      v: 4200,
+      n: 12,
+    },
   ])
 })
 

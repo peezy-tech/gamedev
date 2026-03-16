@@ -32,6 +32,22 @@ const HYPERLIQUID_CANDLE_INTERVALS = new Set([
   '1w',
   '1M',
 ])
+const HYPERLIQUID_CANDLE_INTERVAL_MS = {
+  '1m': 60 * 1000,
+  '3m': 3 * 60 * 1000,
+  '5m': 5 * 60 * 1000,
+  '15m': 15 * 60 * 1000,
+  '30m': 30 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '2h': 2 * 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+  '8h': 8 * 60 * 60 * 1000,
+  '12h': 12 * 60 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000,
+  '3d': 3 * 24 * 60 * 60 * 1000,
+  '1w': 7 * 24 * 60 * 60 * 1000,
+  '1M': 30 * 24 * 60 * 60 * 1000,
+}
 const HYPERLIQUID_ORDER_BOOK_SIG_FIGS = new Set([2, 3, 4, 5])
 const HYPERLIQUID_ORDER_BOOK_MANTISSAS = new Set([2, 5])
 
@@ -234,6 +250,7 @@ export class Hyperliquid extends System {
       getPerpMarkets: options => this.getPerpMarkets(options),
       getSpotMarkets: () => this.getSpotMarkets(),
       getMarketCatalog: () => this.getMarketCatalog(),
+      getCandles: params => this.getCandles(params),
       subscribeMids: listener => this.subscribeMids(listener, { owner }),
       subscribeTrades: (params, listener) => this.subscribeTrades(params, listener, { owner }),
       subscribeOrderBook: (params, listener) => this.subscribeOrderBook(params, listener, { owner }),
@@ -810,6 +827,10 @@ export class Hyperliquid extends System {
     return normalized
   }
 
+  _getCandleIntervalDurationMs(interval) {
+    return HYPERLIQUID_CANDLE_INTERVAL_MS[interval] || HYPERLIQUID_CANDLE_INTERVAL_MS['1m']
+  }
+
   _normalizeOrderBookAggregation({ nSigFigs = null, mantissa = null } = {}) {
     const normalizedSigFigs = this._normalizeOptionalInteger(nSigFigs, 'order book nSigFigs')
     if (normalizedSigFigs !== null && !HYPERLIQUID_ORDER_BOOK_SIG_FIGS.has(normalizedSigFigs)) {
@@ -843,6 +864,21 @@ export class Hyperliquid extends System {
   _normalizeNullableHyperliquidNumber(value) {
     if (value === null || value === undefined) return null
     return this._parseHyperliquidNumber(value, null)
+  }
+
+  _normalizeCandlePoint(candle, descriptor = {}) {
+    return {
+      t: this._normalizeOptionalInteger(candle?.t, 'candle open time'),
+      T: this._normalizeOptionalInteger(candle?.T, 'candle close time'),
+      s: descriptor.ticker || String(candle?.s || '').trim(),
+      i: descriptor.interval || String(candle?.i || '').trim(),
+      o: this._parseHyperliquidNumber(candle?.o, null),
+      c: this._parseHyperliquidNumber(candle?.c, null),
+      h: this._parseHyperliquidNumber(candle?.h, null),
+      l: this._parseHyperliquidNumber(candle?.l, null),
+      v: this._parseHyperliquidNumber(candle?.v, null),
+      n: this._normalizeOptionalInteger(candle?.n, 'candle trade count'),
+    }
   }
 
   _normalizeSpotToken(token) {
@@ -1228,6 +1264,33 @@ export class Hyperliquid extends System {
     }
   }
 
+  async _normalizeCandleHistoryParams({ ticker, interval, startTime = null, endTime = null, limit = 64 } = {}) {
+    const descriptor = await this._normalizeCandleStreamParams({ ticker, interval })
+    const normalizedStartTime = this._normalizeOptionalInteger(startTime, 'candle startTime')
+    const normalizedEndTime = this._normalizeOptionalInteger(endTime, 'candle endTime')
+    const normalizedLimit = this._normalizeOptionalInteger(limit, 'candle limit')
+    const safeLimit = normalizedLimit === null ? 64 : normalizedLimit
+    if (!Number.isInteger(safeLimit) || safeLimit <= 0) {
+      throw new Error('Hyperliquid candle limit must be greater than 0')
+    }
+
+    const resolvedEndTime = normalizedEndTime ?? Date.now()
+    const resolvedStartTime =
+      normalizedStartTime ??
+      Math.max(0, resolvedEndTime - this._getCandleIntervalDurationMs(descriptor.interval) * safeLimit)
+
+    if (resolvedStartTime > resolvedEndTime) {
+      throw new Error('Hyperliquid candle startTime must be before endTime')
+    }
+
+    return {
+      ...descriptor,
+      startTime: resolvedStartTime,
+      endTime: resolvedEndTime,
+      limit: safeLimit,
+    }
+  }
+
   async _getMeta() {
     return this.infoClient.meta()
   }
@@ -1462,6 +1525,25 @@ export class Hyperliquid extends System {
 
   async getMarketCatalog() {
     return this._getResolvedMarketCatalog()
+  }
+
+  async getCandles(params = {}) {
+    if (typeof this.infoClient?.candleSnapshot !== 'function') {
+      return []
+    }
+
+    const descriptor = await this._normalizeCandleHistoryParams(params)
+    const candles = await this.infoClient.candleSnapshot({
+      coin: descriptor.coin,
+      interval: descriptor.interval,
+      startTime: descriptor.startTime,
+      endTime: descriptor.endTime,
+    })
+    if (!Array.isArray(candles)) {
+      return []
+    }
+
+    return candles.map(candle => this._normalizeCandlePoint(candle, descriptor))
   }
 
   async _placeOrder(orders) {
