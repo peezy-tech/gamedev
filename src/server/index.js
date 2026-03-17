@@ -21,14 +21,19 @@ import { admin } from './admin'
 import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from './agonesIdleShutdown.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
+import {
+  applyHostedRuntimeBootstrapPayload,
+  derivePublicWsUrlFromApiUrl,
+  hasValue,
+  resolveHostedRuntimeBootstrapUrl,
+  resolveRuntimeWorldDir,
+  usesHostedRuntimeBootstrap,
+} from './runtimeBootstrap.js'
 import { getMaxUploadSizeBytes } from './worldLimits.js'
 import { createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
 import { Ranks } from '../core/extras/ranks'
 
 const rootDir = path.join(__dirname, '../')
-// Resolve world directory relative to the consumer project (cwd), not the package root
-const worldDir = path.resolve(process.cwd(), process.env.WORLD)
-const port = process.env.PORT
 
 function formatUserName(name) {
   if (!name || name.startsWith('anon_')) return 'Anonymous'
@@ -84,29 +89,12 @@ function getDocsIndex() {
   return files
 }
 
-function derivePublicWsUrlFromApiUrl(apiUrl) {
-  const value = typeof apiUrl === 'string' ? apiUrl.trim() : ''
-  if (!value) return null
-  return value
-    .replace(/\/api\/?$/, '/ws')
-    .replace(/^http:/, 'ws:')
-    .replace(/^https:/, 'wss:')
-}
-
-function hasValue(value) {
-  return typeof value === 'string' && value.trim().length > 0
-}
-
 function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
   if (!hasValue(worldId) || !hasValue(jwtSecret)) return null
   return crypto
     .createHmac('sha256', jwtSecret.trim())
     .update(`runtime-internal:${worldId.trim()}`)
     .digest('hex')
-}
-
-function normalizePublicUrl(value) {
-  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
 }
 
 function resolveLobbyInternalEndpoint(pathname) {
@@ -131,14 +119,8 @@ function resolveLobbyInternalUserUrl(userId) {
   return resolveLobbyInternalEndpoint(`/internal/users/${encodeURIComponent(userId.trim())}`)
 }
 
-function resolveLobbyRuntimeBootstrapUrl() {
-  return resolveLobbyInternalEndpoint('/internal/runtime/bootstrap')
-}
-
 async function syncRuntimePublicConfigFromLobby() {
-  if (!hasValue(process.env.PUBLIC_AUTH_URL)) return
-
-  const endpoint = resolveLobbyRuntimeBootstrapUrl()
+  const endpoint = resolveHostedRuntimeBootstrapUrl(process.env)
   const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
   if (!endpoint || !apiKey) return
 
@@ -161,33 +143,7 @@ async function syncRuntimePublicConfigFromLobby() {
     }
 
     const payload = await response.json().catch(() => null)
-    const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl || '')
-    const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl || '')
-    const authUrl = normalizePublicUrl(payload?.auth?.publicAuthUrl || '')
-    const privyAppId = typeof payload?.auth?.publicPrivyAppId === 'string' ? payload.auth.publicPrivyAppId.trim() : ''
-
-    const appliedKeys = []
-
-    if (runtimeApiUrl) {
-      process.env.PUBLIC_API_URL = runtimeApiUrl
-      appliedKeys.push('PUBLIC_API_URL')
-    }
-
-    const runtimeWsUrl = runtimeWsUrlRaw || (runtimeApiUrl ? derivePublicWsUrlFromApiUrl(runtimeApiUrl) || '' : '')
-    if (runtimeWsUrl && runtimeWsUrl.startsWith('ws')) {
-      process.env.PUBLIC_WS_URL = runtimeWsUrl
-      appliedKeys.push('PUBLIC_WS_URL')
-    }
-
-    if (authUrl) {
-      process.env.PUBLIC_AUTH_URL = authUrl
-      appliedKeys.push('PUBLIC_AUTH_URL')
-    }
-
-    if (privyAppId) {
-      process.env.PUBLIC_PRIVY_APP_ID = privyAppId
-      appliedKeys.push('PUBLIC_PRIVY_APP_ID')
-    }
+    const appliedKeys = applyHostedRuntimeBootstrapPayload(process.env, payload)
 
     if (appliedKeys.length) {
       console.info(`[startup] runtime bootstrap metadata applied: ${appliedKeys.join(', ')}`)
@@ -233,10 +189,9 @@ async function resolveLobbyRoleRank(userId) {
   }
 }
 
+const usesHostedBootstrap = usesHostedRuntimeBootstrap(process.env)
+
 // check envs
-if (!process.env.WORLD) {
-  throw new Error('[envs] WORLD not set')
-}
 if (!process.env.WORLD_ID) {
   throw new Error('[envs] WORLD_ID not set')
 }
@@ -246,8 +201,11 @@ if (!process.env.PORT) {
 if (!process.env.JWT_SECRET) {
   throw new Error('[envs] JWT_SECRET not set')
 }
-if (hasValue(process.env.PUBLIC_AUTH_URL)) {
+if (usesHostedBootstrap) {
   await syncRuntimePublicConfigFromLobby()
+}
+if (!process.env.WORLD && !usesHostedBootstrap) {
+  throw new Error('[envs] WORLD not set')
 }
 if (!process.env.ADMIN_CODE) {
   console.warn('[envs] ADMIN_CODE not set - admin privileges are open to all players')
@@ -257,6 +215,12 @@ if (!process.env.SAVE_INTERVAL) {
 }
 if (!process.env.PUBLIC_MAX_UPLOAD_SIZE) {
   throw new Error('[envs] PUBLIC_MAX_UPLOAD_SIZE not set')
+}
+const usesPostgresDb =
+  process.env.DB_URI?.startsWith('postgres://')
+  || process.env.DB_URI?.startsWith('postgresql://')
+if (usesHostedBootstrap && usesPostgresDb && !hasValue(process.env.DB_SCHEMA)) {
+  throw new Error('[envs] DB_SCHEMA must be resolved for hosted postgres runtimes')
 }
 if (!process.env.PUBLIC_API_URL) {
   throw new Error('[envs] PUBLIC_API_URL must be set')
@@ -283,6 +247,8 @@ if (process.env.ASSETS === 's3' && !process.env.ASSETS_S3_URI) {
 }
 
 const authConfig = resolveAuthRuntimeConfig(process.env)
+const worldDir = resolveRuntimeWorldDir(process.env)
+const port = process.env.PORT
 
 const tlsConfig =
   process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH
