@@ -82,7 +82,7 @@ Definition of done:
   - runtime restart followed by re-bootstrap
   Files: `runtime/test/integration/*.test.js`. Size: 1 day.
 - [x] Add structured runtime logs for `standby`, `bootstrap_start`, `bootstrap_success`, `bootstrap_failed`, and `rebind_rejected`. Files: `runtime/src/server/index.js`. Size: 0.5 day.
-- [ ] Add runtime-side canary/rollback notes to `runtime/docs/` once the flag exists. Files: `runtime/docs/push-bootstrap-plan.md`. Size: 0.25 day.
+- [x] Add runtime-side canary/rollback notes to `runtime/docs/` once the flag exists. Files: `runtime/docs/push-bootstrap-plan.md`. Size: 0.25 day.
 - [ ] After V1 is stable, define the runtime-side reset/scrub requirements needed for any future warm standby pool. Files: `runtime/docs/push-bootstrap-plan.md`, `runtime/src/server/*`. Size: 1 day research.
 
 Definition of done:
@@ -97,3 +97,19 @@ Definition of done:
 3. Make bootstrap one-shot and traffic-safe
 4. Cut over from pull mode behind a flag
 5. Add tests and operability
+
+## Canary And Rollback Notes
+
+### Push-Mode Canary
+
+1. Roll out `RUNTIME_BOOTSTRAP_MODE=push` to a single managed runtime slice first. Keep `RUNTIME_BOOTSTRAP_INSTANCE_ID` and `RUNTIME_BOOTSTRAP_AUTH_SECRET` (or `JWT_SECRET`) pod-static, and leave world-bound values sourced only from the pushed binding.
+2. Before sending any bootstrap, verify the pod reports `200 GET /healthz` with `state=standby`, `503 GET /health`, and `200 GET /internal/bootstrap/status` with `world.id = null`.
+3. Push one binding from `world-service` and verify `GET /internal/bootstrap/status` transitions `standby -> bootstrapping -> ready`. Gameplay and admin routes should stay on retryable `503 runtime_not_ready` responses until `ready`.
+4. Require the runtime logs to show `standby`, `bootstrap_start`, and `bootstrap_success` for the canary pod. Treat `bootstrap_failed` or `rebind_rejected` as rollout blockers until the underlying cause is fixed.
+5. Re-post the same binding once to confirm idempotency, then confirm world callbacks are using the pushed `control.internalBaseUrl` rather than any `PUBLIC_AUTH_URL` fallback.
+
+### Rollback
+
+1. Flip the affected deployment back to `RUNTIME_BOOTSTRAP_MODE=pull` and redeploy with `WORLD_ID` plus `RUNTIME_BOOTSTRAP_URL` populated again for that environment.
+2. Replace any push-mode pod that reached `failed` or bound the wrong world. The runtime intentionally rejects rebinding in-process, so rollback is done by pod replacement rather than a second `/internal/bootstrap` with different data.
+3. After rollback, verify the replacement pod reaches `GET /health = 200`, the bound world metadata is present on `GET /status`, and the reverted pool is no longer emitting `bootstrap_failed` or `rebind_rejected` events.
