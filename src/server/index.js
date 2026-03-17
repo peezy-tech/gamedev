@@ -86,6 +86,55 @@ function nowIso() {
   return new Date().toISOString()
 }
 
+function logRuntimeEvent(level, event, state, extra = {}) {
+  const payload = {
+    component: 'runtime',
+    event,
+    mode: runtimeBootstrapMode || 'direct',
+    state: state?.lifecycle?.state || null,
+    bootstrapId:
+      extra.bootstrapId !== undefined
+        ? extra.bootstrapId || null
+        : state?.lifecycle?.bootstrapId || null,
+    runtimeInstanceId: state?.lifecycle?.runtimeInstanceId || null,
+    worldId:
+      extra.worldId !== undefined
+        ? extra.worldId || null
+        : state?.lifecycle?.worldId || process.env.WORLD_ID || null,
+    worldSlug:
+      extra.worldSlug !== undefined
+        ? extra.worldSlug || null
+        : state?.lifecycle?.worldSlug || null,
+    source:
+      extra.source !== undefined
+        ? extra.source || null
+        : state?.lifecycle?.source || null,
+    timestamp: nowIso(),
+  }
+
+  if (extra.error !== undefined) {
+    payload.error = formatErrorMessage(extra.error)
+    if (extra.error instanceof Error && extra.error.stack) {
+      payload.errorStack = extra.error.stack
+    }
+  }
+
+  for (const [key, value] of Object.entries(extra)) {
+    if (key === 'error' || value === undefined) continue
+    payload[key] = value
+  }
+
+  if (level === 'warn') {
+    console.warn(JSON.stringify(payload))
+    return
+  }
+  if (level === 'error') {
+    console.error(JSON.stringify(payload))
+    return
+  }
+  console.info(JSON.stringify(payload))
+}
+
 function resolveDocsRoot() {
   const candidates = [
     path.join(process.cwd(), 'docs'),
@@ -464,6 +513,7 @@ function setRuntimeLifecycleState(state, nextState, extra = {}) {
     state.lifecycle.readyAt = null
     state.lifecycle.failedAt = null
     state.lifecycle.error = null
+    logRuntimeEvent('info', 'standby', state)
     return
   }
 
@@ -472,6 +522,7 @@ function setRuntimeLifecycleState(state, nextState, extra = {}) {
     state.lifecycle.readyAt = null
     state.lifecycle.failedAt = null
     state.lifecycle.error = null
+    logRuntimeEvent('info', 'bootstrap_start', state)
     return
   }
 
@@ -479,6 +530,7 @@ function setRuntimeLifecycleState(state, nextState, extra = {}) {
     state.lifecycle.readyAt = state.lifecycle.updatedAt
     state.lifecycle.failedAt = null
     state.lifecycle.error = null
+    logRuntimeEvent('info', 'bootstrap_success', state)
     return
   }
 
@@ -487,6 +539,9 @@ function setRuntimeLifecycleState(state, nextState, extra = {}) {
     state.lifecycle.error = {
       message: formatErrorMessage(extra.error),
     }
+    logRuntimeEvent('error', 'bootstrap_failed', state, {
+      error: extra.error,
+    })
   }
 }
 
@@ -604,6 +659,12 @@ const runtimeState = buildRuntimeState({
   initialBinding: initialRuntimeBinding,
   initialSource: initialRuntimeSource,
 })
+if (runtimeState.lifecycle.state === 'standby') {
+  logRuntimeEvent('info', 'standby', runtimeState)
+}
+if (runtimeState.lifecycle.state === 'bootstrapping') {
+  logRuntimeEvent('info', 'bootstrap_start', runtimeState)
+}
 const clientHtmlTemplateCache = { value: null }
 const adminConnectionCounts = {
   main: 0,
@@ -734,7 +795,6 @@ async function initializeRuntime({ source, binding = null } = {}) {
     return world
   })()
     .catch(err => {
-      console.error(err)
       setRuntimeLifecycleState(runtimeState, 'failed', {
         bootstrapId: runtimeState.lifecycle.bootstrapId,
         source,
@@ -899,6 +959,10 @@ async function handleBootstrapRequest(req, reply) {
 
   if (existingBindingKey) {
     if (!sameBinding) {
+      logRuntimeEvent('warn', 'rebind_rejected', runtimeState, {
+        expectedBootstrapId: runtimeState.lifecycle.bootstrapId || existingBinding?.bootstrapId || null,
+        receivedBootstrapId: normalizedBinding.bootstrapId || null,
+      })
       return reply.code(409).send({
         error: 'rebind_rejected',
         status: buildBootstrapStatusPayload(runtimeState),

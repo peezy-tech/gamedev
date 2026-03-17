@@ -81,7 +81,7 @@ Definition of done:
   - rejected rebind with different binding
   - runtime restart followed by re-bootstrap
   Files: `runtime/test/integration/*.test.js`. Size: 1 day.
-- [ ] Add structured runtime logs for `standby`, `bootstrap_start`, `bootstrap_success`, `bootstrap_failed`, and `rebind_rejected`. Files: `runtime/src/server/index.js`. Size: 0.5 day.
+- [x] Add structured runtime logs for `standby`, `bootstrap_start`, `bootstrap_success`, `bootstrap_failed`, and `rebind_rejected`. Files: `runtime/src/server/index.js`. Size: 0.5 day.
 - [ ] Add runtime-side canary/rollback notes to `runtime/docs/` once the flag exists. Files: `runtime/docs/push-bootstrap-plan.md`. Size: 0.25 day.
 - [ ] After V1 is stable, define the runtime-side reset/scrub requirements needed for any future warm standby pool. Files: `runtime/docs/push-bootstrap-plan.md`, `runtime/src/server/*`. Size: 1 day research.
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import net from 'node:net'
 import fsPromises from 'node:fs/promises'
+import path from 'node:path'
 import { test } from 'node:test'
 
 import { buildRuntimeControlAuthorization } from '../../src/core/utils-server.js'
@@ -101,6 +102,28 @@ function buildStandbyBinding({ worldId, runtimeInstanceId, worldUrl, auth = {}, 
       internalBaseUrl: controlInternalBaseUrl,
     },
   }
+}
+
+function getStructuredRuntimeEvents(server) {
+  return `${server.getStdout()}\n${server.getStderr()}`
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      try {
+        return JSON.parse(line)
+      } catch {
+        return null
+      }
+    })
+    .filter(entry => entry?.component === 'runtime')
+}
+
+async function waitForRuntimeEvent(server, event, matcher = () => true) {
+  return waitFor(() => {
+    const logEvent = getStructuredRuntimeEvents(server).find(entry => entry.event === event && matcher(entry))
+    return logEvent || false
+  })
 }
 
 test('runtime boots into standby with pre-init bootstrap status', async t => {
@@ -389,6 +412,137 @@ test('runtime uses bound control callbacks with world-scoped auth after bootstra
   assert.equal(verifyRequest.authorization, expectedAuthorization)
   assert.equal(roleRequest.authorization, expectedAuthorization)
   assert.match(verifyRequest.body, /exchange-token/)
+})
+
+test('runtime emits structured standby, bootstrap success, and rebind rejection logs', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const standbyEvent = await waitForRuntimeEvent(server, 'standby', entry => entry.state === 'standby')
+  assert.equal(standbyEvent.mode, 'push')
+  assert.equal(standbyEvent.runtimeInstanceId, server.runtimeInstanceId)
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+  const binding = buildStandbyBinding({
+    worldId,
+    runtimeInstanceId: server.runtimeInstanceId,
+    worldUrl: server.worldUrl,
+  })
+
+  const bootstrapRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(binding),
+  })
+  assert.equal(bootstrapRes.status, 200)
+
+  const bootstrapStartEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_start',
+    entry => entry.bootstrapId === binding.bootstrapId && entry.worldId === worldId && entry.state === 'bootstrapping'
+  )
+  assert.equal(bootstrapStartEvent.source, 'push')
+
+  const bootstrapSuccessEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_success',
+    entry => entry.bootstrapId === binding.bootstrapId && entry.worldId === worldId && entry.state === 'ready'
+  )
+  assert.equal(bootstrapSuccessEvent.source, 'push')
+
+  const rebindBootstrapId = `other-world:${server.runtimeInstanceId}`
+  const rebindRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify({
+      ...buildStandbyBinding({
+        worldId: 'other-world',
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+      }),
+      bootstrapId: rebindBootstrapId,
+    }),
+  })
+  assert.equal(rebindRes.status, 409)
+
+  const rebindEvent = await waitForRuntimeEvent(
+    server,
+    'rebind_rejected',
+    entry =>
+      entry.expectedBootstrapId === binding.bootstrapId
+      && entry.receivedBootstrapId === rebindBootstrapId
+      && entry.state === 'ready'
+  )
+  assert.equal(rebindEvent.worldId, worldId)
+})
+
+test('runtime emits structured bootstrap failure logs', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const worldRoot = await createTempDir('hyperfy-bootstrap-failed-')
+  const blockedWorldPath = path.join(worldRoot, 'blocked-world')
+  await fsPromises.writeFile(blockedWorldPath, 'blocked')
+  t.after(async () => {
+    await fsPromises.rm(worldRoot, { recursive: true, force: true }).catch(() => {})
+  })
+
+  const runtimeInstanceId = 'runtime-bootstrap-failed'
+  const jwtSecret = 'bootstrap-failed-secret'
+  const server = await startStandbyRuntimeServer({
+    env: {
+      JWT_SECRET: jwtSecret,
+      RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
+      WORLD: blockedWorldPath,
+    },
+  })
+  t.after(async () => {
+    await server.stop().catch(() => {})
+  })
+
+  const worldId = `world-${runtimeInstanceId}`
+  const binding = buildStandbyBinding({
+    worldId,
+    runtimeInstanceId,
+    worldUrl: server.worldUrl,
+  })
+  const authorization = buildRuntimeBootstrapAuthorization(runtimeInstanceId, jwtSecret)
+
+  const response = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(binding),
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 500)
+  assert.equal(payload.error, 'bootstrap_failed')
+
+  const failureEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_failed',
+    entry => entry.bootstrapId === binding.bootstrapId && entry.worldId === worldId && entry.state === 'failed'
+  )
+  assert.match(failureEvent.error, /already exists|EEXIST|not a directory/i)
+  assert.ok(failureEvent.errorStack)
 })
 
 test('runtime restart returns to standby and accepts re-bootstrap', async t => {
