@@ -1,12 +1,54 @@
 import crypto from 'crypto'
 import path from 'path'
 
+const MANAGED_RUNTIME_BOOTSTRAP_MODES = new Set(['pull', 'push'])
+const PUSH_RUNTIME_BINDING_ENV_KEYS = [
+  'CONTROL_INTERNAL_BASE_URL',
+  'DB_SCHEMA',
+  'PUBLIC_ADMIN_URL',
+  'PUBLIC_API_URL',
+  'PUBLIC_AUTH_URL',
+  'PUBLIC_MAX_UPLOAD_SIZE',
+  'PUBLIC_PRIVY_APP_ID',
+  'PUBLIC_WORLD_MAX_PLAYERS',
+  'PUBLIC_WS_URL',
+  'SHUTDOWN_IDLE',
+  'WORLD',
+  'WORLD_ID',
+]
+
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
 export function hasValue(value) {
   return normalizeString(value).length > 0
+}
+
+export function resolveRuntimeBootstrapMode(env = process.env) {
+  const explicitMode = normalizeString(env.RUNTIME_BOOTSTRAP_MODE).toLowerCase()
+  if (explicitMode) {
+    if (MANAGED_RUNTIME_BOOTSTRAP_MODES.has(explicitMode)) {
+      return explicitMode
+    }
+    throw new Error("[envs] RUNTIME_BOOTSTRAP_MODE must be 'pull' or 'push'")
+  }
+
+  if (hasValue(env.RUNTIME_BOOTSTRAP_URL) && hasValue(env.WORLD_ID)) {
+    return 'pull'
+  }
+
+  if (!hasValue(env.WORLD_ID)) {
+    return 'push'
+  }
+
+  return null
+}
+
+export function clearPushRuntimeBindingEnv(env = process.env) {
+  for (const key of PUSH_RUNTIME_BINDING_ENV_KEYS) {
+    delete env[key]
+  }
 }
 
 export function usesHostedRuntimeBootstrap(env = process.env) {

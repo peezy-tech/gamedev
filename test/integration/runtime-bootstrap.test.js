@@ -4,12 +4,14 @@ import {
   applyHostedRuntimeBootstrapPayload,
   buildRuntimeBootstrapAuthorization,
   buildRuntimeBootstrapId,
+  clearPushRuntimeBindingEnv,
   derivePublicWsUrlFromApiUrl,
   deriveRuntimeBootstrapAuthToken,
   derivePublicAdminUrl,
   parseRuntimeBootstrapPayload,
   resolveControlInternalBaseUrl,
   resolveControlInternalUrl,
+  resolveRuntimeBootstrapMode,
   resolveRuntimeWorldDir,
   resolveHostedRuntimeBootstrapUrl,
   usesHostedRuntimeBootstrap,
@@ -86,6 +88,48 @@ test('usesHostedRuntimeBootstrap requires an explicit bootstrap endpoint', () =>
     }),
     'https://dev.lobby.ws/internal/runtime/bootstrap'
   )
+})
+
+test('resolveRuntimeBootstrapMode honors the rollout switch and legacy inference', () => {
+  assert.equal(resolveRuntimeBootstrapMode({ RUNTIME_BOOTSTRAP_MODE: 'pull' }), 'pull')
+  assert.equal(resolveRuntimeBootstrapMode({ RUNTIME_BOOTSTRAP_MODE: 'push', WORLD_ID: 'world-1' }), 'push')
+  assert.equal(
+    resolveRuntimeBootstrapMode({
+      WORLD_ID: 'world-1',
+      RUNTIME_BOOTSTRAP_URL: 'https://dev.lobby.ws/internal/runtime/bootstrap',
+    }),
+    'pull'
+  )
+  assert.equal(resolveRuntimeBootstrapMode({}), 'push')
+  assert.equal(resolveRuntimeBootstrapMode({ WORLD_ID: 'local-world' }), null)
+  assert.throws(
+    () => resolveRuntimeBootstrapMode({ RUNTIME_BOOTSTRAP_MODE: 'legacy' }),
+    /\[envs\] RUNTIME_BOOTSTRAP_MODE must be 'pull' or 'push'/
+  )
+})
+
+test('clearPushRuntimeBindingEnv removes world-bound config before standby bootstrap', () => {
+  const env = {
+    WORLD_ID: 'world-1',
+    WORLD: '.runtime-worlds/world-1',
+    DB_SCHEMA: 'world_world_1',
+    PUBLIC_API_URL: 'https://runtime.example.com/api',
+    PUBLIC_WS_URL: 'wss://runtime.example.com/ws',
+    PUBLIC_ADMIN_URL: 'https://runtime.example.com/admin',
+    PUBLIC_AUTH_URL: 'https://auth.example.com/api/identity',
+    PUBLIC_PRIVY_APP_ID: 'privy-app-id',
+    PUBLIC_MAX_UPLOAD_SIZE: '12',
+    PUBLIC_WORLD_MAX_PLAYERS: '24',
+    CONTROL_INTERNAL_BASE_URL: 'https://world-service.internal/api',
+    SHUTDOWN_IDLE: '90',
+    JWT_SECRET: 'secret',
+  }
+
+  clearPushRuntimeBindingEnv(env)
+
+  assert.deepEqual(env, {
+    JWT_SECRET: 'secret',
+  })
 })
 
 test('applyHostedRuntimeBootstrapPayload respects an explicit WORLD path and derives public urls from api url', () => {

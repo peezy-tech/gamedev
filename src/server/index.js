@@ -19,6 +19,7 @@ import { resolveAuthRuntimeConfig } from './authModes'
 import {
   applyHostedRuntimeBootstrapPayload,
   buildRuntimeBootstrapId,
+  clearPushRuntimeBindingEnv,
   derivePublicAdminUrl,
   derivePublicWsUrlFromApiUrl,
   hasValue,
@@ -26,6 +27,7 @@ import {
   resolveControlInternalBaseUrl,
   resolveControlInternalUrl,
   resolveHostedRuntimeBootstrapUrl,
+  resolveRuntimeBootstrapMode,
   resolveRuntimeBootstrapInstanceId,
   resolveRuntimeWorldDir,
   serializeRuntimeBootstrapBinding,
@@ -548,6 +550,28 @@ function buildRuntimeState() {
   }
 }
 
+validateStaticRuntimeEnv(process.env)
+
+const runtimeBootstrapMode = resolveRuntimeBootstrapMode(process.env)
+if (runtimeBootstrapMode === 'push') {
+  clearPushRuntimeBindingEnv(process.env)
+}
+
+const hasInitialWorldBinding = hasValue(process.env.WORLD_ID)
+const usesPullBootstrapMetadata = runtimeBootstrapMode === 'pull'
+
+if (!hasInitialWorldBinding) {
+  validateStandbyRuntimeEnv(process.env)
+} else {
+  if (usesPullBootstrapMetadata) {
+    await syncRuntimePublicConfigFromLobby()
+  }
+  if (usesPullBootstrapMetadata && !resolveRuntimeBootstrapInstanceId(process.env)) {
+    console.warn('[startup] RUNTIME_BOOTSTRAP_INSTANCE_ID not set; push bootstrap auth cannot be verified yet')
+  }
+  finalizeBoundRuntimeEnv(process.env)
+}
+
 const runtimeState = buildRuntimeState()
 const clientHtmlTemplateCache = { value: null }
 const adminConnectionCounts = {
@@ -1054,23 +1078,6 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
       reply.status(500).send()
     }
   })
-}
-
-validateStaticRuntimeEnv(process.env)
-
-const hasInitialWorldBinding = hasValue(process.env.WORLD_ID)
-const usesPullBootstrapMetadata = usesHostedRuntimeBootstrap(process.env)
-
-if (!hasInitialWorldBinding) {
-  validateStandbyRuntimeEnv(process.env)
-} else {
-  if (usesPullBootstrapMetadata) {
-    await syncRuntimePublicConfigFromLobby()
-  }
-  if (usesPullBootstrapMetadata && !resolveRuntimeBootstrapInstanceId(process.env)) {
-    console.warn('[startup] RUNTIME_BOOTSTRAP_INSTANCE_ID not set; push bootstrap auth cannot be verified yet')
-  }
-  finalizeBoundRuntimeEnv(process.env)
 }
 
 const port = process.env.PORT
