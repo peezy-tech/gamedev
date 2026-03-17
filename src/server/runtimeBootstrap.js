@@ -34,10 +34,6 @@ export function resolveRuntimeBootstrapMode(env = process.env) {
     throw new Error("[envs] RUNTIME_BOOTSTRAP_MODE must be 'pull' or 'push'")
   }
 
-  if (hasValue(env.RUNTIME_BOOTSTRAP_URL) && hasValue(env.WORLD_ID)) {
-    return 'pull'
-  }
-
   if (!hasValue(env.WORLD_ID)) {
     return 'push'
   }
@@ -49,10 +45,6 @@ export function clearPushRuntimeBindingEnv(env = process.env) {
   for (const key of PUSH_RUNTIME_BINDING_ENV_KEYS) {
     delete env[key]
   }
-}
-
-export function usesHostedRuntimeBootstrap(env = process.env) {
-  return hasValue(env.RUNTIME_BOOTSTRAP_URL)
 }
 
 export function resolveHostedRuntimeBootstrapUrl(env = process.env) {

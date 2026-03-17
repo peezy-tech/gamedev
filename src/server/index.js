@@ -32,7 +32,6 @@ import {
   resolveRuntimeWorldDir,
   serializeRuntimeBootstrapBinding,
   usesLegacyControlPlaneBaseUrl,
-  usesHostedRuntimeBootstrap,
   verifyRuntimeBootstrapAuthorization,
 } from './runtimeBootstrap.js'
 import { buildRuntimeControlAuthorization, createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
@@ -279,7 +278,7 @@ function finalizeBoundRuntimeEnv(env = process.env) {
     throw new Error('[envs] WORLD_ID not set')
   }
 
-  if (isPostgresDbEnv(env) && usesHostedRuntimeBootstrap(env) && !hasValue(env.DB_SCHEMA)) {
+  if (isPostgresDbEnv(env) && resolveRuntimeBootstrapMode(env) && !hasValue(env.DB_SCHEMA)) {
     throw new Error('[envs] DB_SCHEMA must be resolved for hosted postgres runtimes')
   }
 
@@ -322,6 +321,21 @@ function validateStandbyRuntimeEnv(env = process.env) {
   const runtimeInstanceId = resolveRuntimeBootstrapInstanceId(env)
   if (!runtimeInstanceId) {
     throw new Error('[envs] RUNTIME_BOOTSTRAP_INSTANCE_ID not set')
+  }
+}
+
+function validatePullRuntimeEnv(env = process.env) {
+  if (!hasValue(env.WORLD_ID)) {
+    throw new Error('[envs] WORLD_ID not set')
+  }
+  if (!resolveHostedRuntimeBootstrapUrl(env)) {
+    throw new Error('[envs] RUNTIME_BOOTSTRAP_URL must be set when RUNTIME_BOOTSTRAP_MODE=pull')
+  }
+}
+
+function validateRuntimeBootstrapMode(env = process.env) {
+  if (!hasValue(env.RUNTIME_BOOTSTRAP_MODE) && hasValue(env.RUNTIME_BOOTSTRAP_URL) && hasValue(env.WORLD_ID)) {
+    throw new Error('[envs] RUNTIME_BOOTSTRAP_MODE=pull is required when RUNTIME_BOOTSTRAP_URL is set')
   }
 }
 
@@ -557,8 +571,12 @@ function buildRuntimeState({ initialBinding = null, initialSource = null } = {})
 }
 
 validateStaticRuntimeEnv(process.env)
+validateRuntimeBootstrapMode(process.env)
 
 const runtimeBootstrapMode = resolveRuntimeBootstrapMode(process.env)
+if (runtimeBootstrapMode === 'push' && !hasValue(process.env.RUNTIME_BOOTSTRAP_MODE)) {
+  process.env.RUNTIME_BOOTSTRAP_MODE = 'push'
+}
 if (runtimeBootstrapMode === 'push') {
   clearPushRuntimeBindingEnv(process.env)
 }
@@ -572,6 +590,7 @@ if (!hasInitialWorldBinding) {
   validateStandbyRuntimeEnv(process.env)
 } else {
   if (usesPullBootstrapMetadata) {
+    validatePullRuntimeEnv(process.env)
     initialRuntimeBinding = await syncRuntimePublicConfigFromLobby()
     initialRuntimeSource = 'pull'
   }

@@ -14,7 +14,6 @@ import {
   resolveRuntimeBootstrapMode,
   resolveRuntimeWorldDir,
   resolveHostedRuntimeBootstrapUrl,
-  usesHostedRuntimeBootstrap,
   verifyRuntimeBootstrapAuthorization,
 } from '../../src/server/runtimeBootstrap.js'
 
@@ -76,12 +75,7 @@ test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding'
   assert.equal(env.CONTROL_INTERNAL_BASE_URL, 'https://world-service.lobby.svc.cluster.local/api')
 })
 
-test('usesHostedRuntimeBootstrap requires an explicit bootstrap endpoint', () => {
-  assert.equal(usesHostedRuntimeBootstrap({ PUBLIC_AUTH_URL: 'https://dev.lobby.ws/identity' }), false)
-  assert.equal(
-    usesHostedRuntimeBootstrap({ RUNTIME_BOOTSTRAP_URL: 'https://dev.lobby.ws/internal/runtime/bootstrap' }),
-    true
-  )
+test('resolveHostedRuntimeBootstrapUrl trims an explicit pull endpoint', () => {
   assert.equal(
     resolveHostedRuntimeBootstrapUrl({
       RUNTIME_BOOTSTRAP_URL: 'https://dev.lobby.ws/internal/runtime/bootstrap/',
@@ -90,18 +84,18 @@ test('usesHostedRuntimeBootstrap requires an explicit bootstrap endpoint', () =>
   )
 })
 
-test('resolveRuntimeBootstrapMode honors the rollout switch and legacy inference', () => {
+test('resolveRuntimeBootstrapMode honors the rollout switch and standby defaults', () => {
   assert.equal(resolveRuntimeBootstrapMode({ RUNTIME_BOOTSTRAP_MODE: 'pull' }), 'pull')
   assert.equal(resolveRuntimeBootstrapMode({ RUNTIME_BOOTSTRAP_MODE: 'push', WORLD_ID: 'world-1' }), 'push')
+  assert.equal(resolveRuntimeBootstrapMode({}), 'push')
+  assert.equal(resolveRuntimeBootstrapMode({ WORLD_ID: 'local-world' }), null)
   assert.equal(
     resolveRuntimeBootstrapMode({
       WORLD_ID: 'world-1',
       RUNTIME_BOOTSTRAP_URL: 'https://dev.lobby.ws/internal/runtime/bootstrap',
     }),
-    'pull'
+    null
   )
-  assert.equal(resolveRuntimeBootstrapMode({}), 'push')
-  assert.equal(resolveRuntimeBootstrapMode({ WORLD_ID: 'local-world' }), null)
   assert.throws(
     () => resolveRuntimeBootstrapMode({ RUNTIME_BOOTSTRAP_MODE: 'legacy' }),
     /\[envs\] RUNTIME_BOOTSTRAP_MODE must be 'pull' or 'push'/
