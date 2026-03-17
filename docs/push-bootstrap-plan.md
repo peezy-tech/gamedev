@@ -1,7 +1,7 @@
 # Runtime Push Bootstrap Plan
 
 Status: Proposed
-Last updated: 2026-03-16
+Last updated: 2026-03-17
 
 ## Goal
 
@@ -32,15 +32,15 @@ Notes captured in this step:
 
 ### 2. Add Standby Startup Mode
 
-- [ ] Refactor `runtime/src/server/index.js` so the process can start without `WORLD_ID`, `DB_SCHEMA`, public runtime URLs, upload limits, or idle timeout and remain in `standby`. Size: 1 day.
-- [ ] Add pre-init control endpoints:
+- [x] Refactor `runtime/src/server/index.js` so the process can start without `WORLD_ID`, `DB_SCHEMA`, public runtime URLs, upload limits, or idle timeout and remain in `standby`. Size: 1 day.
+- [x] Add pre-init control endpoints:
   - `POST /internal/bootstrap`
   - `GET /internal/bootstrap/status`
   - `GET /healthz`
   Files: `runtime/src/server/index.js` and supporting helpers. Size: 1 day.
-- [ ] Defer DB, assets, storage, and world initialization until after a successful bootstrap request applies the bound config. Files: `runtime/src/server/index.js`, `runtime/src/server/db.js`, `runtime/src/server/Storage.js`, `runtime/src/server/assets*.js`. Size: 1 day.
-- [ ] Keep standby runtimes from arming idle shutdown until they are bound to a world. Files: `runtime/src/server/index.js`, `runtime/src/server/agonesIdleShutdown.js`. Size: 0.25 day.
-- [ ] Add state transitions for `standby`, `bootstrapping`, `ready`, and `failed`, and expose them via bootstrap status. Files: `runtime/src/server/index.js`. Size: 0.5 day.
+- [x] Defer DB, assets, storage, and world initialization until after a successful bootstrap request applies the bound config. Files: `runtime/src/server/index.js`, `runtime/src/server/db.js`, `runtime/src/server/Storage.js`, `runtime/src/server/assets*.js`. Size: 1 day.
+- [x] Keep standby runtimes from arming idle shutdown until they are bound to a world. Files: `runtime/src/server/index.js`, `runtime/src/server/agonesIdleShutdown.js`. Size: 0.25 day.
+- [x] Add state transitions for `standby`, `bootstrapping`, `ready`, and `failed`, and expose them via bootstrap status. Files: `runtime/src/server/index.js`. Size: 0.5 day.
 
 Definition of done:
 
