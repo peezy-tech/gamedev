@@ -122,6 +122,7 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
   assert.equal(payload.status.state, 'ready')
   assert.equal(payload.status.world.id, worldId)
   assert.equal(payload.status.runtime.publicWsUrl, `${toWsUrl(server.worldUrl)}/ws`)
+  assert.equal(payload.status.runtime.publicAdminUrl, `${server.worldUrl}/admin`)
 
   await waitFor(async () => {
     const res = await fetch(`${server.worldUrl}/health`)
@@ -140,7 +141,14 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
   assert.equal(bootstrapStatusRes.status, 200)
   assert.equal(bootstrapStatus.state, 'ready')
   assert.equal(bootstrapStatus.world.id, worldId)
+  assert.equal(bootstrapStatus.runtime.publicAdminUrl, `${server.worldUrl}/admin`)
   assert.equal(bootstrapStatus.control.internalBaseUrl, 'http://world-service.internal/api')
+
+  const envJsRes = await fetch(`${server.worldUrl}/env.js`)
+  const envJs = await envJsRes.text()
+  assert.equal(envJsRes.status, 200)
+  assert.match(envJs, /PUBLIC_ADMIN_URL/)
+  assert.match(envJs, new RegExp(`${server.worldUrl}/admin`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 })
 
 test('runtime treats duplicate bootstrap for the same binding as idempotent', async t => {

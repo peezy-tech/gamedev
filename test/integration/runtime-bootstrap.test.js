@@ -6,6 +6,7 @@ import {
   buildRuntimeBootstrapId,
   derivePublicWsUrlFromApiUrl,
   deriveRuntimeBootstrapAuthToken,
+  derivePublicAdminUrl,
   parseRuntimeBootstrapPayload,
   resolveControlInternalBaseUrl,
   resolveControlInternalUrl,
@@ -36,6 +37,7 @@ test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding'
       instanceId: 'lobby-world-abc',
       publicApiUrl: 'https://gs.example.com:7000/api',
       publicWsUrl: 'wss://gs.example.com:7000/ws',
+      publicAdminUrl: 'https://gs.example.com:7000/admin',
     },
     auth: {
       publicAuthUrl: 'https://dev.lobby.ws/api/identity',
@@ -55,6 +57,7 @@ test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding'
     'SHUTDOWN_IDLE',
     'PUBLIC_API_URL',
     'PUBLIC_WS_URL',
+    'PUBLIC_ADMIN_URL',
     'PUBLIC_AUTH_URL',
     'PUBLIC_PRIVY_APP_ID',
     'CONTROL_INTERNAL_BASE_URL',
@@ -64,6 +67,7 @@ test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding'
   assert.equal(env.PUBLIC_MAX_UPLOAD_SIZE, '3')
   assert.equal(env.PUBLIC_WORLD_MAX_PLAYERS, '0')
   assert.equal(env.SHUTDOWN_IDLE, '120')
+  assert.equal(env.PUBLIC_ADMIN_URL, 'https://gs.example.com:7000/admin')
   assert.equal(env.PUBLIC_API_URL, 'https://gs.example.com:7000/api')
   assert.equal(env.PUBLIC_WS_URL, 'wss://gs.example.com:7000/ws')
   assert.equal(env.PUBLIC_PRIVY_APP_ID, 'privy-app-id')
@@ -84,7 +88,7 @@ test('usesHostedRuntimeBootstrap requires an explicit bootstrap endpoint', () =>
   )
 })
 
-test('applyHostedRuntimeBootstrapPayload respects an explicit WORLD path and derives ws url from api url', () => {
+test('applyHostedRuntimeBootstrapPayload respects an explicit WORLD path and derives public urls from api url', () => {
   const env = {
     WORLD: '/tmp/custom-world',
   }
@@ -111,6 +115,7 @@ test('applyHostedRuntimeBootstrapPayload respects an explicit WORLD path and der
 
   assert.ok(!applied.includes('WORLD'))
   assert.equal(env.WORLD, '/tmp/custom-world')
+  assert.equal(env.PUBLIC_ADMIN_URL, 'https://gs.example.com:9443/admin')
   assert.equal(env.PUBLIC_WS_URL, 'wss://gs.example.com:9443/ws')
 })
 
@@ -152,8 +157,25 @@ test('parseRuntimeBootstrapPayload normalizes the frozen binding shape', () => {
   assert.equal(parsed.bootstrapId, 'world-4:lobby-world-ghi')
   assert.equal(parsed.runtime.publicApiUrl, 'https://gs.example.com:7443/api')
   assert.equal(parsed.runtime.publicWsUrl, 'wss://gs.example.com:7443/ws')
+  assert.equal(parsed.runtime.publicAdminUrl, 'https://gs.example.com:7443/admin')
   assert.equal(parsed.auth.publicAuthUrl, 'https://dev.lobby.ws/api/identity')
   assert.equal(parsed.control.internalBaseUrl, 'https://world-service.lobby.svc.cluster.local/api')
+})
+
+test('derivePublicAdminUrl prefers api urls and falls back to websocket urls', () => {
+  assert.equal(
+    derivePublicAdminUrl({
+      publicApiUrl: 'https://runtime.example.com/api',
+      publicWsUrl: 'wss://runtime.example.com/ws',
+    }),
+    'https://runtime.example.com/admin'
+  )
+  assert.equal(
+    derivePublicAdminUrl({
+      publicWsUrl: 'wss://runtime.example.com/ws',
+    }),
+    'https://runtime.example.com/admin'
+  )
 })
 
 test('resolveControlInternalBaseUrl prefers explicit control url and falls back to legacy auth url', () => {

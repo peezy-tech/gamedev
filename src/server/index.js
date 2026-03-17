@@ -20,6 +20,7 @@ import { resolveAuthRuntimeConfig } from './authModes'
 import {
   applyHostedRuntimeBootstrapPayload,
   buildRuntimeBootstrapId,
+  derivePublicAdminUrl,
   derivePublicWsUrlFromApiUrl,
   hasValue,
   parseRuntimeBootstrapPayload,
@@ -289,6 +290,16 @@ function finalizeBoundRuntimeEnv(env = process.env) {
     env.PUBLIC_WS_URL = derivedPublicWsUrl
   }
 
+  if (!hasValue(env.PUBLIC_ADMIN_URL)) {
+    const derivedPublicAdminUrl = derivePublicAdminUrl({
+      publicApiUrl: env.PUBLIC_API_URL,
+      publicWsUrl: env.PUBLIC_WS_URL,
+    })
+    if (derivedPublicAdminUrl) {
+      env.PUBLIC_ADMIN_URL = derivedPublicAdminUrl
+    }
+  }
+
   warnIfAdminCodeUnset(env)
   warnIfRuntimeUsesLegacyControlPlaneBaseUrl(env)
 
@@ -373,9 +384,11 @@ function buildBootstrapStatusPayload(state) {
       instanceId: state.lifecycle.runtimeInstanceId,
       publicApiUrl: process.env.PUBLIC_API_URL || null,
       publicWsUrl: process.env.PUBLIC_WS_URL || null,
+      publicAdminUrl: process.env.PUBLIC_ADMIN_URL || null,
     },
     auth: {
       publicAuthUrl: process.env.PUBLIC_AUTH_URL || null,
+      publicPrivyAppId: process.env.PUBLIC_PRIVY_APP_ID || null,
     },
     control: {
       internalBaseUrl: resolveControlInternalBaseUrl(process.env),

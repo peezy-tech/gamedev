@@ -27,6 +27,23 @@ export function derivePublicWsUrlFromApiUrl(apiUrl) {
     .replace(/^https:/, 'wss:')
 }
 
+export function derivePublicAdminUrl({ publicApiUrl, publicWsUrl } = {}) {
+  const normalizedApiUrl = normalizePublicUrl(publicApiUrl)
+  if (normalizedApiUrl) {
+    const baseUrl = normalizedApiUrl.replace(/\/api\/?$/, '')
+    return baseUrl ? `${baseUrl}/admin` : null
+  }
+
+  const normalizedWsUrl = normalizePublicUrl(publicWsUrl)
+  if (!normalizedWsUrl) return null
+
+  const baseUrl = normalizedWsUrl
+    .replace(/\/ws\/?$/, '')
+    .replace(/^wss:/, 'https:')
+    .replace(/^ws:/, 'http:')
+  return baseUrl ? `${baseUrl}/admin` : null
+}
+
 function normalizePublicUrl(value) {
   return normalizeString(value).replace(/\/+$/, '')
 }
@@ -151,6 +168,7 @@ export function parseRuntimeBootstrapPayload(payload = null, { runtimeInstanceId
   const resolvedRuntimeInstanceId = normalizedRuntimeInstanceId || normalizeString(runtimeInstanceId)
   const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl) || null
   const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl) || null
+  const runtimeAdminUrlRaw = normalizePublicUrl(payload?.runtime?.publicAdminUrl) || null
   const authUrl = normalizePublicUrl(payload?.auth?.publicAuthUrl) || null
   const privyAppId = normalizeString(payload?.auth?.publicPrivyAppId) || null
   const controlInternalBaseUrl = normalizePublicUrl(payload?.control?.internalBaseUrl) || null
@@ -158,6 +176,12 @@ export function parseRuntimeBootstrapPayload(payload = null, { runtimeInstanceId
   const publicWorldMaxPlayers = parseNonNegativeInteger(payload?.world?.publicWorldMaxPlayers)
   const shutdownIdleSeconds = parseNonNegativeInteger(payload?.world?.shutdownIdleSeconds)
   const runtimeWsUrl = runtimeWsUrlRaw || (runtimeApiUrl ? derivePublicWsUrlFromApiUrl(runtimeApiUrl) || null : null)
+  const runtimeAdminUrl =
+    runtimeAdminUrlRaw
+    || derivePublicAdminUrl({
+      publicApiUrl: runtimeApiUrl,
+      publicWsUrl: runtimeWsUrl,
+    })
 
   return {
     bootstrapId: normalizeString(payload?.bootstrapId) || buildRuntimeBootstrapId({
@@ -176,6 +200,7 @@ export function parseRuntimeBootstrapPayload(payload = null, { runtimeInstanceId
       instanceId: resolvedRuntimeInstanceId || null,
       publicApiUrl: runtimeApiUrl,
       publicWsUrl: runtimeWsUrl,
+      publicAdminUrl: runtimeAdminUrl,
     },
     auth: {
       publicAuthUrl: authUrl,
@@ -199,6 +224,7 @@ export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = 
   const dbSchema = normalizeString(binding.world.dbSchema)
   const runtimeApiUrl = normalizePublicUrl(binding.runtime.publicApiUrl)
   const runtimeWsUrl = normalizePublicUrl(binding.runtime.publicWsUrl)
+  const runtimeAdminUrl = normalizePublicUrl(binding.runtime.publicAdminUrl)
   const authUrl = normalizePublicUrl(binding.auth.publicAuthUrl)
   const privyAppId = normalizeString(binding.auth.publicPrivyAppId)
   const controlInternalBaseUrl = normalizePublicUrl(binding.control.internalBaseUrl)
@@ -244,6 +270,11 @@ export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = 
   if (runtimeWsUrl && runtimeWsUrl.startsWith('ws')) {
     env.PUBLIC_WS_URL = runtimeWsUrl
     appliedKeys.push('PUBLIC_WS_URL')
+  }
+
+  if (runtimeAdminUrl) {
+    env.PUBLIC_ADMIN_URL = runtimeAdminUrl
+    appliedKeys.push('PUBLIC_ADMIN_URL')
   }
 
   if (authUrl) {
