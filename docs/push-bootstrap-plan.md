@@ -74,7 +74,7 @@ Definition of done:
 
 ### 5. Runtime Tests And Operability
 
-- [ ] Add targeted integration tests for:
+- [x] Add targeted integration tests for:
   - booting into `standby`
   - successful bootstrap
   - duplicate bootstrap with same binding

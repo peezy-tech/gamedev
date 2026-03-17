@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import net from 'node:net'
+import fsPromises from 'node:fs/promises'
 import { test } from 'node:test'
 
 import { buildRuntimeControlAuthorization } from '../../src/core/utils-server.js'
 import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
-import { startStandbyRuntimeServer, waitFor } from './helpers.js'
+import { createTempDir, startStandbyRuntimeServer, waitFor } from './helpers.js'
 
 function toWsUrl(httpUrl) {
   if (httpUrl.startsWith('https://')) return `wss://${httpUrl.slice('https://'.length)}`
@@ -78,6 +79,26 @@ async function startControlPlaneStub({ issuer } = {}) {
     requests,
     async stop() {
       await new Promise(resolve => server.close(resolve))
+    },
+  }
+}
+
+function buildStandbyBinding({ worldId, runtimeInstanceId, worldUrl, auth = {}, controlInternalBaseUrl = 'http://world-service.internal/api' } = {}) {
+  return {
+    bootstrapId: `${worldId}:${runtimeInstanceId}`,
+    world: {
+      id: worldId,
+      slug: 'standby-world',
+      publicMaxUploadSize: 12,
+      shutdownIdleSeconds: 0,
+    },
+    runtime: {
+      instanceId: runtimeInstanceId,
+      publicApiUrl: `${worldUrl}/api`,
+    },
+    auth,
+    control: {
+      internalBaseUrl: controlInternalBaseUrl,
     },
   }
 }
@@ -159,23 +180,11 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify({
-      bootstrapId: `${worldId}:${server.runtimeInstanceId}`,
-      world: {
-        id: worldId,
-        slug: 'standby-world',
-        publicMaxUploadSize: 12,
-        shutdownIdleSeconds: 0,
-      },
-      runtime: {
-        instanceId: server.runtimeInstanceId,
-        publicApiUrl: `${server.worldUrl}/api`,
-      },
-      auth: {},
-      control: {
-        internalBaseUrl: 'http://world-service.internal/api',
-      },
-    }),
+    body: JSON.stringify(buildStandbyBinding({
+      worldId,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+    })),
   })
   const payload = await response.json()
   assert.equal(response.status, 200)
@@ -225,23 +234,11 @@ test('runtime treats duplicate bootstrap for the same binding as idempotent', as
 
   const worldId = `world-${server.runtimeInstanceId}`
   const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
-  const binding = {
-    bootstrapId: `${worldId}:${server.runtimeInstanceId}`,
-    world: {
-      id: worldId,
-      slug: 'standby-world',
-      publicMaxUploadSize: 12,
-      shutdownIdleSeconds: 0,
-    },
-    runtime: {
-      instanceId: server.runtimeInstanceId,
-      publicApiUrl: `${server.worldUrl}/api`,
-    },
-    auth: {},
-    control: {
-      internalBaseUrl: 'http://world-service.internal/api',
-    },
-  }
+  const binding = buildStandbyBinding({
+    worldId,
+    runtimeInstanceId: server.runtimeInstanceId,
+    worldUrl: server.worldUrl,
+  })
 
   const firstRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
     method: 'POST',
@@ -290,23 +287,11 @@ test('runtime rejects bootstrap rebinding after a successful push', async t => {
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify({
-      bootstrapId: `${worldId}:${server.runtimeInstanceId}`,
-      world: {
-        id: worldId,
-        slug: 'standby-world',
-        publicMaxUploadSize: 12,
-        shutdownIdleSeconds: 0,
-      },
-      runtime: {
-        instanceId: server.runtimeInstanceId,
-        publicApiUrl: `${server.worldUrl}/api`,
-      },
-      auth: {},
-      control: {
-        internalBaseUrl: 'http://world-service.internal/api',
-      },
-    }),
+    body: JSON.stringify(buildStandbyBinding({
+      worldId,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+    })),
   })
   assert.equal(initialRes.status, 200)
 
@@ -369,25 +354,15 @@ test('runtime uses bound control callbacks with world-scoped auth after bootstra
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify({
-      bootstrapId: `${worldId}:${server.runtimeInstanceId}`,
-      world: {
-        id: worldId,
-        slug: 'standby-world',
-        publicMaxUploadSize: 12,
-        shutdownIdleSeconds: 0,
-      },
-      runtime: {
-        instanceId: server.runtimeInstanceId,
-        publicApiUrl: `${server.worldUrl}/api`,
-      },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
       auth: {
         publicAuthUrl: issuer,
       },
-      control: {
-        internalBaseUrl: controlPlane.baseUrl,
-      },
-    }),
+      controlInternalBaseUrl: controlPlane.baseUrl,
+    })),
   })
   assert.equal(bootstrapRes.status, 200)
 
@@ -414,4 +389,93 @@ test('runtime uses bound control callbacks with world-scoped auth after bootstra
   assert.equal(verifyRequest.authorization, expectedAuthorization)
   assert.equal(roleRequest.authorization, expectedAuthorization)
   assert.match(verifyRequest.body, /exchange-token/)
+})
+
+test('runtime restart returns to standby and accepts re-bootstrap', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const worldDir = await createTempDir('hyperfy-standby-world-')
+  const runtimeInstanceId = 'runtime-restart-rebootstrap'
+  const jwtSecret = 'restart-bootstrap-secret'
+  const worldId = `world-${runtimeInstanceId}`
+
+  t.after(async () => {
+    await fsPromises.rm(worldDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  const firstServer = await startStandbyRuntimeServer({
+    env: {
+      JWT_SECRET: jwtSecret,
+      RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
+      WORLD: worldDir,
+    },
+  })
+  t.after(async () => {
+    await firstServer.stop().catch(() => {})
+  })
+
+  const authorization = buildRuntimeBootstrapAuthorization(runtimeInstanceId, jwtSecret)
+  const firstBinding = buildStandbyBinding({
+    worldId,
+    runtimeInstanceId,
+    worldUrl: firstServer.worldUrl,
+  })
+
+  const firstBootstrapRes = await fetch(`${firstServer.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(firstBinding),
+  })
+  assert.equal(firstBootstrapRes.status, 200)
+
+  await firstServer.stop()
+
+  const restartedServer = await startStandbyRuntimeServer({
+    env: {
+      JWT_SECRET: jwtSecret,
+      RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
+      WORLD: worldDir,
+    },
+  })
+  t.after(async () => {
+    await restartedServer.stop().catch(() => {})
+  })
+
+  const standbyStatusRes = await fetch(`${restartedServer.worldUrl}/internal/bootstrap/status`)
+  const standbyStatus = await standbyStatusRes.json()
+  assert.equal(standbyStatusRes.status, 200)
+  assert.equal(standbyStatus.state, 'standby')
+  assert.equal(standbyStatus.world.id, null)
+
+  const restartedBinding = buildStandbyBinding({
+    worldId,
+    runtimeInstanceId,
+    worldUrl: restartedServer.worldUrl,
+  })
+  const secondBootstrapRes = await fetch(`${restartedServer.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(restartedBinding),
+  })
+  const secondBootstrapPayload = await secondBootstrapRes.json()
+  assert.equal(secondBootstrapRes.status, 200)
+  assert.equal(secondBootstrapPayload.ok, true)
+  assert.equal(secondBootstrapPayload.status.state, 'ready')
+  assert.equal(secondBootstrapPayload.status.world.id, worldId)
+  assert.equal(secondBootstrapPayload.status.runtime.publicApiUrl, `${restartedServer.worldUrl}/api`)
+
+  const runtimeStatusRes = await fetch(`${restartedServer.worldUrl}/status`)
+  const runtimeStatus = await runtimeStatusRes.json()
+  assert.equal(runtimeStatusRes.status, 200)
+  assert.equal(runtimeStatus.state, 'ready')
+  assert.equal(runtimeStatus.worldId, worldId)
 })

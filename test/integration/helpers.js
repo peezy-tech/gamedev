@@ -362,6 +362,8 @@ export async function startStandbyRuntimeServer({ env = {} } = {}) {
     runtimeInstanceId,
     jwtSecret: finalEnv.JWT_SECRET,
     stop: processHandle.stop,
+    getStdout: processHandle.getStdout,
+    getStderr: processHandle.getStderr,
   }
 }
 
