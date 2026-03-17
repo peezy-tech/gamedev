@@ -28,6 +28,7 @@ import {
   resolveHostedRuntimeBootstrapUrl,
   resolveRuntimeBootstrapInstanceId,
   resolveRuntimeWorldDir,
+  serializeRuntimeBootstrapBinding,
   usesLegacyControlPlaneBaseUrl,
   usesHostedRuntimeBootstrap,
   verifyRuntimeBootstrapAuthorization,
@@ -412,12 +413,18 @@ function setRuntimeLifecycleState(state, nextState, extra = {}) {
   state.lifecycle.updatedAt = nowIso()
 
   if (extra.bootstrapId !== undefined) state.lifecycle.bootstrapId = extra.bootstrapId || null
+  if (extra.binding !== undefined) {
+    state.lifecycle.binding = extra.binding ? parseRuntimeBootstrapPayload(extra.binding) : null
+    state.lifecycle.bindingKey = state.lifecycle.binding ? serializeRuntimeBootstrapBinding(state.lifecycle.binding) : null
+  }
   if (extra.worldId !== undefined) state.lifecycle.worldId = extra.worldId || null
   if (extra.worldSlug !== undefined) state.lifecycle.worldSlug = extra.worldSlug || null
   if (extra.source !== undefined) state.lifecycle.source = extra.source || null
 
   if (nextState === 'standby') {
     state.lifecycle.boundAt = null
+    state.lifecycle.binding = null
+    state.lifecycle.bindingKey = null
     state.lifecycle.readyAt = null
     state.lifecycle.failedAt = null
     state.lifecycle.error = null
@@ -507,6 +514,8 @@ function buildRuntimeState() {
       failedAt: null,
       updatedAt: nowIso(),
       error: null,
+      binding: null,
+      bindingKey: null,
       runtimeInstanceId,
       worldId: process.env.WORLD_ID || null,
       worldSlug: null,
@@ -784,27 +793,6 @@ async function handleBootstrapRequest(req, reply) {
     return reply.code(401).send({ error: 'invalid_bootstrap_auth' })
   }
 
-  if (runtimeState.lifecycle.state === 'bootstrapping') {
-    return reply.code(409).send({
-      error: 'bootstrap_in_progress',
-      status: buildBootstrapStatusPayload(runtimeState),
-    })
-  }
-
-  if (runtimeState.lifecycle.state === 'ready') {
-    return reply.code(409).send({
-      error: 'runtime_already_ready',
-      status: buildBootstrapStatusPayload(runtimeState),
-    })
-  }
-
-  if (runtimeState.lifecycle.state === 'failed') {
-    return reply.code(409).send({
-      error: 'runtime_failed',
-      status: buildBootstrapStatusPayload(runtimeState),
-    })
-  }
-
   const binding = parseRuntimeBootstrapPayload(req.body)
   if (!binding.world.id) {
     return reply.code(400).send({
@@ -826,8 +814,69 @@ async function handleBootstrapRequest(req, reply) {
     })
   }
 
+  const normalizedBinding = parseRuntimeBootstrapPayload(binding, {
+    runtimeInstanceId: expectedRuntimeInstanceId,
+  })
+  const normalizedBindingKey = serializeRuntimeBootstrapBinding(normalizedBinding)
+  const existingBindingKey = runtimeState.lifecycle.bindingKey
+  const existingBinding = runtimeState.lifecycle.binding
+  const sameBinding = !!existingBindingKey && existingBindingKey === normalizedBindingKey
+
+  if (existingBindingKey) {
+    if (!sameBinding) {
+      return reply.code(409).send({
+        error: 'rebind_rejected',
+        status: buildBootstrapStatusPayload(runtimeState),
+        expectedBootstrapId: runtimeState.lifecycle.bootstrapId || existingBinding?.bootstrapId || null,
+        receivedBootstrapId: normalizedBinding.bootstrapId || null,
+      })
+    }
+
+    if (runtimeState.lifecycle.state === 'bootstrapping') {
+      try {
+        await runtimeState.initializationPromise
+      } catch (err) {
+        return reply.code(500).send({
+          error: 'bootstrap_failed',
+          message: formatErrorMessage(err),
+          status: buildBootstrapStatusPayload(runtimeState),
+        })
+      }
+    }
+
+    if (runtimeState.lifecycle.state === 'ready') {
+      return reply.code(200).send({
+        ok: true,
+        idempotent: true,
+        appliedKeys: [],
+        status: buildBootstrapStatusPayload(runtimeState),
+      })
+    }
+  }
+
+  if (runtimeState.lifecycle.state === 'bootstrapping') {
+    return reply.code(409).send({
+      error: 'bootstrap_in_progress',
+      status: buildBootstrapStatusPayload(runtimeState),
+    })
+  }
+
+  if (runtimeState.lifecycle.state === 'ready') {
+    return reply.code(409).send({
+      error: 'runtime_already_ready',
+      status: buildBootstrapStatusPayload(runtimeState),
+    })
+  }
+
+  if (runtimeState.lifecycle.state === 'failed') {
+    return reply.code(409).send({
+      error: 'runtime_failed',
+      status: buildBootstrapStatusPayload(runtimeState),
+    })
+  }
+
   const candidateEnv = { ...process.env }
-  const appliedKeys = applyHostedRuntimeBootstrapPayload(candidateEnv, binding)
+  const appliedKeys = applyHostedRuntimeBootstrapPayload(candidateEnv, normalizedBinding)
 
   try {
     finalizeBoundRuntimeEnv(candidateEnv)
@@ -841,18 +890,19 @@ async function handleBootstrapRequest(req, reply) {
   applyEnvSnapshot(candidateEnv)
   setRuntimeLifecycleState(runtimeState, 'bootstrapping', {
     bootstrapId:
-      binding.bootstrapId
+      normalizedBinding.bootstrapId
       || buildRuntimeBootstrapId({
-        worldId: binding.world.id,
-        runtimeInstanceId: expectedRuntimeInstanceId || binding.runtime.instanceId,
+        worldId: normalizedBinding.world.id,
+        runtimeInstanceId: expectedRuntimeInstanceId || normalizedBinding.runtime.instanceId,
       }),
+    binding: normalizedBinding,
     source: 'push',
-    worldId: binding.world.id,
-    worldSlug: binding.world.slug,
+    worldId: normalizedBinding.world.id,
+    worldSlug: normalizedBinding.world.slug,
   })
 
   try {
-    await initializeRuntime({ source: 'push', binding })
+    await initializeRuntime({ source: 'push', binding: normalizedBinding })
   } catch (err) {
     return reply.code(500).send({
       error: 'bootstrap_failed',

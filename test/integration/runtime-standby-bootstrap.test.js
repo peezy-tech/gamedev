@@ -116,3 +116,134 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
   assert.equal(bootstrapStatus.world.id, worldId)
   assert.equal(bootstrapStatus.control.internalBaseUrl, 'http://world-service.internal/api')
 })
+
+test('runtime treats duplicate bootstrap for the same binding as idempotent', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+  const binding = {
+    bootstrapId: `${worldId}:${server.runtimeInstanceId}`,
+    world: {
+      id: worldId,
+      slug: 'standby-world',
+      publicMaxUploadSize: 12,
+      shutdownIdleSeconds: 0,
+    },
+    runtime: {
+      instanceId: server.runtimeInstanceId,
+      publicApiUrl: `${server.worldUrl}/api`,
+    },
+    auth: {},
+    control: {
+      internalBaseUrl: 'http://world-service.internal/api',
+    },
+  }
+
+  const firstRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(binding),
+  })
+  assert.equal(firstRes.status, 200)
+
+  const secondRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(binding),
+  })
+  const secondPayload = await secondRes.json()
+  assert.equal(secondRes.status, 200)
+  assert.equal(secondPayload.ok, true)
+  assert.equal(secondPayload.idempotent, true)
+  assert.deepEqual(secondPayload.appliedKeys, [])
+  assert.equal(secondPayload.status.state, 'ready')
+  assert.equal(secondPayload.status.bootstrapId, binding.bootstrapId)
+})
+
+test('runtime rejects bootstrap rebinding after a successful push', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+
+  const initialRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify({
+      bootstrapId: `${worldId}:${server.runtimeInstanceId}`,
+      world: {
+        id: worldId,
+        slug: 'standby-world',
+        publicMaxUploadSize: 12,
+        shutdownIdleSeconds: 0,
+      },
+      runtime: {
+        instanceId: server.runtimeInstanceId,
+        publicApiUrl: `${server.worldUrl}/api`,
+      },
+      auth: {},
+      control: {
+        internalBaseUrl: 'http://world-service.internal/api',
+      },
+    }),
+  })
+  assert.equal(initialRes.status, 200)
+
+  const rebindRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify({
+      bootstrapId: `other-world:${server.runtimeInstanceId}`,
+      world: {
+        id: 'other-world',
+        slug: 'other-world',
+        publicMaxUploadSize: 5,
+        shutdownIdleSeconds: 0,
+      },
+      runtime: {
+        instanceId: server.runtimeInstanceId,
+        publicApiUrl: `${server.worldUrl}/api`,
+      },
+      auth: {},
+      control: {
+        internalBaseUrl: 'http://world-service.internal/api',
+      },
+    }),
+  })
+  const rebindPayload = await rebindRes.json()
+  assert.equal(rebindRes.status, 409)
+  assert.equal(rebindPayload.error, 'rebind_rejected')
+  assert.equal(rebindPayload.expectedBootstrapId, `${worldId}:${server.runtimeInstanceId}`)
+  assert.equal(rebindPayload.receivedBootstrapId, `other-world:${server.runtimeInstanceId}`)
+  assert.equal(rebindPayload.status.state, 'ready')
+  assert.equal(rebindPayload.status.world.id, worldId)
+})

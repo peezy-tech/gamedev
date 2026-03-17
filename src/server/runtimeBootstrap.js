@@ -143,11 +143,12 @@ export function verifyRuntimeBootstrapAuthorization(authorizationHeader, env = p
   return crypto.timingSafeEqual(providedBuffer, expectedBuffer)
 }
 
-export function parseRuntimeBootstrapPayload(payload = null) {
+export function parseRuntimeBootstrapPayload(payload = null, { runtimeInstanceId } = {}) {
   const worldId = normalizeString(payload?.world?.id)
   const worldSlug = normalizeString(payload?.world?.slug)
   const dbSchema = normalizeString(payload?.world?.dbSchema)
-  const runtimeInstanceId = normalizeString(payload?.runtime?.instanceId)
+  const normalizedRuntimeInstanceId = normalizeString(payload?.runtime?.instanceId)
+  const resolvedRuntimeInstanceId = normalizedRuntimeInstanceId || normalizeString(runtimeInstanceId)
   const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl) || null
   const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl) || null
   const authUrl = normalizePublicUrl(payload?.auth?.publicAuthUrl) || null
@@ -161,7 +162,7 @@ export function parseRuntimeBootstrapPayload(payload = null) {
   return {
     bootstrapId: normalizeString(payload?.bootstrapId) || buildRuntimeBootstrapId({
       worldId,
-      runtimeInstanceId,
+      runtimeInstanceId: resolvedRuntimeInstanceId,
     }),
     world: {
       id: worldId || null,
@@ -172,7 +173,7 @@ export function parseRuntimeBootstrapPayload(payload = null) {
       shutdownIdleSeconds,
     },
     runtime: {
-      instanceId: runtimeInstanceId || null,
+      instanceId: resolvedRuntimeInstanceId || null,
       publicApiUrl: runtimeApiUrl,
       publicWsUrl: runtimeWsUrl,
     },
@@ -184,6 +185,10 @@ export function parseRuntimeBootstrapPayload(payload = null) {
       internalBaseUrl: controlInternalBaseUrl,
     },
   }
+}
+
+export function serializeRuntimeBootstrapBinding(payload = null, options = {}) {
+  return JSON.stringify(parseRuntimeBootstrapPayload(payload, options))
 }
 
 export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = null) {
