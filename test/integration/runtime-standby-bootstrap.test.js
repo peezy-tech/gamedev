@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import http from 'node:http'
 import net from 'node:net'
 import { test } from 'node:test'
 
+import { buildRuntimeControlAuthorization } from '../../src/core/utils-server.js'
 import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
 import { startStandbyRuntimeServer, waitFor } from './helpers.js'
 
@@ -19,6 +21,65 @@ async function canListenOnLoopback() {
       server.close(() => resolve(true))
     })
   })
+}
+
+async function startControlPlaneStub({ issuer } = {}) {
+  const requests = []
+  const server = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', chunk => {
+      body += chunk.toString()
+    })
+    req.on('end', () => {
+      requests.push({
+        method: req.method,
+        url: req.url,
+        authorization: req.headers.authorization || null,
+        body,
+      })
+
+      if (req.url === '/api/identity/exchange/verify' && req.method === 'POST') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({
+          valid: true,
+          claims: {
+            typ: 'identity_exchange',
+            aud: 'runtime:exchange',
+            userId: 'user-1',
+            sub: 'user-1',
+            iss: issuer,
+            name: 'Runtime User',
+          },
+        }))
+        return
+      }
+
+      if (req.url === '/api/internal/users/user-1' && req.method === 'GET') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ role: 'builder' }))
+        return
+      }
+
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'not_found' }))
+    })
+  })
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+
+  const address = server.address()
+  const port = typeof address === 'object' && address ? address.port : 0
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}/api`,
+    requests,
+    async stop() {
+      await new Promise(resolve => server.close(resolve))
+    },
+  }
 }
 
 test('runtime boots into standby with pre-init bootstrap status', async t => {
@@ -280,4 +341,77 @@ test('runtime rejects bootstrap rebinding after a successful push', async t => {
   assert.equal(rebindPayload.receivedBootstrapId, `other-world:${server.runtimeInstanceId}`)
   assert.equal(rebindPayload.status.state, 'ready')
   assert.equal(rebindPayload.status.world.id, worldId)
+})
+
+test('runtime uses bound control callbacks with world-scoped auth after bootstrap', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const issuer = 'https://auth.example.com/api/identity'
+  const controlPlane = await startControlPlaneStub({ issuer })
+  t.after(async () => {
+    await controlPlane.stop()
+  })
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+
+  const bootstrapRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify({
+      bootstrapId: `${worldId}:${server.runtimeInstanceId}`,
+      world: {
+        id: worldId,
+        slug: 'standby-world',
+        publicMaxUploadSize: 12,
+        shutdownIdleSeconds: 0,
+      },
+      runtime: {
+        instanceId: server.runtimeInstanceId,
+        publicApiUrl: `${server.worldUrl}/api`,
+      },
+      auth: {
+        publicAuthUrl: issuer,
+      },
+      control: {
+        internalBaseUrl: controlPlane.baseUrl,
+      },
+    }),
+  })
+  assert.equal(bootstrapRes.status, 200)
+
+  const exchangeRes = await fetch(`${server.worldUrl}/api/auth/exchange`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ token: 'exchange-token' }),
+  })
+  const exchangePayload = await exchangeRes.json()
+  assert.equal(exchangeRes.status, 200)
+  assert.equal(exchangePayload.user.id, 'user-1')
+
+  const expectedAuthorization = buildRuntimeControlAuthorization({
+    worldId,
+    jwtSecret: server.jwtSecret,
+  })
+  const verifyRequest = controlPlane.requests.find(request => request.url === '/api/identity/exchange/verify')
+  const roleRequest = controlPlane.requests.find(request => request.url === '/api/internal/users/user-1')
+
+  assert.ok(verifyRequest)
+  assert.ok(roleRequest)
+  assert.equal(verifyRequest.authorization, expectedAuthorization)
+  assert.equal(roleRequest.authorization, expectedAuthorization)
+  assert.match(verifyRequest.body, /exchange-token/)
 })

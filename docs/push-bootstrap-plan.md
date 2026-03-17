@@ -53,7 +53,7 @@ Definition of done:
 - [x] Make bootstrap idempotent for the same `bootstrapId` and reject rebinding attempts with a different binding after success. Files: `runtime/src/server/index.js`, `runtime/src/server/runtimeBootstrap.js`. Size: 0.5 day.
 - [x] Gate gameplay/admin entrypoints until bootstrap status is `ready`, returning retryable not-ready responses during `standby` and `bootstrapping`. Files: `runtime/src/server/index.js`, `runtime/src/server/admin.js`. Size: 0.5 day.
 - [x] Ensure world-specific runtime values that currently live in env can be applied before init from the pushed binding, including auth/control/public URL fields and limits. Files: `runtime/src/server/index.js`, `runtime/src/server/runtimeBootstrap.js`. Size: 0.5 day.
-- [ ] Make post-bind runtime callbacks use the pushed control URL and derive per-world runtime auth only after `worldId` is bound. Files: `runtime/src/server/index.js`, `runtime/src/core/utils-server.js`. Size: 0.5 day.
+- [x] Make post-bind runtime callbacks use the pushed control URL and derive per-world runtime auth only after `worldId` is bound. Files: `runtime/src/server/index.js`, `runtime/src/core/utils-server.js`. Size: 0.5 day.
 
 Definition of done:
 

@@ -2,7 +2,6 @@ import 'ses'
 import '../core/lockdown'
 import './bootstrap'
 
-import crypto from 'crypto'
 import fs from 'fs-extra'
 import path from 'path'
 import Fastify from 'fastify'
@@ -34,7 +33,7 @@ import {
   usesHostedRuntimeBootstrap,
   verifyRuntimeBootstrapAuthorization,
 } from './runtimeBootstrap.js'
-import { createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
+import { buildRuntimeControlAuthorization, createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
 import { Ranks } from '../core/extras/ranks'
 
 const rootDir = path.join(__dirname, '../')
@@ -135,12 +134,15 @@ function getDocsIndex() {
   return files
 }
 
-function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
-  if (!hasValue(worldId) || !hasValue(jwtSecret)) return null
-  return crypto
-    .createHmac('sha256', jwtSecret.trim())
-    .update(`runtime-internal:${worldId.trim()}`)
-    .digest('hex')
+function resolveBoundWorldId() {
+  return runtimeState.resources.world?.network?.worldId || runtimeState.lifecycle.worldId || process.env.WORLD_ID || null
+}
+
+function resolveRuntimeControlAuthorization(worldId = resolveBoundWorldId()) {
+  return buildRuntimeControlAuthorization({
+    worldId,
+    jwtSecret: process.env.JWT_SECRET,
+  })
 }
 
 function resolveLobbyInternalUserUrl(userId) {
@@ -150,8 +152,8 @@ function resolveLobbyInternalUserUrl(userId) {
 
 async function syncRuntimePublicConfigFromLobby() {
   const endpoint = resolveHostedRuntimeBootstrapUrl(process.env)
-  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
-  if (!endpoint || !apiKey) return
+  const authorization = resolveRuntimeControlAuthorization(process.env.WORLD_ID)
+  if (!endpoint || !authorization) return
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 4000)
@@ -161,7 +163,7 @@ async function syncRuntimePublicConfigFromLobby() {
       method: 'GET',
       headers: {
         accept: 'application/json',
-        authorization: `Bearer ${apiKey}`,
+        authorization,
       },
       signal: controller.signal,
     })
@@ -191,10 +193,10 @@ function mapLobbyRoleToRank(role) {
   return Ranks.VISITOR
 }
 
-async function resolveLobbyRoleRank(userId) {
+async function resolveLobbyRoleRank(userId, { worldId = resolveBoundWorldId() } = {}) {
   const endpoint = resolveLobbyInternalUserUrl(userId)
-  const apiKey = deriveRuntimeInternalApiKey(process.env.WORLD_ID, process.env.JWT_SECRET)
-  if (!endpoint || !apiKey) return Ranks.VISITOR
+  const authorization = resolveRuntimeControlAuthorization(worldId)
+  if (!endpoint || !authorization) return Ranks.VISITOR
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 4000)
@@ -203,7 +205,7 @@ async function resolveLobbyRoleRank(userId) {
       method: 'GET',
       headers: {
         accept: 'application/json',
-        authorization: `Bearer ${apiKey}`,
+        authorization,
       },
       signal: controller.signal,
     })
@@ -709,8 +711,13 @@ async function handleAuthExchange(req, reply) {
     return reply.code(400).send({ error: 'invalid_payload', message: 'token is required' })
   }
 
+  const boundWorldId = resolveBoundWorldId()
+  const controlAuthorization = resolveRuntimeControlAuthorization(boundWorldId)
   const verification = await verifyIdentityExchangeTokenWithLobby(identityToken, {
-    controlBaseUrl: process.env.CONTROL_INTERNAL_BASE_URL,
+    controlBaseUrl: resolveControlInternalBaseUrl(process.env),
+    worldId: boundWorldId,
+    jwtSecret: process.env.JWT_SECRET,
+    authorization: controlAuthorization,
   })
   if (!verification?.ok) {
     if (verification?.reason === 'unreachable') {
@@ -732,7 +739,7 @@ async function handleAuthExchange(req, reply) {
 
   const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
   const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
-  const rank = await resolveLobbyRoleRank(userId)
+  const rank = await resolveLobbyRoleRank(userId, { worldId: boundWorldId })
 
   await db('users')
     .insert({

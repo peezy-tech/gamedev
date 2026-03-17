@@ -38,6 +38,14 @@ const runtimeSessionTtlSeconds = parsePositiveInt(
   DEFAULT_RUNTIME_SESSION_TTL_SECONDS
 )
 
+function normalizeSecret(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeWorldId(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 function resolveRuntimeSessionIssuer() {
   const fromPublicApi = process.env.PUBLIC_API_URL?.trim()
   if (fromPublicApi) return fromPublicApi.replace(/\/api\/?$/, '')
@@ -156,7 +164,21 @@ export function readJWT(token, { worldId } = {}) {
   })
 }
 
-export async function verifyIdentityExchangeTokenWithLobby(token, { verifyUrl, controlBaseUrl, timeoutMs } = {}) {
+export function buildRuntimeControlAuthorization({ worldId, jwtSecret } = {}) {
+  const normalizedWorldId = normalizeWorldId(worldId || process.env.WORLD_ID)
+  const normalizedJwtSecret = normalizeSecret(jwtSecret || process.env.JWT_SECRET)
+  if (!normalizedWorldId || !normalizedJwtSecret) return null
+  const token = crypto
+    .createHmac('sha256', normalizedJwtSecret)
+    .update(`runtime-internal:${normalizedWorldId}`)
+    .digest('hex')
+  return `Bearer ${token}`
+}
+
+export async function verifyIdentityExchangeTokenWithLobby(
+  token,
+  { verifyUrl, controlBaseUrl, worldId, jwtSecret, authorization, timeoutMs } = {}
+) {
   if (typeof token !== 'string' || !token.trim()) {
     return { ok: false, reason: 'invalid' }
   }
@@ -164,16 +186,23 @@ export async function verifyIdentityExchangeTokenWithLobby(token, { verifyUrl, c
   if (!endpoint) {
     return { ok: false, reason: 'unreachable' }
   }
+  const controlAuthorization =
+    (typeof authorization === 'string' && authorization.trim()) ||
+    buildRuntimeControlAuthorization({ worldId, jwtSecret })
   const resolvedTimeoutMs = parsePositiveInt(timeoutMs, DEFAULT_VERIFY_TIMEOUT_MS)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), resolvedTimeoutMs)
   try {
+    const headers = {
+      'content-type': 'application/json',
+      accept: 'application/json',
+    }
+    if (controlAuthorization) {
+      headers.authorization = controlAuthorization
+    }
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
+      headers,
       body: JSON.stringify({ token: token.trim() }),
       signal: controller.signal,
     })
