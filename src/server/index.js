@@ -12,35 +12,76 @@ import compress from '@fastify/compress'
 import statics from '@fastify/static'
 import multipart from '@fastify/multipart'
 
-import { createServerWorld } from '../core/createServerWorld'
-import { getDB } from './db'
-import { Storage } from './Storage'
-import { assets } from './assets'
-import { cleaner } from './cleaner'
 import { admin } from './admin'
+import { createDeferredResource } from './deferredResource.js'
 import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from './agonesIdleShutdown.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { resolveAuthRuntimeConfig } from './authModes'
 import {
   applyHostedRuntimeBootstrapPayload,
+  buildRuntimeBootstrapId,
   derivePublicWsUrlFromApiUrl,
   hasValue,
+  parseRuntimeBootstrapPayload,
+  resolveControlInternalBaseUrl,
   resolveControlInternalUrl,
   resolveHostedRuntimeBootstrapUrl,
   resolveRuntimeBootstrapInstanceId,
   resolveRuntimeWorldDir,
   usesLegacyControlPlaneBaseUrl,
   usesHostedRuntimeBootstrap,
+  verifyRuntimeBootstrapAuthorization,
 } from './runtimeBootstrap.js'
-import { getMaxUploadSizeBytes } from './worldLimits.js'
 import { createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
 import { Ranks } from '../core/extras/ranks'
 
 const rootDir = path.join(__dirname, '../')
+const publicDir = path.join(__dirname, 'public')
+const adminHtmlPath = path.join(publicDir, 'admin.html')
+const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
+const MIME_TYPES = {
+  '.aac': 'audio/aac',
+  '.bin': 'application/octet-stream',
+  '.css': 'text/css; charset=utf-8',
+  '.gif': 'image/gif',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.hdr': 'image/vnd.radiance',
+  '.htm': 'text/html; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.ktx2': 'image/ktx2',
+  '.m4a': 'audio/mp4',
+  '.md': 'text/markdown; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.ogg': 'audio/ogg',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.spz': 'application/octet-stream',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.vrm': 'model/gltf-binary',
+  '.wav': 'audio/wav',
+  '.webm': 'video/webm',
+  '.webp': 'image/webp',
+}
 
 function formatUserName(name) {
   if (!name || name.startsWith('anon_')) return 'Anonymous'
   return name
+}
+
+function formatErrorMessage(err) {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
+function nowIso() {
+  return new Date().toISOString()
 }
 
 function resolveDocsRoot() {
@@ -55,7 +96,7 @@ function resolveDocsRoot() {
       if (!fs.existsSync(candidate)) continue
       const stats = fs.statSync(candidate)
       if (stats.isDirectory()) return candidate
-    } catch (err) {
+    } catch {
       // continue searching other paths
     }
   }
@@ -85,7 +126,7 @@ function getDocsIndex() {
   const files = []
   try {
     listDocsFiles(root, root, files)
-  } catch (err) {
+  } catch {
     return []
   }
   files.sort((a, b) => a.localeCompare(b))
@@ -175,170 +216,238 @@ async function resolveLobbyRoleRank(userId) {
   }
 }
 
-const usesHostedBootstrap = usesHostedRuntimeBootstrap(process.env)
+function isPostgresDbEnv(env = process.env) {
+  return env.DB_URI?.startsWith('postgres://') || env.DB_URI?.startsWith('postgresql://')
+}
 
-// check envs
-if (!process.env.WORLD_ID) {
-  throw new Error('[envs] WORLD_ID not set')
+function createNoopAgonesIdleController() {
+  return {
+    clearIdleShutdownTimer() {},
+    reconcileIdleShutdown() {},
+    requestAgonesShutdown() {},
+  }
 }
-if (!process.env.PORT) {
-  throw new Error('[envs] PORT not set')
+
+function validateStaticRuntimeEnv(env = process.env) {
+  if (!hasValue(env.PORT)) {
+    throw new Error('[envs] PORT not set')
+  }
+  if (!hasValue(env.JWT_SECRET)) {
+    throw new Error('[envs] JWT_SECRET not set')
+  }
+  if (!hasValue(env.ASSETS)) {
+    throw new Error(`[envs] ASSETS must be set to 'local' or 's3'`)
+  }
+  if (!hasValue(env.ASSETS_BASE_URL)) {
+    throw new Error('[envs] ASSETS_BASE_URL must be set')
+  }
+  if (env.ASSETS === 's3' && !hasValue(env.ASSETS_S3_URI)) {
+    throw new Error('[envs] ASSETS_S3_URI must be set when using ASSETS=s3')
+  }
 }
-if (!process.env.JWT_SECRET) {
-  throw new Error('[envs] JWT_SECRET not set')
-}
-if (usesHostedBootstrap) {
-  await syncRuntimePublicConfigFromLobby()
-}
-if (usesLegacyControlPlaneBaseUrl(process.env)) {
+
+let warnedAboutMissingAdminCode = false
+let warnedAboutLegacyControlPlaneBaseUrl = false
+
+function warnIfRuntimeUsesLegacyControlPlaneBaseUrl(env = process.env) {
+  if (warnedAboutLegacyControlPlaneBaseUrl) return
+  if (!usesLegacyControlPlaneBaseUrl(env)) return
+  warnedAboutLegacyControlPlaneBaseUrl = true
   console.warn('[startup] CONTROL_INTERNAL_BASE_URL not set; deriving control callbacks from PUBLIC_AUTH_URL (legacy)')
 }
-if (usesHostedBootstrap && !resolveRuntimeBootstrapInstanceId(process.env)) {
-  console.warn('[startup] RUNTIME_BOOTSTRAP_INSTANCE_ID not set; push bootstrap auth cannot be verified yet')
-}
-if (!process.env.WORLD && !usesHostedBootstrap) {
-  throw new Error('[envs] WORLD not set')
-}
-if (!process.env.ADMIN_CODE) {
+
+function warnIfAdminCodeUnset(env = process.env) {
+  if (warnedAboutMissingAdminCode) return
+  if (hasValue(env.ADMIN_CODE)) return
+  warnedAboutMissingAdminCode = true
   console.warn('[envs] ADMIN_CODE not set - admin privileges are open to all players')
 }
-if (!process.env.SAVE_INTERVAL) {
-  throw new Error('[envs] SAVE_INTERVAL not set')
-}
-if (!process.env.PUBLIC_MAX_UPLOAD_SIZE) {
-  throw new Error('[envs] PUBLIC_MAX_UPLOAD_SIZE not set')
-}
-const usesPostgresDb =
-  process.env.DB_URI?.startsWith('postgres://')
-  || process.env.DB_URI?.startsWith('postgresql://')
-if (usesHostedBootstrap && usesPostgresDb && !hasValue(process.env.DB_SCHEMA)) {
-  throw new Error('[envs] DB_SCHEMA must be resolved for hosted postgres runtimes')
-}
-if (!process.env.PUBLIC_API_URL) {
-  throw new Error('[envs] PUBLIC_API_URL must be set')
-}
-if (process.env.PUBLIC_WS_URL) {
-  if (!process.env.PUBLIC_WS_URL.startsWith('ws')) {
-    throw new Error('[envs] PUBLIC_WS_URL must start with ws:// or wss://')
+
+function finalizeBoundRuntimeEnv(env = process.env) {
+  if (!hasValue(env.WORLD_ID)) {
+    throw new Error('[envs] WORLD_ID not set')
   }
-} else {
-  const derivedPublicWsUrl = derivePublicWsUrlFromApiUrl(process.env.PUBLIC_API_URL)
-  if (!derivedPublicWsUrl) {
-    throw new Error('[envs] PUBLIC_WS_URL could not be derived from PUBLIC_API_URL')
+
+  if (isPostgresDbEnv(env) && usesHostedRuntimeBootstrap(env) && !hasValue(env.DB_SCHEMA)) {
+    throw new Error('[envs] DB_SCHEMA must be resolved for hosted postgres runtimes')
   }
-  process.env.PUBLIC_WS_URL = derivedPublicWsUrl
-}
-if (!process.env.ASSETS) {
-  throw new Error(`[envs] ASSETS must be set to 'local' or 's3'`)
-}
-if (!process.env.ASSETS_BASE_URL) {
-  throw new Error(`[envs] ASSETS_BASE_URL must be set`)
-}
-if (process.env.ASSETS === 's3' && !process.env.ASSETS_S3_URI) {
-  throw new Error(`[envs] ASSETS_S3_URI must be set when using ASSETS=s3`)
-}
 
-const authConfig = resolveAuthRuntimeConfig(process.env)
-const worldDir = resolveRuntimeWorldDir(process.env)
-const port = process.env.PORT
+  if (!hasValue(env.PUBLIC_API_URL)) {
+    throw new Error('[envs] PUBLIC_API_URL must be set')
+  }
 
-const tlsConfig =
-  process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH
-    ? {
-        cert: fs.readFileSync(process.env.TLS_CERT_PATH),
-        key: fs.readFileSync(process.env.TLS_KEY_PATH),
-      }
-    : undefined
-const directWssPort = process.env.DIRECT_WSS_PORT
-const useDualPort = !!(tlsConfig && directWssPort)
-const mainServerTls = tlsConfig && !directWssPort ? tlsConfig : undefined
-const multipartOptions = {
-  limits: {
-    fileSize: getMaxUploadSizeBytes(),
-  },
+  if (hasValue(env.PUBLIC_WS_URL)) {
+    if (!String(env.PUBLIC_WS_URL).startsWith('ws')) {
+      throw new Error('[envs] PUBLIC_WS_URL must start with ws:// or wss://')
+    }
+  } else {
+    const derivedPublicWsUrl = derivePublicWsUrlFromApiUrl(env.PUBLIC_API_URL)
+    if (!derivedPublicWsUrl) {
+      throw new Error('[envs] PUBLIC_WS_URL could not be derived from PUBLIC_API_URL')
+    }
+    env.PUBLIC_WS_URL = derivedPublicWsUrl
+  }
+
+  warnIfAdminCodeUnset(env)
+  warnIfRuntimeUsesLegacyControlPlaneBaseUrl(env)
+
+  return {
+    authConfig: resolveAuthRuntimeConfig(env),
+    worldDir: resolveRuntimeWorldDir(env),
+  }
 }
 
-const fastify = Fastify({
-  logger: { level: 'error' },
-  https: mainServerTls,
-})
-
-// create world folder if needed
-await fs.ensureDir(worldDir)
-
-// init assets
-await assets.init({ rootDir, worldDir })
-
-// init db
-const db = await getDB({ worldDir })
-
-// init cleaner
-await cleaner.init({ db })
-
-// init storage
-const storage = new Storage(db)
-await storage.init()
-
-// create world
-const world = createServerWorld()
-await world.init({
-    assetsDir: assets.dir,
-    assetsUrl: assets.url,
-    db,
-    assets,
-    storage,
-    authConfig,
-  })
-
-const registryState = createRegistryState()
-let clientHtmlTemplateCache = null
-const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
-const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
-const AGONES_SDK_HTTP_PORT =
-  Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
-const SHUTDOWN_IDLE = resolveAgonesIdleShutdownTimeoutMs(process.env)
-const agonesIdleControllerEnabled = SHUTDOWN_IDLE > 0
-const agonesShutdownUrl = `http://127.0.0.1:${AGONES_SDK_HTTP_PORT}/shutdown`
-const adminConnectionCounts = {
-  main: 0,
-  wss: 0,
+function validateStandbyRuntimeEnv(env = process.env) {
+  const runtimeInstanceId = resolveRuntimeBootstrapInstanceId(env)
+  if (!runtimeInstanceId) {
+    throw new Error('[envs] RUNTIME_BOOTSTRAP_INSTANCE_ID not set')
+  }
 }
 
-function getAdminConnectionCount() {
-  return adminConnectionCounts.main + adminConnectionCounts.wss
+function applyEnvSnapshot(snapshot) {
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) continue
+    process.env[key] = value
+  }
 }
 
-function getActiveSessionCount() {
-  return (world?.network?.sockets?.size || 0) + getAdminConnectionCount()
+function normalizeRequestedAssetPath(value) {
+  if (typeof value !== 'string') return ''
+  return path.posix.normalize(`/${value}`).replace(/^\/+/, '')
 }
 
-const agonesIdleController = createAgonesIdleController({
-  enabled: agonesIdleControllerEnabled,
-  timeoutMs: SHUTDOWN_IDLE,
-  shutdownUrl: agonesShutdownUrl,
-  getActiveSessionCount,
-  beforeShutdown: async () => {
-    await world.network.save()
-  },
-})
-
-function updateAdminConnectionCount(channel, count) {
-  const normalized = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
-  if (adminConnectionCounts[channel] === normalized) return
-  adminConnectionCounts[channel] = normalized
-  agonesIdleController.reconcileIdleShutdown(`admin_${channel}`)
+function resolveContentType(filePath) {
+  return MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
 }
 
-if (agonesIdleControllerEnabled) {
-  world.network.on('playerJoined', () => {
-    agonesIdleController.reconcileIdleShutdown('player_joined')
-  })
-  world.network.on('playerLeft', () => {
-    agonesIdleController.reconcileIdleShutdown('player_left')
+function isRuntimeReady(state) {
+  return state.lifecycle.state === 'ready' && !!state.resources.world
+}
+
+function sendRuntimeNotReady(reply, state, { html = false } = {}) {
+  reply.header('Retry-After', '1')
+  if (html) {
+    return reply
+      .code(503)
+      .type('text/html')
+      .send(
+        '<!doctype html><html><head><meta charset="utf-8"/><title>Runtime starting</title></head><body>Runtime bootstrap has not completed yet. Retry in a moment.</body></html>'
+      )
+  }
+  return reply.code(503).send({
+    error: 'runtime_not_ready',
+    state: state.lifecycle.state,
+    retryable: true,
   })
 }
 
-function loadClientHtmlTemplate() {
+function buildPublicEnvsCode() {
+  const publicEnvs = {}
+  for (const key in process.env) {
+    if (!key.startsWith('PUBLIC_')) continue
+    publicEnvs[key] = process.env[key]
+  }
+  return `
+  if (!globalThis.env) globalThis.env = {}
+  globalThis.env = ${JSON.stringify(publicEnvs)}
+`
+}
+
+function buildBootstrapStatusPayload(state) {
+  return {
+    state: state.lifecycle.state,
+    bootstrapId: state.lifecycle.bootstrapId || null,
+    startedAt: state.lifecycle.startedAt,
+    boundAt: state.lifecycle.boundAt,
+    readyAt: state.lifecycle.readyAt,
+    failedAt: state.lifecycle.failedAt,
+    updatedAt: state.lifecycle.updatedAt,
+    error: state.lifecycle.error,
+    world: {
+      id: state.lifecycle.worldId || process.env.WORLD_ID || null,
+      slug: state.lifecycle.worldSlug || null,
+      dbSchema: process.env.DB_SCHEMA || null,
+    },
+    runtime: {
+      instanceId: state.lifecycle.runtimeInstanceId,
+      publicApiUrl: process.env.PUBLIC_API_URL || null,
+      publicWsUrl: process.env.PUBLIC_WS_URL || null,
+    },
+    auth: {
+      publicAuthUrl: process.env.PUBLIC_AUTH_URL || null,
+    },
+    control: {
+      internalBaseUrl: resolveControlInternalBaseUrl(process.env),
+    },
+  }
+}
+
+function buildRuntimeStatusPayload(state) {
+  const payload = {
+    ok: isRuntimeReady(state),
+    state: state.lifecycle.state,
+    worldId: state.resources.world?.network?.worldId || process.env.WORLD_ID || null,
+    commitHash: process.env.COMMIT_HASH || null,
+    listable: !!state.registryState?.listable,
+    updatedAt: nowIso(),
+  }
+
+  if (isRuntimeReady(state)) {
+    const world = state.resources.world
+    payload.title = world.settings.title || 'World'
+    payload.description = world.settings.desc || ''
+    payload.imageUrl = world.resolveURL(world.settings.image?.url) || null
+    payload.playerCount = world?.network?.sockets?.size || 0
+    payload.playerLimit = world.settings.playerLimit ?? null
+  }
+
+  const registry = getRegistryPublicStatus(state.registryState)
+  if (registry) payload.registry = registry
+
+  return payload
+}
+
+function setRuntimeLifecycleState(state, nextState, extra = {}) {
+  state.lifecycle.state = nextState
+  state.lifecycle.updatedAt = nowIso()
+
+  if (extra.bootstrapId !== undefined) state.lifecycle.bootstrapId = extra.bootstrapId || null
+  if (extra.worldId !== undefined) state.lifecycle.worldId = extra.worldId || null
+  if (extra.worldSlug !== undefined) state.lifecycle.worldSlug = extra.worldSlug || null
+  if (extra.source !== undefined) state.lifecycle.source = extra.source || null
+
+  if (nextState === 'standby') {
+    state.lifecycle.boundAt = null
+    state.lifecycle.readyAt = null
+    state.lifecycle.failedAt = null
+    state.lifecycle.error = null
+    return
+  }
+
+  if (nextState === 'bootstrapping') {
+    state.lifecycle.boundAt = state.lifecycle.updatedAt
+    state.lifecycle.readyAt = null
+    state.lifecycle.failedAt = null
+    state.lifecycle.error = null
+    return
+  }
+
+  if (nextState === 'ready') {
+    state.lifecycle.readyAt = state.lifecycle.updatedAt
+    state.lifecycle.failedAt = null
+    state.lifecycle.error = null
+    return
+  }
+
+  if (nextState === 'failed') {
+    state.lifecycle.failedAt = state.lifecycle.updatedAt
+    state.lifecycle.error = {
+      message: formatErrorMessage(extra.error),
+    }
+  }
+}
+
+function loadClientHtmlTemplate(cache) {
   const candidates = [
     path.join(__dirname, 'public', 'index.html'),
     path.join(process.cwd(), 'src/client/public/index.html'),
@@ -348,113 +457,227 @@ function loadClientHtmlTemplate() {
       if (!fs.existsSync(candidate)) continue
       const html = fs.readFileSync(candidate, 'utf-8')
       if (!html) continue
-      clientHtmlTemplateCache = html
+      cache.value = html
       return html
     } catch {
       // continue trying other candidates
     }
   }
-  if (clientHtmlTemplateCache) return clientHtmlTemplateCache
-  return `<!doctype html><html><head><meta charset="utf-8"/><title>Loading...</title></head><body>Rebuilding client bundle, refresh in a moment.</body></html>`
+  if (cache.value) return cache.value
+  return '<!doctype html><html><head><meta charset="utf-8"/><title>Loading...</title></head><body>Rebuilding client bundle, refresh in a moment.</body></html>'
 }
 
-function renderClientHtml(reply) {
+function renderClientHtml(reply, state, cache) {
+  if (!isRuntimeReady(state)) {
+    return sendRuntimeNotReady(reply, state, { html: true })
+  }
+
+  const world = state.resources.world
   const title = world.settings.title || 'World'
   const desc = world.settings.desc || ''
   const image = world.resolveURL(world.settings.image?.url) || ''
   const url = process.env.ASSETS_BASE_URL || ''
-  let html = loadClientHtmlTemplate()
+  let html = loadClientHtmlTemplate(cache)
   html = html.replaceAll('{url}', url)
   html = html.replaceAll('{title}', title)
   html = html.replaceAll('{desc}', desc)
   html = html.replaceAll('{image}', image)
-  // If we had to fall back to the source template, provide stable script paths.
   html = html.replaceAll('{jsPath}', '/index.js')
   html = html.replaceAll('{particlesPath}', '/particles.js')
   html = html.replaceAll('{buildId}', Date.now())
   reply.type('text/html').send(html)
 }
 
-fastify.register(cors)
-fastify.register(compress)
-fastify.get('/', async (_req, reply) => {
-  renderClientHtml(reply)
-})
-fastify.get('/worlds', async (_req, reply) => {
-  renderClientHtml(reply)
-})
-fastify.get('/worlds/*', async (_req, reply) => {
-  renderClientHtml(reply)
-})
-fastify.get('/api/ai-docs-index', async (req, reply) => {
-  reply.send({ files: getDocsIndex() })
-})
-fastify.register(statics, {
-  root: path.join(__dirname, 'public'),
-  prefix: '/',
-  decorateReply: false,
-  setHeaders: res => {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
-    res.setHeader('Pragma', 'no-cache')
-    res.setHeader('Expires', '0')
-  },
-})
-if (world.assetsDir) {
-  fastify.register(
-    async function (instance) {
-      instance.addHook('onRequest', async (req, reply) => {
-        if (req.url?.match(/\.spz(\?|$)/)) {
-          req.headers['x-no-compression'] = 'true'
-        }
-      })
-      instance.register(statics, {
-        root: world.assetsDir,
-        prefix: '/',
-        decorateReply: false,
-        setHeaders: (res, pathName) => {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
-          res.setHeader('Expires', new Date(Date.now() + 31536000000).toUTCString())
-        },
-      })
-    },
-    { prefix: '/assets' }
-  )
-}
-fastify.register(multipart, multipartOptions)
-fastify.register(ws)
-fastify.register(worldNetwork)
-const adminHtmlPath = path.join(__dirname, 'public', 'admin.html')
-fastify.register(admin, {
-  world,
-  assets,
-  adminHtmlPath,
-  onConnectionCountChanged: count => updateAdminConnectionCount('main', count),
-})
+function buildRuntimeState() {
+  const hasInitialWorldBinding = hasValue(process.env.WORLD_ID)
+  const runtimeInstanceId = resolveRuntimeBootstrapInstanceId(process.env)
+  const bootstrapId = buildRuntimeBootstrapId({
+    worldId: process.env.WORLD_ID,
+    runtimeInstanceId,
+  })
 
-const publicEnvs = {}
-for (const key in process.env) {
-  if (key.startsWith('PUBLIC_')) {
-    const value = process.env[key]
-    publicEnvs[key] = value
+  return {
+    lifecycle: {
+      state: hasInitialWorldBinding ? 'bootstrapping' : 'standby',
+      bootstrapId: bootstrapId || null,
+      source: hasInitialWorldBinding ? 'startup' : null,
+      startedAt: nowIso(),
+      boundAt: hasInitialWorldBinding ? nowIso() : null,
+      readyAt: null,
+      failedAt: null,
+      updatedAt: nowIso(),
+      error: null,
+      runtimeInstanceId,
+      worldId: process.env.WORLD_ID || null,
+      worldSlug: null,
+    },
+    initializationPromise: null,
+    registryState: createRegistryState(process.env),
+    resources: {
+      assets: null,
+      db: null,
+      storage: null,
+      world: null,
+      worldDir: null,
+      agonesIdleController: createNoopAgonesIdleController(),
+    },
   }
 }
-const envsCode = `
-  if (!globalThis.env) globalThis.env = {}
-  globalThis.env = ${JSON.stringify(publicEnvs)}
-`
-fastify.get('/env.js', async (req, reply) => {
-  reply.type('application/javascript').send(envsCode)
-})
 
-fastify.post('/api/upload', async (req, reply) => {
-  return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload' })
-})
+const runtimeState = buildRuntimeState()
+const clientHtmlTemplateCache = { value: null }
+const adminConnectionCounts = {
+  main: 0,
+  wss: 0,
+}
+const { proxy: worldProxy, flushPendingCalls: flushWorldProxyCalls } = createDeferredResource(
+  () => runtimeState.resources.world,
+  { queueMethods: ['on', 'once', 'addListener'] }
+)
+const { proxy: assetsProxy } = createDeferredResource(() => runtimeState.resources.assets)
 
-fastify.get('/api/upload-check', async (req, reply) => {
-  return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload-check' })
-})
+function getAdminConnectionCount() {
+  return adminConnectionCounts.main + adminConnectionCounts.wss
+}
+
+function getActiveSessionCount() {
+  return (runtimeState.resources.world?.network?.sockets?.size || 0) + getAdminConnectionCount()
+}
+
+function updateAdminConnectionCount(channel, count) {
+  const normalized = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+  if (adminConnectionCounts[channel] === normalized) return
+  adminConnectionCounts[channel] = normalized
+  runtimeState.resources.agonesIdleController.reconcileIdleShutdown(`admin_${channel}`)
+}
+
+async function configureAgonesIdleShutdown(world) {
+  const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
+  const sdkPort = Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
+  const timeoutMs = resolveAgonesIdleShutdownTimeoutMs(process.env)
+  const enabled = timeoutMs > 0
+  const shutdownUrl = `http://127.0.0.1:${sdkPort}/shutdown`
+
+  runtimeState.resources.agonesIdleController = createAgonesIdleController({
+    enabled,
+    timeoutMs,
+    shutdownUrl,
+    getActiveSessionCount,
+    beforeShutdown: async () => {
+      await world.network.save()
+    },
+  })
+
+  if (!enabled) return
+
+  world.network.on('playerJoined', () => {
+    runtimeState.resources.agonesIdleController.reconcileIdleShutdown('player_joined')
+  })
+  world.network.on('playerLeft', () => {
+    runtimeState.resources.agonesIdleController.reconcileIdleShutdown('player_left')
+  })
+
+  console.info(`[agones-idle] enabled with timeout=${timeoutMs / 1000}s`)
+  runtimeState.resources.agonesIdleController.reconcileIdleShutdown('ready')
+}
+
+async function initializeRuntime({ source, binding = null } = {}) {
+  if (isRuntimeReady(runtimeState)) {
+    return runtimeState.resources.world
+  }
+  if (runtimeState.initializationPromise) {
+    return runtimeState.initializationPromise
+  }
+
+  runtimeState.initializationPromise = (async () => {
+    const { authConfig, worldDir } = finalizeBoundRuntimeEnv(process.env)
+
+    const [
+      { assets },
+      { cleaner },
+      { getDB },
+      { Storage },
+      { createServerWorld },
+    ] = await Promise.all([
+      import('./assets.js'),
+      import('./cleaner.js'),
+      import('./db.js'),
+      import('./Storage.js'),
+      import('../core/createServerWorld.js'),
+    ])
+
+    await fs.ensureDir(worldDir)
+    await assets.init({ rootDir, worldDir })
+
+    const db = await getDB({ worldDir })
+    await cleaner.init({ db })
+
+    const storage = new Storage(db)
+    await storage.init()
+
+    const world = createServerWorld()
+    await world.init({
+      assetsDir: assets.dir,
+      assetsUrl: assets.url,
+      db,
+      assets,
+      storage,
+      authConfig,
+    })
+
+    runtimeState.resources.assets = assets
+    runtimeState.resources.db = db
+    runtimeState.resources.storage = storage
+    runtimeState.resources.world = world
+    runtimeState.resources.worldDir = worldDir
+    runtimeState.registryState = createRegistryState(process.env)
+
+    flushWorldProxyCalls()
+    await configureAgonesIdleShutdown(world)
+
+    setRuntimeLifecycleState(runtimeState, 'ready', {
+      bootstrapId:
+        runtimeState.lifecycle.bootstrapId
+        || buildRuntimeBootstrapId({
+          worldId: process.env.WORLD_ID,
+          runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
+        }),
+      source,
+      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+      worldSlug: binding?.world?.slug || runtimeState.lifecycle.worldSlug,
+    })
+
+    void registerWithRegistry(runtimeState.registryState, {
+      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+      commitHash: process.env.COMMIT_HASH || null,
+    })
+
+    return world
+  })()
+    .catch(err => {
+      console.error(err)
+      setRuntimeLifecycleState(runtimeState, 'failed', {
+        bootstrapId: runtimeState.lifecycle.bootstrapId,
+        source,
+        worldId: process.env.WORLD_ID || runtimeState.lifecycle.worldId,
+        worldSlug: binding?.world?.slug || runtimeState.lifecycle.worldSlug,
+        error: err,
+      })
+      throw err
+    })
+    .finally(() => {
+      runtimeState.initializationPromise = null
+    })
+
+  return runtimeState.initializationPromise
+}
 
 async function handleAuthExchange(req, reply) {
+  if (!isRuntimeReady(runtimeState)) {
+    return sendRuntimeNotReady(reply, runtimeState)
+  }
+
+  const authConfig = resolveAuthRuntimeConfig(process.env)
   if (!authConfig.usesLobbyIdentity) {
     return reply.code(404).send({ error: 'not_found' })
   }
@@ -479,6 +702,12 @@ async function handleAuthExchange(req, reply) {
   if (!userId) {
     return reply.code(401).send({ error: 'invalid_exchange_token' })
   }
+
+  const db = runtimeState.resources.db
+  if (!db) {
+    return sendRuntimeNotReady(reply, runtimeState)
+  }
+
   const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
   const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
   const rank = await resolveLobbyRoleRank(userId)
@@ -506,60 +735,290 @@ async function handleAuthExchange(req, reply) {
   })
 }
 
-fastify.post('/api/auth/exchange', handleAuthExchange)
+async function handleLocalAssetsRequest(req, reply) {
+  if (!isRuntimeReady(runtimeState)) {
+    return sendRuntimeNotReady(reply, runtimeState)
+  }
 
-fastify.get('/health', async (request, reply) => {
+  const assetsDir = runtimeState.resources.world?.assetsDir
+  if (!assetsDir) {
+    return reply.code(404).send()
+  }
+
+  const assetPath = normalizeRequestedAssetPath(req.params['*'])
+  if (!assetPath) {
+    return reply.code(404).send()
+  }
+
+  const resolvedRoot = path.resolve(assetsDir)
+  const resolvedAssetPath = path.resolve(assetsDir, assetPath)
+  if (resolvedAssetPath !== resolvedRoot && !resolvedAssetPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    return reply.code(404).send()
+  }
+
+  let stats
   try {
-    // Basic health check
-    const health = {
-      ok: true,
-      timestamp: new Date().toISOString(),
+    stats = await fs.stat(resolvedAssetPath)
+  } catch {
+    return reply.code(404).send()
+  }
+  if (!stats.isFile()) {
+    return reply.code(404).send()
+  }
+
+  reply.type(resolveContentType(resolvedAssetPath))
+  reply.header('Cache-Control', 'public, max-age=31536000, immutable')
+  reply.header('Expires', new Date(Date.now() + 31536000000).toUTCString())
+  return reply.send(fs.createReadStream(resolvedAssetPath))
+}
+
+async function handleBootstrapStatus(_req, reply) {
+  reply.header('Cache-Control', 'no-store')
+  return reply.code(200).send(buildBootstrapStatusPayload(runtimeState))
+}
+
+async function handleBootstrapRequest(req, reply) {
+  reply.header('Cache-Control', 'no-store')
+
+  if (!verifyRuntimeBootstrapAuthorization(req.headers.authorization, process.env)) {
+    return reply.code(401).send({ error: 'invalid_bootstrap_auth' })
+  }
+
+  if (runtimeState.lifecycle.state === 'bootstrapping') {
+    return reply.code(409).send({
+      error: 'bootstrap_in_progress',
+      status: buildBootstrapStatusPayload(runtimeState),
+    })
+  }
+
+  if (runtimeState.lifecycle.state === 'ready') {
+    return reply.code(409).send({
+      error: 'runtime_already_ready',
+      status: buildBootstrapStatusPayload(runtimeState),
+    })
+  }
+
+  if (runtimeState.lifecycle.state === 'failed') {
+    return reply.code(409).send({
+      error: 'runtime_failed',
+      status: buildBootstrapStatusPayload(runtimeState),
+    })
+  }
+
+  const binding = parseRuntimeBootstrapPayload(req.body)
+  if (!binding.world.id) {
+    return reply.code(400).send({
+      error: 'invalid_payload',
+      message: 'world.id is required',
+    })
+  }
+
+  const expectedRuntimeInstanceId = resolveRuntimeBootstrapInstanceId(process.env)
+  if (
+    binding.runtime.instanceId
+    && expectedRuntimeInstanceId
+    && binding.runtime.instanceId !== expectedRuntimeInstanceId
+  ) {
+    return reply.code(409).send({
+      error: 'runtime_instance_mismatch',
+      expectedRuntimeInstanceId,
+      receivedRuntimeInstanceId: binding.runtime.instanceId,
+    })
+  }
+
+  const candidateEnv = { ...process.env }
+  const appliedKeys = applyHostedRuntimeBootstrapPayload(candidateEnv, binding)
+
+  try {
+    finalizeBoundRuntimeEnv(candidateEnv)
+  } catch (err) {
+    return reply.code(400).send({
+      error: 'invalid_payload',
+      message: formatErrorMessage(err),
+    })
+  }
+
+  applyEnvSnapshot(candidateEnv)
+  setRuntimeLifecycleState(runtimeState, 'bootstrapping', {
+    bootstrapId:
+      binding.bootstrapId
+      || buildRuntimeBootstrapId({
+        worldId: binding.world.id,
+        runtimeInstanceId: expectedRuntimeInstanceId || binding.runtime.instanceId,
+      }),
+    source: 'push',
+    worldId: binding.world.id,
+    worldSlug: binding.world.slug,
+  })
+
+  try {
+    await initializeRuntime({ source: 'push', binding })
+  } catch (err) {
+    return reply.code(500).send({
+      error: 'bootstrap_failed',
+      message: formatErrorMessage(err),
+      status: buildBootstrapStatusPayload(runtimeState),
+    })
+  }
+
+  return reply.code(200).send({
+    ok: true,
+    appliedKeys,
+    status: buildBootstrapStatusPayload(runtimeState),
+  })
+}
+
+function registerCommonPlugins(app) {
+  app.register(cors)
+  app.register(compress)
+  app.addHook('onRequest', async req => {
+    if (req.url?.match(/\.spz(\?|$)/)) {
+      req.headers['x-no-compression'] = 'true'
+    }
+  })
+}
+
+function registerCommonRoutes(app, { includeBootstrapControl = false, connectionChannel = 'main' } = {}) {
+  registerCommonPlugins(app)
+
+  app.get('/', async (_req, reply) => {
+    renderClientHtml(reply, runtimeState, clientHtmlTemplateCache)
+  })
+  app.get('/worlds', async (_req, reply) => {
+    renderClientHtml(reply, runtimeState, clientHtmlTemplateCache)
+  })
+  app.get('/worlds/*', async (_req, reply) => {
+    renderClientHtml(reply, runtimeState, clientHtmlTemplateCache)
+  })
+  app.get('/api/ai-docs-index', async (_req, reply) => {
+    reply.send({ files: getDocsIndex() })
+  })
+  app.get('/assets/*', handleLocalAssetsRequest)
+  app.register(statics, {
+    root: publicDir,
+    prefix: '/',
+    decorateReply: false,
+    setHeaders: res => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+      res.setHeader('Pragma', 'no-cache')
+      res.setHeader('Expires', '0')
+    },
+  })
+  app.register(multipart)
+  app.register(ws)
+
+  app.get('/env.js', async (_req, reply) => {
+    reply.type('application/javascript').send(buildPublicEnvsCode())
+  })
+
+  app.post('/api/upload', async (_req, reply) => {
+    return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload' })
+  })
+
+  app.get('/api/upload-check', async (_req, reply) => {
+    return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload-check' })
+  })
+
+  app.post('/api/auth/exchange', handleAuthExchange)
+
+  app.get('/healthz', async (_req, reply) => {
+    const ok = runtimeState.lifecycle.state !== 'failed'
+    return reply.code(ok ? 200 : 503).send({
+      ok,
+      state: runtimeState.lifecycle.state,
+      timestamp: nowIso(),
       uptime: process.uptime(),
-    }
-
-    return reply.code(200).send(health)
-  } catch (error) {
-    console.error('Health check failed:', error)
-    return reply.code(503).send({
-      ok: false,
-      timestamp: new Date().toISOString(),
     })
-  }
-})
+  })
 
-fastify.get('/status', async (request, reply) => {
-  try {
-    const status = {
-      ok: true,
-      worldId: world?.network?.worldId || null,
-      title: world.settings.title || 'World',
-      description: world.settings.desc || '',
-      imageUrl: world.resolveURL(world.settings.image?.url) || null,
-      playerCount: world?.network?.sockets?.size || 0,
-      playerLimit: world.settings.playerLimit ?? null,
-      commitHash: process.env.COMMIT_HASH || null,
-      listable: registryState.listable,
-      updatedAt: new Date().toISOString(),
-    }
+  app.get('/health', async (_req, reply) => {
+    const ok = isRuntimeReady(runtimeState)
+    return reply.code(ok ? 200 : 503).send({
+      ok,
+      state: runtimeState.lifecycle.state,
+      timestamp: nowIso(),
+      uptime: process.uptime(),
+    })
+  })
 
-    const registry = getRegistryPublicStatus(registryState)
-    if (registry) status.registry = registry
-
+  app.get('/status', async (_req, reply) => {
     reply.header('Cache-Control', 'no-store')
-    return reply.code(200).send(status)
-  } catch (error) {
-    console.error('Status failed:', error)
-    return reply.code(503).send({
-      ok: false,
-      timestamp: new Date().toISOString(),
-    })
-  }
-})
+    const status = buildRuntimeStatusPayload(runtimeState)
+    return reply.code(status.ok ? 200 : 503).send(status)
+  })
 
-fastify.setErrorHandler((err, req, reply) => {
-  console.error(err)
-  reply.status(500).send()
+  if (includeBootstrapControl) {
+    app.post('/internal/bootstrap', handleBootstrapRequest)
+    app.get('/internal/bootstrap/status', handleBootstrapStatus)
+  }
+
+  app.register(admin, {
+    world: worldProxy,
+    assets: assetsProxy,
+    adminHtmlPath,
+    onConnectionCountChanged: count => updateAdminConnectionCount(connectionChannel, count),
+    isRuntimeReady: () => isRuntimeReady(runtimeState),
+  })
+
+  app.get('/ws', { websocket: true }, (socket, req) => {
+    if (!isRuntimeReady(runtimeState)) {
+      socket.close(1013, 'runtime_not_ready')
+      return
+    }
+    runtimeState.resources.world.network.onConnection(socket, req.query, req)
+  })
+
+  app.setErrorHandler((err, _req, reply) => {
+    console.error(err)
+    if (!reply.sent) {
+      reply.status(500).send()
+    }
+  })
+}
+
+validateStaticRuntimeEnv(process.env)
+
+const hasInitialWorldBinding = hasValue(process.env.WORLD_ID)
+const usesPullBootstrapMetadata = usesHostedRuntimeBootstrap(process.env)
+
+if (!hasInitialWorldBinding) {
+  validateStandbyRuntimeEnv(process.env)
+} else {
+  if (usesPullBootstrapMetadata) {
+    await syncRuntimePublicConfigFromLobby()
+  }
+  if (usesPullBootstrapMetadata && !resolveRuntimeBootstrapInstanceId(process.env)) {
+    console.warn('[startup] RUNTIME_BOOTSTRAP_INSTANCE_ID not set; push bootstrap auth cannot be verified yet')
+  }
+  finalizeBoundRuntimeEnv(process.env)
+}
+
+const port = process.env.PORT
+const tlsConfig =
+  process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH
+    ? {
+        cert: fs.readFileSync(process.env.TLS_CERT_PATH),
+        key: fs.readFileSync(process.env.TLS_KEY_PATH),
+      }
+    : undefined
+const directWssPort = process.env.DIRECT_WSS_PORT
+const useDualPort = !!(tlsConfig && directWssPort)
+const mainServerTls = tlsConfig && !directWssPort ? tlsConfig : undefined
+
+const fastify = Fastify({
+  logger: { level: 'error' },
+  https: mainServerTls,
 })
+registerCommonRoutes(fastify, { includeBootstrapControl: true, connectionChannel: 'main' })
+
+let wssServer = null
+if (useDualPort) {
+  wssServer = Fastify({
+    logger: { level: 'error' },
+    https: tlsConfig,
+  })
+  registerCommonRoutes(wssServer, { connectionChannel: 'wss' })
+}
 
 const host = process.env.HOST || process.env.BIND_HOST || '0.0.0.0'
 
@@ -573,81 +1032,7 @@ try {
 
 console.log(`${mainServerTls ? 'HTTPS' : 'HTTP'} server listening on port ${port}`)
 
-let wssServer = null
-if (useDualPort) {
-  wssServer = Fastify({
-    logger: { level: 'error' },
-    https: tlsConfig,
-  })
-
-  wssServer.register(cors)
-  wssServer.register(compress)
-  wssServer.get('/', async (_req, reply) => {
-    renderClientHtml(reply)
-  })
-  wssServer.get('/worlds', async (_req, reply) => {
-    renderClientHtml(reply)
-  })
-  wssServer.get('/worlds/*', async (_req, reply) => {
-    renderClientHtml(reply)
-  })
-  wssServer.register(statics, {
-    root: path.join(__dirname, 'public'),
-    prefix: '/',
-    decorateReply: false,
-    setHeaders: res => {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
-      res.setHeader('Pragma', 'no-cache')
-      res.setHeader('Expires', '0')
-    },
-  })
-  if (world.assetsDir) {
-    wssServer.register(statics, {
-      root: world.assetsDir,
-      prefix: '/assets/',
-      decorateReply: false,
-      setHeaders: res => {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
-        res.setHeader('Expires', new Date(Date.now() + 31536000000).toUTCString())
-      },
-    })
-  }
-  wssServer.get('/env.js', async (_req, reply) => {
-    reply.type('application/javascript').send(envsCode)
-  })
-  wssServer.get('/health', async (_req, reply) => {
-    return reply.code(200).send({ ok: true, timestamp: new Date().toISOString(), uptime: process.uptime() })
-  })
-  wssServer.get('/status', async (_req, reply) => {
-    return reply.code(200).send({
-      ok: true,
-      worldId: world?.network?.worldId || null,
-      title: world.settings.title || 'World',
-      description: world.settings.desc || '',
-      playerCount: world?.network?.sockets?.size || 0,
-      updatedAt: new Date().toISOString(),
-    })
-  })
-  wssServer.post('/api/auth/exchange', handleAuthExchange)
-  wssServer.register(multipart, multipartOptions)
-  wssServer.register(ws)
-  const adminHtmlPathDirect = path.join(__dirname, 'public', 'admin.html')
-  wssServer.register(admin, {
-    world,
-    assets,
-    adminHtmlPath: adminHtmlPathDirect,
-    onConnectionCountChanged: count => updateAdminConnectionCount('wss', count),
-  })
-  wssServer.register(async function wssWorldNetwork(app) {
-    app.get('/ws', { websocket: true }, (wsConn, req) => {
-      world.network.onConnection(wsConn, req.query, req)
-    })
-  })
-  wssServer.setErrorHandler((err, req, reply) => {
-    console.error(err)
-    reply.status(500).send()
-  })
-
+if (wssServer) {
   try {
     await wssServer.listen({ port: directWssPort, host })
     console.log(`WSS server listening on port ${directWssPort} (TLS enabled)`)
@@ -658,37 +1043,28 @@ if (useDualPort) {
   }
 }
 
-if (agonesIdleControllerEnabled) {
-  console.info(`[agones-idle] enabled with timeout=${SHUTDOWN_IDLE / 1000}s`)
-  agonesIdleController.reconcileIdleShutdown('startup')
+if (hasInitialWorldBinding) {
+  void initializeRuntime({ source: 'startup' })
 }
 
-void registerWithRegistry(registryState, {
-  worldId: world?.network?.worldId || null,
-  commitHash: process.env.COMMIT_HASH || null,
-})
-
-async function worldNetwork(fastify) {
-  fastify.get('/ws', { websocket: true }, (ws, req) => {
-    world.network.onConnection(ws, req.query, req)
-  })
-}
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  agonesIdleController.clearIdleShutdownTimer('sigint')
-  await world.network.save()
-  await world.storage?.close?.()
+async function shutdown(reason) {
+  runtimeState.resources.agonesIdleController.clearIdleShutdownTimer(reason)
+  if (runtimeState.resources.world?.network?.save) {
+    await runtimeState.resources.world.network.save()
+  }
+  await runtimeState.resources.world?.storage?.close?.()
+  if (runtimeState.resources.storage && runtimeState.resources.storage !== runtimeState.resources.world?.storage) {
+    await runtimeState.resources.storage.close?.()
+  }
   await fastify.close()
   if (wssServer) await wssServer.close()
   process.exit(0)
+}
+
+process.on('SIGINT', async () => {
+  await shutdown('sigint')
 })
 
 process.on('SIGTERM', async () => {
-  agonesIdleController.clearIdleShutdownTimer('sigterm')
-  await world.network.save()
-  await world.storage?.close?.()
-  await fastify.close()
-  if (wssServer) await wssServer.close()
-  process.exit(0)
+  await shutdown('sigterm')
 })
