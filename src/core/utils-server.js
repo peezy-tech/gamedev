@@ -59,15 +59,45 @@ function resolveLobbyIdentityIssuer() {
   return null
 }
 
-function resolveLobbyIdentityVerifyUrl(verifyUrl) {
+function normalizeBaseUrl(value) {
+  if (typeof value !== 'string') return ''
+  return value.trim().replace(/\/+$/, '')
+}
+
+function resolveControlInternalBaseUrl() {
+  const explicit = normalizeBaseUrl(process.env.CONTROL_INTERNAL_BASE_URL)
+  if (explicit) return explicit
+
+  const legacyPublicAuthUrl = normalizeBaseUrl(process.env.PUBLIC_AUTH_URL)
+  if (!legacyPublicAuthUrl) return null
+
+  try {
+    const url = new URL(legacyPublicAuthUrl)
+    let basePath = url.pathname.replace(/\/+$/, '')
+    basePath = basePath.replace(/\/identity$/, '')
+    url.pathname = basePath || '/'
+    url.search = ''
+    url.hash = ''
+    return normalizeBaseUrl(url.toString()) || null
+  } catch {
+    return null
+  }
+}
+
+function resolveLobbyIdentityVerifyUrl(verifyUrl, controlBaseUrl) {
   const explicit = typeof verifyUrl === 'string' ? verifyUrl.trim() : ''
   if (explicit) return explicit
 
-  const base = process.env.PUBLIC_AUTH_URL?.trim()
-  if (!base) return null
+  const controlBase = normalizeBaseUrl(controlBaseUrl) || resolveControlInternalBaseUrl()
+  if (controlBase) {
+    return `${controlBase}/identity/exchange/verify`
+  }
 
-  const normalizedBase = base.replace(/\/+$/, '')
-  return `${normalizedBase}/exchange/verify`
+  // Legacy fallback until all managed runtimes receive control.internalBaseUrl.
+  const legacyPublicAuthUrl = normalizeBaseUrl(process.env.PUBLIC_AUTH_URL)
+  if (!legacyPublicAuthUrl) return null
+
+  return `${legacyPublicAuthUrl}/exchange/verify`
 }
 
 export function createJWT(data, { worldId } = {}) {
@@ -126,11 +156,11 @@ export function readJWT(token, { worldId } = {}) {
   })
 }
 
-export async function verifyIdentityExchangeTokenWithLobby(token, { verifyUrl, timeoutMs } = {}) {
+export async function verifyIdentityExchangeTokenWithLobby(token, { verifyUrl, controlBaseUrl, timeoutMs } = {}) {
   if (typeof token !== 'string' || !token.trim()) {
     return { ok: false, reason: 'invalid' }
   }
-  const endpoint = resolveLobbyIdentityVerifyUrl(verifyUrl)
+  const endpoint = resolveLobbyIdentityVerifyUrl(verifyUrl, controlBaseUrl)
   if (!endpoint) {
     return { ok: false, reason: 'unreachable' }
   }

@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import path from 'path'
 
 function normalizeString(value) {
@@ -50,19 +51,155 @@ function buildHostedWorldRelativePath({ worldSlug, worldId }) {
   return path.join('.runtime-worlds', sanitizeWorldPathSegment(worldSlug || worldId, 'world'))
 }
 
-export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = null) {
-  const appliedKeys = []
+export function buildRuntimeBootstrapId({ worldId, runtimeInstanceId } = {}) {
+  const normalizedWorldId = normalizeString(worldId)
+  const normalizedRuntimeInstanceId = normalizeString(runtimeInstanceId)
+  if (!normalizedWorldId) return ''
+  if (!normalizedRuntimeInstanceId) return normalizedWorldId
+  return `${normalizedWorldId}:${normalizedRuntimeInstanceId}`
+}
+
+function deriveLegacyControlBaseFromPublicAuthUrl(publicAuthUrl) {
+  const normalizedPublicAuthUrl = normalizePublicUrl(publicAuthUrl)
+  if (!normalizedPublicAuthUrl) return null
+  try {
+    const url = new URL(normalizedPublicAuthUrl)
+    let basePath = url.pathname.replace(/\/+$/, '')
+    basePath = basePath.replace(/\/identity$/, '')
+    url.pathname = basePath || '/'
+    url.search = ''
+    url.hash = ''
+    return normalizePublicUrl(url.toString()) || null
+  } catch {
+    return null
+  }
+}
+
+export function resolveControlInternalBaseUrl(env = process.env) {
+  const explicit = normalizePublicUrl(env.CONTROL_INTERNAL_BASE_URL)
+  if (explicit) return explicit
+  return deriveLegacyControlBaseFromPublicAuthUrl(env.PUBLIC_AUTH_URL)
+}
+
+export function usesLegacyControlPlaneBaseUrl(env = process.env) {
+  return !hasValue(env.CONTROL_INTERNAL_BASE_URL) && hasValue(env.PUBLIC_AUTH_URL)
+}
+
+export function resolveControlInternalUrl(pathname, env = process.env) {
+  const baseUrl = resolveControlInternalBaseUrl(env)
+  if (!baseUrl) return null
+  try {
+    const url = new URL(baseUrl)
+    const basePath = url.pathname.replace(/\/+$/, '')
+    const suffix = pathname.startsWith('/') ? pathname : `/${pathname}`
+    url.pathname = `${basePath}${suffix}` || suffix
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+export function resolveRuntimeBootstrapInstanceId(env = process.env) {
+  return normalizeString(env.RUNTIME_BOOTSTRAP_INSTANCE_ID || env.POD_NAME || env.HOSTNAME) || null
+}
+
+export function resolveRuntimeBootstrapAuthSecret(env = process.env) {
+  return normalizeString(env.RUNTIME_BOOTSTRAP_AUTH_SECRET || env.JWT_SECRET) || null
+}
+
+export function deriveRuntimeBootstrapAuthToken(runtimeInstanceId, secret) {
+  const normalizedRuntimeInstanceId = normalizeString(runtimeInstanceId)
+  const normalizedSecret = normalizeString(secret)
+  if (!normalizedRuntimeInstanceId || !normalizedSecret) return null
+  return crypto
+    .createHmac('sha256', normalizedSecret)
+    .update(`runtime-bootstrap:${normalizedRuntimeInstanceId}`)
+    .digest('hex')
+}
+
+export function buildRuntimeBootstrapAuthorization(runtimeInstanceId, secret) {
+  const token = deriveRuntimeBootstrapAuthToken(runtimeInstanceId, secret)
+  return token ? `Bearer ${token}` : null
+}
+
+function readBearerToken(authorizationHeader) {
+  if (typeof authorizationHeader !== 'string') return ''
+  if (!authorizationHeader.startsWith('Bearer ')) return ''
+  return authorizationHeader.slice(7).trim()
+}
+
+export function verifyRuntimeBootstrapAuthorization(authorizationHeader, env = process.env) {
+  const providedToken = readBearerToken(authorizationHeader)
+  const expectedToken = deriveRuntimeBootstrapAuthToken(
+    resolveRuntimeBootstrapInstanceId(env),
+    resolveRuntimeBootstrapAuthSecret(env)
+  )
+  if (!providedToken || !expectedToken) return false
+  const providedBuffer = Buffer.from(providedToken)
+  const expectedBuffer = Buffer.from(expectedToken)
+  if (providedBuffer.length !== expectedBuffer.length) return false
+  return crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+}
+
+export function parseRuntimeBootstrapPayload(payload = null) {
   const worldId = normalizeString(payload?.world?.id)
   const worldSlug = normalizeString(payload?.world?.slug)
   const dbSchema = normalizeString(payload?.world?.dbSchema)
-  const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl)
-  const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl)
-  const authUrl = normalizePublicUrl(payload?.auth?.publicAuthUrl)
-  const privyAppId = normalizeString(payload?.auth?.publicPrivyAppId)
-
+  const runtimeInstanceId = normalizeString(payload?.runtime?.instanceId)
+  const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl) || null
+  const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl) || null
+  const authUrl = normalizePublicUrl(payload?.auth?.publicAuthUrl) || null
+  const privyAppId = normalizeString(payload?.auth?.publicPrivyAppId) || null
+  const controlInternalBaseUrl = normalizePublicUrl(payload?.control?.internalBaseUrl) || null
   const publicMaxUploadSize = parseNonNegativeInteger(payload?.world?.publicMaxUploadSize)
   const publicWorldMaxPlayers = parseNonNegativeInteger(payload?.world?.publicWorldMaxPlayers)
   const shutdownIdleSeconds = parseNonNegativeInteger(payload?.world?.shutdownIdleSeconds)
+  const runtimeWsUrl = runtimeWsUrlRaw || (runtimeApiUrl ? derivePublicWsUrlFromApiUrl(runtimeApiUrl) || null : null)
+
+  return {
+    bootstrapId: normalizeString(payload?.bootstrapId) || buildRuntimeBootstrapId({
+      worldId,
+      runtimeInstanceId,
+    }),
+    world: {
+      id: worldId || null,
+      slug: worldSlug || null,
+      dbSchema: dbSchema || null,
+      publicMaxUploadSize,
+      publicWorldMaxPlayers,
+      shutdownIdleSeconds,
+    },
+    runtime: {
+      instanceId: runtimeInstanceId || null,
+      publicApiUrl: runtimeApiUrl,
+      publicWsUrl: runtimeWsUrl,
+    },
+    auth: {
+      publicAuthUrl: authUrl,
+      publicPrivyAppId: privyAppId,
+    },
+    control: {
+      internalBaseUrl: controlInternalBaseUrl,
+    },
+  }
+}
+
+export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = null) {
+  const appliedKeys = []
+  const binding = parseRuntimeBootstrapPayload(payload)
+  const worldId = normalizeString(binding.world.id)
+  const worldSlug = normalizeString(binding.world.slug)
+  const dbSchema = normalizeString(binding.world.dbSchema)
+  const runtimeApiUrl = normalizePublicUrl(binding.runtime.publicApiUrl)
+  const runtimeWsUrl = normalizePublicUrl(binding.runtime.publicWsUrl)
+  const authUrl = normalizePublicUrl(binding.auth.publicAuthUrl)
+  const privyAppId = normalizeString(binding.auth.publicPrivyAppId)
+  const controlInternalBaseUrl = normalizePublicUrl(binding.control.internalBaseUrl)
+  const publicMaxUploadSize = binding.world.publicMaxUploadSize
+  const publicWorldMaxPlayers = binding.world.publicWorldMaxPlayers
+  const shutdownIdleSeconds = binding.world.shutdownIdleSeconds
 
   if (worldId) {
     env.WORLD_ID = worldId
@@ -99,7 +236,6 @@ export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = 
     appliedKeys.push('PUBLIC_API_URL')
   }
 
-  const runtimeWsUrl = runtimeWsUrlRaw || (runtimeApiUrl ? derivePublicWsUrlFromApiUrl(runtimeApiUrl) || '' : '')
   if (runtimeWsUrl && runtimeWsUrl.startsWith('ws')) {
     env.PUBLIC_WS_URL = runtimeWsUrl
     appliedKeys.push('PUBLIC_WS_URL')
@@ -113,6 +249,11 @@ export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = 
   if (privyAppId) {
     env.PUBLIC_PRIVY_APP_ID = privyAppId
     appliedKeys.push('PUBLIC_PRIVY_APP_ID')
+  }
+
+  if (controlInternalBaseUrl) {
+    env.CONTROL_INTERNAL_BASE_URL = controlInternalBaseUrl
+    appliedKeys.push('CONTROL_INTERNAL_BASE_URL')
   }
 
   return appliedKeys

@@ -25,8 +25,11 @@ import {
   applyHostedRuntimeBootstrapPayload,
   derivePublicWsUrlFromApiUrl,
   hasValue,
+  resolveControlInternalUrl,
   resolveHostedRuntimeBootstrapUrl,
+  resolveRuntimeBootstrapInstanceId,
   resolveRuntimeWorldDir,
+  usesLegacyControlPlaneBaseUrl,
   usesHostedRuntimeBootstrap,
 } from './runtimeBootstrap.js'
 import { getMaxUploadSizeBytes } from './worldLimits.js'
@@ -97,26 +100,9 @@ function deriveRuntimeInternalApiKey(worldId, jwtSecret) {
     .digest('hex')
 }
 
-function resolveLobbyInternalEndpoint(pathname) {
-  const authBaseUrl = process.env.PUBLIC_AUTH_URL?.trim()
-  if (!hasValue(authBaseUrl)) return null
-  try {
-    const url = new URL(authBaseUrl)
-    let basePath = url.pathname.replace(/\/+$/, '')
-    basePath = basePath.replace(/\/identity$/, '')
-    const suffix = pathname.startsWith('/') ? pathname : `/${pathname}`
-    url.pathname = `${basePath}${suffix}`
-    url.search = ''
-    url.hash = ''
-    return url.toString()
-  } catch {
-    return null
-  }
-}
-
 function resolveLobbyInternalUserUrl(userId) {
   if (!hasValue(userId)) return null
-  return resolveLobbyInternalEndpoint(`/internal/users/${encodeURIComponent(userId.trim())}`)
+  return resolveControlInternalUrl(`/internal/users/${encodeURIComponent(userId.trim())}`, process.env)
 }
 
 async function syncRuntimePublicConfigFromLobby() {
@@ -203,6 +189,12 @@ if (!process.env.JWT_SECRET) {
 }
 if (usesHostedBootstrap) {
   await syncRuntimePublicConfigFromLobby()
+}
+if (usesLegacyControlPlaneBaseUrl(process.env)) {
+  console.warn('[startup] CONTROL_INTERNAL_BASE_URL not set; deriving control callbacks from PUBLIC_AUTH_URL (legacy)')
+}
+if (usesHostedBootstrap && !resolveRuntimeBootstrapInstanceId(process.env)) {
+  console.warn('[startup] RUNTIME_BOOTSTRAP_INSTANCE_ID not set; push bootstrap auth cannot be verified yet')
 }
 if (!process.env.WORLD && !usesHostedBootstrap) {
   throw new Error('[envs] WORLD not set')
@@ -472,7 +464,9 @@ async function handleAuthExchange(req, reply) {
     return reply.code(400).send({ error: 'invalid_payload', message: 'token is required' })
   }
 
-  const verification = await verifyIdentityExchangeTokenWithLobby(identityToken)
+  const verification = await verifyIdentityExchangeTokenWithLobby(identityToken, {
+    controlBaseUrl: process.env.CONTROL_INTERNAL_BASE_URL,
+  })
   if (!verification?.ok) {
     if (verification?.reason === 'unreachable') {
       return reply.code(503).send({ error: 'identity_verifier_unreachable' })
