@@ -155,7 +155,7 @@ function resolveLobbyInternalUserUrl(userId) {
 async function syncRuntimePublicConfigFromLobby() {
   const endpoint = resolveHostedRuntimeBootstrapUrl(process.env)
   const authorization = resolveRuntimeControlAuthorization(process.env.WORLD_ID)
-  if (!endpoint || !authorization) return
+  if (!endpoint || !authorization) return null
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 4000)
@@ -172,18 +172,23 @@ async function syncRuntimePublicConfigFromLobby() {
 
     if (!response.ok) {
       console.warn(`[startup] runtime bootstrap metadata request failed (${response.status})`)
-      return
+      return null
     }
 
     const payload = await response.json().catch(() => null)
-    const appliedKeys = applyHostedRuntimeBootstrapPayload(process.env, payload)
+    const binding = parseRuntimeBootstrapPayload(payload, {
+      runtimeInstanceId: resolveRuntimeBootstrapInstanceId(process.env),
+    })
+    const appliedKeys = applyHostedRuntimeBootstrapPayload(process.env, binding)
 
     if (appliedKeys.length) {
       console.info(`[startup] runtime bootstrap metadata applied: ${appliedKeys.join(', ')}`)
     }
+    return binding
   } catch (err) {
     const message = err?.name === 'AbortError' ? 'timeout' : err?.message || String(err)
     console.warn(`[startup] runtime bootstrap metadata request failed (${message})`)
+    return null
   } finally {
     clearTimeout(timeoutId)
   }
@@ -512,11 +517,12 @@ function renderClientHtml(reply, state, cache) {
   reply.type('text/html').send(html)
 }
 
-function buildRuntimeState() {
+function buildRuntimeState({ initialBinding = null, initialSource = null } = {}) {
   const hasInitialWorldBinding = hasValue(process.env.WORLD_ID)
   const runtimeInstanceId = resolveRuntimeBootstrapInstanceId(process.env)
+  const binding = initialBinding ? parseRuntimeBootstrapPayload(initialBinding, { runtimeInstanceId }) : null
   const bootstrapId = buildRuntimeBootstrapId({
-    worldId: process.env.WORLD_ID,
+    worldId: binding?.world?.id || process.env.WORLD_ID,
     runtimeInstanceId,
   })
 
@@ -524,18 +530,18 @@ function buildRuntimeState() {
     lifecycle: {
       state: hasInitialWorldBinding ? 'bootstrapping' : 'standby',
       bootstrapId: bootstrapId || null,
-      source: hasInitialWorldBinding ? 'startup' : null,
+      source: hasInitialWorldBinding ? initialSource || 'startup' : null,
       startedAt: nowIso(),
       boundAt: hasInitialWorldBinding ? nowIso() : null,
       readyAt: null,
       failedAt: null,
       updatedAt: nowIso(),
       error: null,
-      binding: null,
-      bindingKey: null,
+      binding,
+      bindingKey: binding ? serializeRuntimeBootstrapBinding(binding) : null,
       runtimeInstanceId,
-      worldId: process.env.WORLD_ID || null,
-      worldSlug: null,
+      worldId: binding?.world?.id || process.env.WORLD_ID || null,
+      worldSlug: binding?.world?.slug || null,
     },
     initializationPromise: null,
     registryState: createRegistryState(process.env),
@@ -559,12 +565,15 @@ if (runtimeBootstrapMode === 'push') {
 
 const hasInitialWorldBinding = hasValue(process.env.WORLD_ID)
 const usesPullBootstrapMetadata = runtimeBootstrapMode === 'pull'
+let initialRuntimeBinding = null
+let initialRuntimeSource = hasInitialWorldBinding ? 'startup' : null
 
 if (!hasInitialWorldBinding) {
   validateStandbyRuntimeEnv(process.env)
 } else {
   if (usesPullBootstrapMetadata) {
-    await syncRuntimePublicConfigFromLobby()
+    initialRuntimeBinding = await syncRuntimePublicConfigFromLobby()
+    initialRuntimeSource = 'pull'
   }
   if (usesPullBootstrapMetadata && !resolveRuntimeBootstrapInstanceId(process.env)) {
     console.warn('[startup] RUNTIME_BOOTSTRAP_INSTANCE_ID not set; push bootstrap auth cannot be verified yet')
@@ -572,7 +581,10 @@ if (!hasInitialWorldBinding) {
   finalizeBoundRuntimeEnv(process.env)
 }
 
-const runtimeState = buildRuntimeState()
+const runtimeState = buildRuntimeState({
+  initialBinding: initialRuntimeBinding,
+  initialSource: initialRuntimeSource,
+})
 const clientHtmlTemplateCache = { value: null }
 const adminConnectionCounts = {
   main: 0,
@@ -1131,7 +1143,10 @@ if (wssServer) {
 }
 
 if (hasInitialWorldBinding) {
-  void initializeRuntime({ source: 'startup' })
+  void initializeRuntime({
+    source: runtimeState.lifecycle.source || 'startup',
+    binding: runtimeState.lifecycle.binding,
+  })
 }
 
 async function shutdown(reason) {

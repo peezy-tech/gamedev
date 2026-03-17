@@ -64,7 +64,7 @@ Definition of done:
 ### 4. Cut Over From Pull Mode
 
 - [x] Add a runtime rollout switch for `pull|push` bootstrap modes so managed runtimes can migrate incrementally. Files: `runtime/src/server/index.js`, `runtime/.env.example`. Size: 0.5 day.
-- [ ] Keep pull and push modes behaviorally aligned long enough to add parity tests for the required managed-world config set. Files: `runtime/test/integration/*.test.js`. Size: 0.5 day.
+- [x] Keep pull and push modes behaviorally aligned long enough to add parity tests for the required managed-world config set. Files: `runtime/test/integration/*.test.js`. Size: 0.5 day.
 - [ ] Remove the old startup pull-bootstrap path after push mode is stable in canary. Files: `runtime/src/server/index.js`, `runtime/src/server/runtimeBootstrap.js`. Size: 0.5 day.
 
 Definition of done:
