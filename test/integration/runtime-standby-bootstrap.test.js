@@ -52,6 +52,32 @@ test('runtime boots into standby with pre-init bootstrap status', async t => {
   assert.equal(status.world.id, null)
 })
 
+test('runtime gates gameplay and admin entrypoints until bootstrap is ready', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  for (const [method, route] of [
+    ['GET', '/admin'],
+    ['GET', '/env.js'],
+    ['GET', '/api/upload-check'],
+  ]) {
+    const response = await fetch(`${server.worldUrl}${route}`, { method })
+    const payload = await response.json()
+    assert.equal(response.status, 503)
+    assert.equal(response.headers.get('retry-after'), '1')
+    assert.equal(payload.error, 'runtime_not_ready')
+    assert.equal(payload.state, 'standby')
+    assert.equal(payload.retryable, true)
+  }
+})
+
 test('runtime accepts bootstrap push and transitions to ready', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')

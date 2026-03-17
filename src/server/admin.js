@@ -267,10 +267,11 @@ function serializeEntitiesForAdmin(world) {
   return world.entities.serialize().filter(entity => entity?.type !== 'player')
 }
 
-function sendRuntimeNotReady(reply) {
+function sendRuntimeNotReady(reply, state = null) {
   reply.header('Retry-After', '1')
   return reply.code(503).send({
     error: 'runtime_not_ready',
+    state,
     message: 'Runtime bootstrap has not completed',
     retryable: true,
   })
@@ -278,7 +279,7 @@ function sendRuntimeNotReady(reply) {
 
 export async function admin(
   fastify,
-  { world, assets, adminHtmlPath, onConnectionCountChanged, isRuntimeReady } = {}
+  { world, assets, adminHtmlPath, onConnectionCountChanged, isRuntimeReady, getRuntimeState } = {}
 ) {
   const adminCredentialRevealEnabled = isAdminCredentialRevealEnabled(process.env)
   const subscribers = new Set()
@@ -286,6 +287,7 @@ export async function admin(
   const runtimeSubscribers = new Set()
   const db = world?.network?.db
   const runtimeReady = typeof isRuntimeReady === 'function' ? isRuntimeReady : () => true
+  const runtimeState = typeof getRuntimeState === 'function' ? getRuntimeState : () => null
   let changefeedWriteQueue = Promise.resolve()
   const deployLocks = new Map()
   const lockTtlSeconds = Number.parseInt(process.env.DEPLOY_LOCK_TTL || '120', 10)
@@ -295,7 +297,7 @@ export async function admin(
     const upgradeHeader = String(req.headers.upgrade || '').toLowerCase()
     if (upgradeHeader === 'websocket') return
     if (runtimeReady()) return
-    return sendRuntimeNotReady(reply)
+    return sendRuntimeNotReady(reply, runtimeState())
   })
 
   function auditRuntimeCredentialReveal({

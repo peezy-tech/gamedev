@@ -958,14 +958,23 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
   app.register(ws)
 
   app.get('/env.js', async (_req, reply) => {
+    if (!isRuntimeReady(runtimeState)) {
+      return sendRuntimeNotReady(reply, runtimeState)
+    }
     reply.type('application/javascript').send(buildPublicEnvsCode())
   })
 
   app.post('/api/upload', async (_req, reply) => {
+    if (!isRuntimeReady(runtimeState)) {
+      return sendRuntimeNotReady(reply, runtimeState)
+    }
     return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload' })
   })
 
   app.get('/api/upload-check', async (_req, reply) => {
+    if (!isRuntimeReady(runtimeState)) {
+      return sendRuntimeNotReady(reply, runtimeState)
+    }
     return reply.code(403).send({ error: 'admin_required', message: 'Use /admin/upload-check' })
   })
 
@@ -1008,6 +1017,7 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
     adminHtmlPath,
     onConnectionCountChanged: count => updateAdminConnectionCount(connectionChannel, count),
     isRuntimeReady: () => isRuntimeReady(runtimeState),
+    getRuntimeState: () => runtimeState.lifecycle.state,
   })
 
   app.get('/ws', { websocket: true }, (socket, req) => {
