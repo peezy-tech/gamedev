@@ -83,7 +83,7 @@ Definition of done:
   Files: `runtime/test/integration/*.test.js`. Size: 1 day.
 - [x] Add structured runtime logs for `standby`, `bootstrap_start`, `bootstrap_success`, `bootstrap_failed`, and `rebind_rejected`. Files: `runtime/src/server/index.js`. Size: 0.5 day.
 - [x] Add runtime-side canary/rollback notes to `runtime/docs/` once the flag exists. Files: `runtime/docs/push-bootstrap-plan.md`. Size: 0.25 day.
-- [ ] After V1 is stable, define the runtime-side reset/scrub requirements needed for any future warm standby pool. Files: `runtime/docs/push-bootstrap-plan.md`, `runtime/src/server/*`. Size: 1 day research.
+- [x] After V1 is stable, define the runtime-side reset/scrub requirements needed for any future warm standby pool. Files: `runtime/docs/push-bootstrap-plan.md`, `runtime/src/server/*`. Size: 1 day research.
 
 Definition of done:
 
@@ -113,3 +113,21 @@ Definition of done:
 1. Flip the affected deployment back to `RUNTIME_BOOTSTRAP_MODE=pull` and redeploy with `WORLD_ID` plus `RUNTIME_BOOTSTRAP_URL` populated again for that environment.
 2. Replace any push-mode pod that reached `failed` or bound the wrong world. The runtime intentionally rejects rebinding in-process, so rollback is done by pod replacement rather than a second `/internal/bootstrap` with different data.
 3. After rollback, verify the replacement pod reaches `GET /health = 200`, the bound world metadata is present on `GET /status`, and the reverted pool is no longer emitting `bootstrap_failed` or `rebind_rejected` events.
+
+## Future Warm Standby Reset And Scrub Requirements
+
+V1 does not support recycling a `ready` runtime back into `standby`. Any future warm standby pool needs an explicit reset path that does all of the following before the pod can accept a new bootstrap:
+
+1. Quiesce traffic first: block new gameplay/admin connections, close existing sockets, and stop any direct WSS listener so the runtime cannot serve the old world during the scrub window.
+2. Persist and destroy the bound world: run `world.network.save()`, close `world.storage`, destroy the world instance, and tear down any timers/listeners hanging off the current `runtimeState.resources.world`.
+3. Release persistence handles cleanly: close `runtimeState.resources.storage`, add an explicit Knex teardown for `src/server/db.js`, and ensure no sqlite or postgres connection survives into the next world bind.
+4. Reset runtime-bound process env and lifecycle state together: clear `WORLD_ID`, `DB_SCHEMA`, world-scoped `PUBLIC_*` values, `CONTROL_INTERNAL_BASE_URL`, `SHUTDOWN_IDLE`, and the in-memory `runtimeState.lifecycle.{binding,bindingKey,worldId,worldSlug,source,readyAt,failedAt,error}` fields before reporting `standby` again.
+5. Reset background controllers and registry state: clear idle-shutdown timers, reset the Agones idle controller back to the noop controller, clear registry verification tokens/timeouts, and zero any admin connection counters that were accumulated for the prior world.
+6. Scrub per-world filesystem state deliberately: either delete the previous world directory or guarantee a fresh directory for the next bind so `.runtime-worlds/*`, `db.sqlite`, uploaded assets, and generated metadata cannot leak across worlds.
+7. Re-run the cold-standby contract after scrub: `GET /healthz` should return `state=standby`, `GET /internal/bootstrap/status` should show no bound world, and only then should the runtime accept the next bootstrap payload.
+
+Current code gaps to account for if this is implemented later:
+
+1. `shutdown()` currently saves network/storage state, but it does not destroy `runtimeState.resources.world` or close the shared Knex handle.
+2. `getDB()` keeps a process-global `db` singleton today, so warm reuse needs either connection reset support or a non-singleton DB lifecycle.
+3. `runtimeState`, deferred world proxies, and admin connection counters are initialized once per process today; a reset path will need explicit scrub hooks for each of them rather than relying on process restart.
