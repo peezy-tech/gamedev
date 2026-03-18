@@ -19,7 +19,7 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
   const world = useMemo(() => createClientWorld(), [])
   const walletAdapter = useMemo(() => createRuntimeWalletAdapter(), [])
   const [ui, setUI] = useState(world.ui.state)
-  const [resolvedWsUrl, setResolvedWsUrl] = useState(null)
+  const [resolvedWsUrl, setResolvedWsUrl] = useState(undefined) // undefined = pending, null = offline
   const [apiBaseUrl, setApiBaseUrl] = useState(null)
   const [authBaseUrl, setAuthBaseUrl] = useState(null)
   const [entered] = useState(true)
@@ -40,7 +40,9 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
         }
         if (cancelled) return
         setResolvedWsUrl(finalWsUrl)
-        const derivedHttpUrl = finalWsUrl.replace(/^ws/, 'http').replace(/\/ws.*$/, '')
+        const derivedHttpUrl = finalWsUrl
+          ? finalWsUrl.replace(/^ws/, 'http').replace(/\/ws.*$/, '')
+          : null
         setApiBaseUrl(apiUrl || derivedHttpUrl)
         const cleanedAuthUrl = typeof authUrl === 'string' ? authUrl.trim() : authUrl
         setAuthBaseUrl(cleanedAuthUrl)
@@ -108,7 +110,7 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
 
   useEffect(() => {
     if (!entered) return
-    if (!resolvedWsUrl) return
+    if (resolvedWsUrl === undefined) return // still resolving
     const init = async () => {
       const viewport = viewportRef.current
       const cssLayer = cssLayerRef.current

@@ -98,12 +98,14 @@ const resolveAbsoluteClientImportPath = value => {
             await fs.writeFile(path.join(clientBuildDir, 'admin.js'), `import '${aliasAdminJsPath}';\n`)
             // inject into html and copy over
             let htmlContent = await fs.readFile(clientHtmlSrc, 'utf-8')
+            htmlContent = htmlContent.replaceAll('{assetPrefix}', '/')
             htmlContent = htmlContent.replace('{jsPath}', htmlJsPath)
             htmlContent = htmlContent.replace('{particlesPath}', htmlParticlesPath)
             htmlContent = htmlContent.replaceAll('{buildId}', Date.now())
             await fs.writeFile(clientHtmlDest, htmlContent)
             if (await fs.pathExists(adminHtmlSrc)) {
               let adminHtml = await fs.readFile(adminHtmlSrc, 'utf-8')
+              adminHtml = adminHtml.replaceAll('{assetPrefix}', '/')
               adminHtml = adminHtml.replace('{jsPath}', htmlAdminJsPath)
               adminHtml = adminHtml.replace('{particlesPath}', htmlParticlesPath)
               adminHtml = adminHtml.replaceAll('{buildId}', Date.now())

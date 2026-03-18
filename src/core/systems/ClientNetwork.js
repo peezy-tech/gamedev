@@ -32,16 +32,15 @@ export class ClientNetwork extends System {
   }
 
   init({ wsUrl, name, avatar }) {
-    this.maxRetries = 10
-    this.maxWaitTime = 60000
-    this.retryCount = 0
-    this.retryDelay = 6000
-    this.connectStartTime = Date.now()
+    this.retryDelay = 10000
     this.wsUrl = wsUrl
     this.connectParams = { name, avatar }
     this.wasConnected = false
+    this._intentionalOffline = false
+    this._reconnectTimer = null
+    this.isOffline = !wsUrl
     this._registerCommands()
-    this.connect()
+    if (wsUrl) this.connect()
   }
 
   _registerCommands() {
@@ -54,6 +53,8 @@ export class ClientNetwork extends System {
       navigateToServer(clean)
     })
     this.world.chat.bindCommand('offline', () => {
+      this._intentionalOffline = true
+      this._clearReconnect()
       this.ws?.close()
     })
     this.world.chat.bindCommand('reconnect', () => {
@@ -93,8 +94,25 @@ export class ClientNetwork extends System {
 
   onOpen = () => {
     this.wasConnected = true
-    this.retryCount = 0
+    this.isOffline = false
+    this._intentionalOffline = false
+    this._clearReconnect()
     this.world.emit('connectionStatus', { status: 'connected' })
+  }
+
+  _clearReconnect() {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer)
+      this._reconnectTimer = null
+    }
+  }
+
+  _scheduleReconnect() {
+    if (this._intentionalOffline || this._reconnectTimer) return
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null
+      this.connect()
+    }, this.retryDelay)
   }
 
   onError = e => {
@@ -315,38 +333,23 @@ export class ClientNetwork extends System {
 
   onClose = code => {
     this.isOffline = true
-    const elapsed = Date.now() - this.connectStartTime
-    const timedOut = elapsed > this.maxWaitTime
-
-    if (!this.wasConnected && this.retryCount < this.maxRetries && !timedOut) {
-      this.retryCount++
-      this.world.emit('connectionStatus', {
-        status: 'retrying',
-        message: `Connecting to server... (attempt ${this.retryCount}/${this.maxRetries})`,
+    if (this.wasConnected) {
+      this.world.chat.add({
+        id: uuid(),
+        from: null,
+        fromId: null,
+        body: `You have been disconnected.`,
+        createdAt: moment().toISOString(),
       })
-      setTimeout(() => this.connect(), this.retryDelay)
-      return
+      this.world.emit('disconnect', code || true)
+    } else {
+      this.world.emit('connectionStatus', { status: 'offline' })
     }
-
-    if (!this.wasConnected && timedOut) {
-      this.world.emit('connectionStatus', {
-        status: 'error',
-        message: 'Cannot find server',
-      })
-    }
-
-    this.world.chat.add({
-      id: uuid(),
-      from: null,
-      fromId: null,
-      body: `You have been disconnected.`,
-      createdAt: moment().toISOString(),
-    })
-    this.world.emit('disconnect', code || true)
-    console.log('disconnect', code)
+    this._scheduleReconnect()
   }
 
   destroy() {
+    this._clearReconnect()
     if (this.ws) {
       this.ws.removeEventListener('open', this.onOpen)
       this.ws.removeEventListener('message', this.onPacket)

@@ -921,6 +921,8 @@ function resolveConnectionPolicy() {
       }
     }
   }
+  // No server configured — don't guess from window.location, just go offline
+  if (!env.PUBLIC_WS_URL && !env.PUBLIC_API_URL) return { offline: true }
   return {}
 }
 

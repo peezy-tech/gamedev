@@ -9,6 +9,7 @@ import { assetPath, isTouch } from '../utils'
 import { downloadFile } from '../../core/extras/downloadFile'
 import { useRank } from './useRank'
 import { sanitizeWsUrl } from '../../core/utils'
+import { navigateToServer } from '../../core/utils-client'
 import { MouseLeftIcon } from './MouseLeftIcon'
 import { MouseRightIcon } from './MouseRightIcon'
 import { MouseWheelIcon } from './MouseWheelIcon'
@@ -58,24 +59,33 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
   const [serverUrl, setServerUrl] = useState(() => new URLSearchParams(location.search).get('connect') || '')
   useEffect(() => {
     const onPing = ms => setPing(ms)
+    const onConnectionStatus = ({ status } = {}) => {
+      if (status === 'connected') {
+        setIsOffline(false)
+        return
+      }
+      if (status === 'offline') {
+        setIsOffline(true)
+        setPing(null)
+      }
+    }
     const onDisconnect = () => {
       setIsOffline(true)
       setPing(null)
     }
     world.on('ping', onPing)
+    world.on('connectionStatus', onConnectionStatus)
     world.on('disconnect', onDisconnect)
     return () => {
       world.off('ping', onPing)
+      world.off('connectionStatus', onConnectionStatus)
       world.off('disconnect', onDisconnect)
     }
   }, [])
   const handleConnect = () => {
     const clean = sanitizeWsUrl(serverUrl)
     if (!clean) return
-    const url = new URL(location.href)
-    url.searchParams.delete('mode')
-    url.searchParams.set('connect', clean)
-    location.href = url.toString()
+    navigateToServer(clean)
   }
   const handleDisconnect = () => {
     world.network?.ws?.close()

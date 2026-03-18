@@ -1,3 +1,4 @@
+/* global env */
 import { css } from '@firebolt-dev/css'
 import { useContext, useEffect, useMemo, useState } from 'react'
 import { XIcon, CircleArrowRightIcon, HammerIcon, UserXIcon, Volume2Icon, SettingsIcon, UsersIcon } from 'lucide-react'
@@ -15,6 +16,8 @@ import * as THREE from '../../core/extras/three'
 import { Ranks } from '../../core/extras/ranks'
 import { storage } from '../../core/storage'
 import { syncLobbyProfilePatch } from '../../core/profileSync'
+import { sanitizeWsUrl } from '../../core/utils'
+import { navigateToServer } from '../../core/utils-client'
 
 const shadowOptions = [
   { label: 'None', value: 'none' },
@@ -256,6 +259,7 @@ export function MainMenu({ world, open, onClose }) {
             {tab === 'settings' && (
               <>
                 <FieldText label='Name' hint='Change your name' value={name} onChange={changeName} />
+                <ConnectionSection world={world} onClose={onClose} />
                 <Group label='Interface' />
                 <FieldRange
                   label='Scale'
@@ -379,6 +383,82 @@ export function MainMenu({ world, open, onClose }) {
         </div>
       </div>
     </HintProvider>
+  )
+}
+
+function ConnectionSection({ world, onClose }) {
+  const [isOffline, setIsOffline] = useState(() => !!world.network?.isOffline)
+  const [ping, setPing] = useState(null)
+  const [serverUrl, setServerUrl] = useState(() => {
+    const searchParams = new URLSearchParams(location.search)
+    const fromQuery = searchParams.get('connect')
+    if (fromQuery) return fromQuery
+    return env.PUBLIC_WS_URL || ''
+  })
+
+  useEffect(() => {
+    const onPing = ms => setPing(ms)
+    const onDisconnect = () => {
+      setIsOffline(true)
+      setPing(null)
+    }
+    const onConnectionStatus = ({ status } = {}) => {
+      if (status === 'connected') {
+        setIsOffline(false)
+        return
+      }
+      if (status === 'offline') {
+        setIsOffline(true)
+        setPing(null)
+      }
+    }
+    world.on('ping', onPing)
+    world.on('disconnect', onDisconnect)
+    world.on('connectionStatus', onConnectionStatus)
+    return () => {
+      world.off('ping', onPing)
+      world.off('disconnect', onDisconnect)
+      world.off('connectionStatus', onConnectionStatus)
+    }
+  }, [world])
+
+  const handleConnect = () => {
+    const clean = sanitizeWsUrl(serverUrl)
+    if (!clean) {
+      world.emit('toast', 'Enter a valid ws:// or wss:// URL')
+      return
+    }
+    onClose?.()
+    navigateToServer(clean)
+  }
+
+  const handleDisconnect = () => {
+    onClose?.()
+    world.network?.ws?.close()
+  }
+
+  return (
+    <>
+      <Group label='Connection' />
+      <FieldText
+        label='Server'
+        hint='Set the websocket URL to connect to another server'
+        placeholder='wss://your-world.example/ws'
+        value={serverUrl}
+        onChange={value => setServerUrl(value)}
+      />
+      <FieldBtn
+        label='Status'
+        hint='Current connection state'
+        note={isOffline ? 'Offline' : `Online${ping != null ? ` (${ping}ms)` : ''}`}
+        onClick={() => {}}
+      />
+      <FieldBtn
+        label={isOffline ? 'Connect to Server' : 'Disconnect from Server'}
+        hint={isOffline ? 'Reload using the server URL above' : 'Close the current websocket connection'}
+        onClick={isOffline ? handleConnect : handleDisconnect}
+      />
+    </>
   )
 }
 

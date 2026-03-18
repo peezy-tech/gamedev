@@ -1084,6 +1084,12 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
     reply.send({ files: getDocsIndex() })
   })
   app.get('/assets/*', handleLocalAssetsRequest)
+  app.get('/env.js', async (_req, reply) => {
+    if (!isRuntimeReady(runtimeState)) {
+      return sendRuntimeNotReady(reply, runtimeState)
+    }
+    reply.type('application/javascript').send(buildPublicEnvsCode())
+  })
   app.register(statics, {
     root: publicDir,
     prefix: '/',
@@ -1095,13 +1101,6 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
     },
   })
   app.register(multipart)
-
-  app.get('/env.js', async (_req, reply) => {
-    if (!isRuntimeReady(runtimeState)) {
-      return sendRuntimeNotReady(reply, runtimeState)
-    }
-    reply.type('application/javascript').send(buildPublicEnvsCode())
-  })
 
   app.post('/api/upload', async (_req, reply) => {
     if (!isRuntimeReady(runtimeState)) {

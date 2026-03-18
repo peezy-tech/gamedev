@@ -926,6 +926,7 @@ Commands:
   sync <command>            Sync reconciliation helpers (status, conflicts, resolve)
   world export              Export world.json + apps/assets from the world (module sources included; use --include-built-scripts for legacy apps)
   world import              Import local apps + world.json into the world
+  static                    Build a self-contained static client (no server needed, for GitHub Pages / CDN)
   help                      Show this help
 
 Options:
@@ -963,6 +964,13 @@ async function main() {
     case 'world':
       result = await worldCommand(args)
       break
+    case 'static': {
+      const { execFileSync } = await import('child_process')
+      const staticScript = path.join(packageRoot, 'scripts', 'build-static.mjs')
+      execFileSync(process.execPath, [staticScript], { stdio: 'inherit', cwd: projectDir })
+      result = 0
+      break
+    }
     case 'help':
     case '--help':
     case '-h':
