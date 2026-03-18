@@ -15,6 +15,7 @@ import { admin } from './admin'
 import { createDeferredResource } from './deferredResource.js'
 import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from './agonesIdleShutdown.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
+import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { resolveAuthRuntimeConfig } from './authModes'
 import {
   applyHostedRuntimeBootstrapPayload,
@@ -1094,7 +1095,6 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
     },
   })
   app.register(multipart)
-  app.register(ws)
 
   app.get('/env.js', async (_req, reply) => {
     if (!isRuntimeReady(runtimeState)) {
@@ -1159,12 +1159,29 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
     getRuntimeState: () => runtimeState.lifecycle.state,
   })
 
-  app.get('/ws', { websocket: true }, (socket, req) => {
-    if (!isRuntimeReady(runtimeState)) {
-      socket.close(1013, 'runtime_not_ready')
-      return
-    }
-    runtimeState.resources.world.network.onConnection(socket, req.query, req)
+  app.route({
+    method: 'GET',
+    url: '/ws',
+    handler: async (_req, reply) => {
+      reply.code(404).send()
+    },
+    wsHandler: (socket, req) => {
+      const connection = resolveWebSocketConnection(socket)
+      if (!connection || typeof connection.on !== 'function' || typeof connection.send !== 'function') {
+        req.log.error({
+          received: describeWebSocketConnection(socket),
+          resolved: describeWebSocketConnection(connection),
+          upgrade: req.headers?.upgrade || null,
+        }, 'invalid websocket connection for /ws')
+        socket?.close?.(1011, 'invalid_websocket')
+        return
+      }
+      if (!isRuntimeReady(runtimeState)) {
+        connection?.close?.(1013, 'runtime_not_ready')
+        return
+      }
+      runtimeState.resources.world.network.onConnection(connection, req.query, req)
+    },
   })
 
   app.setErrorHandler((err, _req, reply) => {
@@ -1191,6 +1208,7 @@ const fastify = Fastify({
   logger: { level: 'error' },
   https: mainServerTls,
 })
+await fastify.register(ws)
 registerCommonRoutes(fastify, { includeBootstrapControl: true, connectionChannel: 'main' })
 
 let wssServer = null
@@ -1199,6 +1217,8 @@ if (useDualPort) {
     logger: { level: 'error' },
     https: tlsConfig,
   })
+  
+  await wssServer.register(ws)  
   registerCommonRoutes(wssServer, { includeBootstrapControl: true, connectionChannel: 'wss' })
 }
 

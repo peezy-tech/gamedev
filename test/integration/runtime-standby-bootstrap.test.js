@@ -5,6 +5,7 @@ import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
 
+import { readPacket } from '../../src/core/packets.js'
 import { buildRuntimeControlAuthorization } from '../../src/core/utils-server.js'
 import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
 import { createTempDir, startStandbyRuntimeServer, waitFor } from './helpers.js'
@@ -126,6 +127,45 @@ async function waitForRuntimeEvent(server, event, matcher = () => true) {
   })
 }
 
+async function connectWorldSocket(wsUrl) {
+  const ws = new WebSocket(wsUrl)
+  return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup()
+      ws.close()
+      reject(new Error('timeout'))
+    }, 5000)
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      ws.removeEventListener('message', onMessage)
+      ws.removeEventListener('error', onError)
+      ws.removeEventListener('close', onClose)
+    }
+
+    const onMessage = event => {
+      const [method, data] = readPacket(event.data)
+      if (method !== 'snapshot') return
+      cleanup()
+      resolve({ ws, snapshot: data })
+    }
+
+    const onError = err => {
+      cleanup()
+      reject(err instanceof Error ? err : new Error('ws_error'))
+    }
+
+    const onClose = () => {
+      cleanup()
+      reject(new Error('ws_closed'))
+    }
+
+    ws.addEventListener('message', onMessage)
+    ws.addEventListener('error', onError)
+    ws.addEventListener('close', onClose)
+  })
+}
+
 test('runtime boots into standby with pre-init bootstrap status', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')
@@ -181,6 +221,21 @@ test('runtime gates gameplay and admin entrypoints until bootstrap is ready', as
     assert.equal(payload.state, 'standby')
     assert.equal(payload.retryable, true)
   }
+})
+
+test('runtime does not expose /ws as a plain HTTP route', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const response = await fetch(`${server.worldUrl}/ws`)
+  assert.equal(response.status, 404)
 })
 
 test('runtime accepts bootstrap push and transitions to ready', async t => {
@@ -242,6 +297,47 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
   assert.equal(envJsRes.status, 200)
   assert.match(envJs, /PUBLIC_ADMIN_URL/)
   assert.match(envJs, new RegExp(`${server.worldUrl}/admin`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+})
+
+test('runtime accepts websocket guest connections without query params after bootstrap', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+
+  const bootstrapRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+      auth: {
+        publicAuthUrl: 'http://127.0.0.1:3001/identity',
+      },
+    })),
+  })
+  assert.equal(bootstrapRes.status, 200)
+
+  const { ws, snapshot } = await connectWorldSocket(`${toWsUrl(server.worldUrl)}/ws`)
+  t.after(() => {
+    ws.close()
+  })
+
+  assert.equal(typeof snapshot?.id, 'string')
+  assert.equal(snapshot?.authToken, null)
+  assert.equal(snapshot?.apiUrl, `${server.worldUrl}/api`)
 })
 
 test('runtime treats duplicate bootstrap for the same binding as idempotent', async t => {

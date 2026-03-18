@@ -11,6 +11,7 @@ import {
   handleRuntimeCredentialCommand,
 } from './adminCredentials.js'
 import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
+import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
 const SCRIPT_BLUEPRINT_FIELDS = new Set([
@@ -772,8 +773,19 @@ export async function admin(
       reply.type('text/html').send(html)
     },
     wsHandler: (ws, req) => {
+      const receivedWs = ws
+      ws = resolveWebSocketConnection(ws)
+      if (!ws || typeof ws.on !== 'function' || typeof ws.send !== 'function') {
+        req.log.error({
+          received: describeWebSocketConnection(receivedWs),
+          resolved: describeWebSocketConnection(ws),
+          upgrade: req.headers?.upgrade || null,
+        }, 'invalid websocket connection for /admin')
+        ws?.close?.(1011, 'invalid_websocket')
+        return
+      }
       if (!runtimeReady()) {
-        ws.close(1013, 'runtime_not_ready')
+        ws?.close?.(1013, 'runtime_not_ready')
         return
       }
 
