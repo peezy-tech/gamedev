@@ -2,8 +2,8 @@ import moment from 'moment'
 import { emoteUrls } from '../extras/playerEmotes'
 import { readPacket, writePacket } from '../packets'
 import { storage } from '../storage'
-import { uuid } from '../utils'
-import { hashFile } from '../utils-client'
+import { uuid, sanitizeWsUrl } from '../utils'
+import { hashFile, navigateToServer } from '../utils-client'
 import { System } from './System'
 
 function hasModuleScript(blueprint) {
@@ -40,7 +40,25 @@ export class ClientNetwork extends System {
     this.wsUrl = wsUrl
     this.connectParams = { name, avatar }
     this.wasConnected = false
+    this._registerCommands()
     this.connect()
+  }
+
+  _registerCommands() {
+    this.world.chat.bindCommand('connect', ({ value }) => {
+      const clean = sanitizeWsUrl(value)
+      if (!clean) {
+        this.world.chat.add({ body: 'Usage: /connect wss://host/ws' })
+        return
+      }
+      navigateToServer(clean)
+    })
+    this.world.chat.bindCommand('offline', () => {
+      this.ws?.close()
+    })
+    this.world.chat.bindCommand('reconnect', () => {
+      navigateToServer()
+    })
   }
 
   connect() {
@@ -88,6 +106,7 @@ export class ClientNetwork extends System {
   }
 
   send(name, data) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
     // console.log('->', name, data)
     const packet = writePacket(name, data)
     this.ws.send(packet)
@@ -286,6 +305,7 @@ export class ClientNetwork extends System {
   }
 
   onPong = time => {
+    this.world.emit('ping', Math.round(performance.now() - time))
     this.world.stats?.onPong(time)
   }
 
@@ -294,6 +314,7 @@ export class ClientNetwork extends System {
   }
 
   onClose = code => {
+    this.isOffline = true
     const elapsed = Date.now() - this.connectStartTime
     const timedOut = elapsed > this.maxWaitTime
 

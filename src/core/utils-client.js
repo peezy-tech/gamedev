@@ -14,3 +14,14 @@ export async function hashFile(file) {
     .join('')
   return hash
 }
+
+export function navigateToServer(wsUrl) {
+  const url = new URL(location.href)
+  url.searchParams.delete('mode')
+  if (wsUrl) {
+    url.searchParams.set('connect', wsUrl)
+  } else {
+    url.searchParams.delete('connect')
+  }
+  location.href = url.toString()
+}
