@@ -267,16 +267,38 @@ function serializeEntitiesForAdmin(world) {
   return world.entities.serialize().filter(entity => entity?.type !== 'player')
 }
 
-export async function admin(fastify, { world, assets, adminHtmlPath, onConnectionCountChanged } = {}) {
+function sendRuntimeNotReady(reply, state = null) {
+  reply.header('Retry-After', '1')
+  return reply.code(503).send({
+    error: 'runtime_not_ready',
+    state,
+    message: 'Runtime bootstrap has not completed',
+    retryable: true,
+  })
+}
+
+export async function admin(
+  fastify,
+  { world, assets, adminHtmlPath, onConnectionCountChanged, isRuntimeReady, getRuntimeState } = {}
+) {
   const adminCredentialRevealEnabled = isAdminCredentialRevealEnabled(process.env)
   const subscribers = new Set()
   const playerSubscribers = new Set()
   const runtimeSubscribers = new Set()
   const db = world?.network?.db
+  const runtimeReady = typeof isRuntimeReady === 'function' ? isRuntimeReady : () => true
+  const runtimeState = typeof getRuntimeState === 'function' ? getRuntimeState : () => null
   let changefeedWriteQueue = Promise.resolve()
   const deployLocks = new Map()
   const lockTtlSeconds = Number.parseInt(process.env.DEPLOY_LOCK_TTL || '120', 10)
   const lockTtlMs = Number.isFinite(lockTtlSeconds) && lockTtlSeconds > 0 ? lockTtlSeconds * 1000 : 120000
+
+  fastify.addHook('onRequest', async (req, reply) => {
+    const upgradeHeader = String(req.headers.upgrade || '').toLowerCase()
+    if (upgradeHeader === 'websocket') return
+    if (runtimeReady()) return
+    return sendRuntimeNotReady(reply, runtimeState())
+  })
 
   function auditRuntimeCredentialReveal({
     req,
@@ -750,6 +772,11 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
       reply.type('text/html').send(html)
     },
     wsHandler: (ws, req) => {
+      if (!runtimeReady()) {
+        ws.close(1013, 'runtime_not_ready')
+        return
+      }
+
       let authed = false
       let defaultNetworkId = null
       let subscriptions = { snapshot: false, players: false, runtime: false }
