@@ -6,13 +6,13 @@ lockdown({
   unhandledRejectionTrapping: 'report',
 
   //
-  regExpTaming: 'unsafe',
-  localeTaming: 'unsafe',
+  // regExpTaming: 'unsafe',
+  // localeTaming: 'unsafe',
   consoleTaming: 'unsafe',
-  evalTaming: 'unsafeEval',
-  // stackFiltering: ''
-  overrideTaming: 'min',
-  domainTaming: 'unsafe',
+  // evalTaming: 'unsafeEval',
+  // // stackFiltering: ''
+  // overrideTaming: 'min',
+  // domainTaming: 'unsafe',
 
   // this is needed for monaco to work correctly.
   // specifically the theming seems to be broken.
