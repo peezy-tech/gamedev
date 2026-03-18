@@ -1199,7 +1199,7 @@ if (useDualPort) {
     logger: { level: 'error' },
     https: tlsConfig,
   })
-  registerCommonRoutes(wssServer, { connectionChannel: 'wss' })
+  registerCommonRoutes(wssServer, { includeBootstrapControl: true, connectionChannel: 'wss' })
 }
 
 const host = process.env.HOST || process.env.BIND_HOST || '0.0.0.0'
