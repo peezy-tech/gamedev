@@ -1,20 +1,22 @@
-import { createAgonesSdkHttp, resolveAgonesSdkHttpBaseUrl } from './agonesSdkHttp.js'
+const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
+
+function normalizeHttpPort(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : AGONES_SDK_DEFAULT_HTTP_PORT
+}
 
 export const ADMIN_SHUTDOWN_COMMAND = 'agones_shutdown'
 
 export function resolveAgonesShutdownUrl(env = process.env) {
-  return `${resolveAgonesSdkHttpBaseUrl(env)}/shutdown`
-}
-
-function resolveShutdownRequestFailureReason(err) {
-  const message = err instanceof Error ? err.message : String(err)
-  return message.startsWith('agones_sdk_status_') ? message : 'request_failed'
+  const port = normalizeHttpPort(env?.AGONES_SDK_HTTP_PORT)
+  return `http://127.0.0.1:${port}/shutdown`
 }
 
 export async function handleAdminShutdownCommand({
   canDeploy,
   beforeShutdown = null,
-  agones = createAgonesSdkHttp(),
+  shutdownUrl = resolveAgonesShutdownUrl(),
+  fetchImpl = globalThis.fetch,
 } = {}) {
   if (!canDeploy) {
     return {
@@ -24,7 +26,7 @@ export async function handleAdminShutdownCommand({
     }
   }
 
-  if (!agones || typeof agones.shutdown !== 'function') {
+  if (!shutdownUrl || typeof fetchImpl !== 'function') {
     return {
       ok: false,
       error: 'shutdown_unavailable',
@@ -45,12 +47,19 @@ export async function handleAdminShutdownCommand({
   }
 
   try {
-    await agones.shutdown()
-  } catch (err) {
+    const response = await fetchImpl(shutdownUrl, { method: 'POST' })
+    if (!response?.ok) {
+      return {
+        ok: false,
+        error: 'shutdown_request_failed',
+        reason: `agones_sdk_status_${response?.status ?? 'unknown'}`,
+      }
+    }
+  } catch {
     return {
       ok: false,
       error: 'shutdown_request_failed',
-      reason: resolveShutdownRequestFailureReason(err),
+      reason: 'request_failed',
     }
   }
 

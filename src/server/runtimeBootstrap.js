@@ -41,12 +41,6 @@ export function resolveRuntimeBootstrapMode(env = process.env) {
   return null
 }
 
-export function usesHostedRuntimeBootstrap(env = process.env) {
-  if (hasValue(env.RUNTIME_BOOTSTRAP_URL)) return true
-  if (hasValue(env.RUNTIME_BOOTSTRAP_MODE)) return true
-  return !hasValue(env.WORLD_ID) && (hasValue(env.RUNTIME_BOOTSTRAP_INSTANCE_ID) || hasValue(env.POD_NAME))
-}
-
 export function clearPushRuntimeBindingEnv(env = process.env) {
   for (const key of PUSH_RUNTIME_BINDING_ENV_KEYS) {
     delete env[key]

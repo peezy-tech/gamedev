@@ -28,12 +28,15 @@ test('agones idle controller stays on when the timeout is disabled', async () =>
   const controller = createAgonesIdleController({
     enabled: true,
     timeoutMs: 0,
-    agones: {
-      shutdown: async () => {
-        requests.push('shutdown')
-      },
-    },
+    shutdownUrl: 'http://127.0.0.1:9358/shutdown',
     getActiveSessionCount: () => 0,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options })
+      return {
+        ok: true,
+        status: 200,
+      }
+    },
     logger: createSilentLogger(),
   })
 
@@ -49,15 +52,18 @@ test('agones idle controller saves before requesting shutdown once the world is 
   const controller = createAgonesIdleController({
     enabled: true,
     timeoutMs: 10,
-    agones: {
-      shutdown: async () => {
-        events.push('shutdown')
-        requests.push('shutdown')
-      },
-    },
+    shutdownUrl: 'http://127.0.0.1:9358/shutdown',
     getActiveSessionCount: () => 0,
     beforeShutdown: async () => {
       events.push('save')
+    },
+    fetchImpl: async (url, options) => {
+      events.push('shutdown')
+      requests.push({ url, options })
+      return {
+        ok: true,
+        status: 200,
+      }
     },
     logger: createSilentLogger(),
   })
@@ -67,6 +73,10 @@ test('agones idle controller saves before requesting shutdown once the world is 
 
   assert.equal(requests.length, 1)
   assert.deepEqual(events, ['save', 'shutdown'])
+  assert.deepEqual(requests[0], {
+    url: 'http://127.0.0.1:9358/shutdown',
+    options: { method: 'POST' },
+  })
 })
 
 test('agones idle controller does not request shutdown when saving the world fails', async () => {
@@ -74,14 +84,17 @@ test('agones idle controller does not request shutdown when saving the world fai
   const controller = createAgonesIdleController({
     enabled: true,
     timeoutMs: 10,
-    agones: {
-      shutdown: async () => {
-        requests.push('shutdown')
-      },
-    },
+    shutdownUrl: 'http://127.0.0.1:9358/shutdown',
     getActiveSessionCount: () => 0,
     beforeShutdown: async () => {
       throw new Error('save_failed')
+    },
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options })
+      return {
+        ok: true,
+        status: 200,
+      }
     },
     logger: createSilentLogger(),
   })
@@ -99,12 +112,15 @@ test('agones idle controller cancels a pending shutdown when sessions return', a
   const controller = createAgonesIdleController({
     enabled: true,
     timeoutMs: 25,
-    agones: {
-      shutdown: async () => {
-        requests.push('shutdown')
-      },
-    },
+    shutdownUrl: 'http://127.0.0.1:9358/shutdown',
     getActiveSessionCount: () => activeSessions,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options })
+      return {
+        ok: true,
+        status: 200,
+      }
+    },
     logger: createSilentLogger(),
   })
 
@@ -115,19 +131,4 @@ test('agones idle controller cancels a pending shutdown when sessions return', a
 
   assert.equal(requests.length, 0)
   controller.clearIdleShutdownTimer('test_cleanup')
-})
-
-test('agones idle controller is inert when Agones is unavailable', async () => {
-  const controller = createAgonesIdleController({
-    enabled: true,
-    timeoutMs: 10,
-    agones: null,
-    getActiveSessionCount: () => 0,
-    logger: createSilentLogger(),
-  })
-
-  controller.reconcileIdleShutdown('startup')
-  await sleep(40)
-
-  assert.equal(typeof controller.requestAgonesShutdown, 'function')
 })

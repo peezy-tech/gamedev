@@ -268,7 +268,6 @@ function serializeEntitiesForAdmin(world) {
   return world.entities.serialize().filter(entity => entity?.type !== 'player')
 }
 
-
 function sendRuntimeNotReady(reply, state = null) {
   reply.header('Retry-After', '1')
   return reply.code(503).send({
@@ -281,16 +280,7 @@ function sendRuntimeNotReady(reply, state = null) {
 
 export async function admin(
   fastify,
-  {
-    world,
-    assets,
-    adminHtmlPath,
-    onConnectionCountChanged,
-    agones = null,
-    getAgones = null,
-    isRuntimeReady = null,
-    getRuntimeState = null,
-  } = {}
+  { world, assets, adminHtmlPath, onConnectionCountChanged, isRuntimeReady, getRuntimeState } = {}
 ) {
   const adminCredentialRevealEnabled = isAdminCredentialRevealEnabled(process.env)
   const subscribers = new Set()
@@ -299,7 +289,6 @@ export async function admin(
   const db = world?.network?.db
   const runtimeReady = typeof isRuntimeReady === 'function' ? isRuntimeReady : () => true
   const runtimeState = typeof getRuntimeState === 'function' ? getRuntimeState : () => null
-  const resolveAgones = typeof getAgones === 'function' ? getAgones : () => agones
   let changefeedWriteQueue = Promise.resolve()
   const deployLocks = new Map()
   const lockTtlSeconds = Number.parseInt(process.env.DEPLOY_LOCK_TTL || '120', 10)
@@ -884,7 +873,6 @@ export async function admin(
           if (data.type === ADMIN_SHUTDOWN_COMMAND) {
             const commandResult = await handleAdminShutdownCommand({
               canDeploy: capabilities.deploy,
-              agones: resolveAgones(),
               beforeShutdown: async () => {
                 await world.network.save()
               },
