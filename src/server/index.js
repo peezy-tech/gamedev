@@ -13,10 +13,13 @@ import multipart from '@fastify/multipart'
 
 import { admin } from './admin'
 import { createDeferredResource } from './deferredResource.js'
+import { createAgonesPlayerTracker } from './agonesPlayerTracking.js'
+import { createAgonesSdkHttp } from './agonesSdkHttp.js'
 import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from './agonesIdleShutdown.js'
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { resolveAuthRuntimeConfig } from './authModes'
+import { completeRuntimeStartup } from './runtimeStartup.js'
 import {
   applyHostedRuntimeBootstrapPayload,
   buildRuntimeBootstrapId,
@@ -41,7 +44,6 @@ import { Ranks } from '../core/extras/ranks'
 const rootDir = path.join(__dirname, '../')
 const publicDir = path.join(__dirname, 'public')
 const adminHtmlPath = path.join(publicDir, 'admin.html')
-const AGONES_SDK_DEFAULT_HTTP_PORT = 9358
 const MIME_TYPES = {
   '.aac': 'audio/aac',
   '.bin': 'application/octet-stream',
@@ -285,6 +287,15 @@ function createNoopAgonesIdleController() {
     clearIdleShutdownTimer() {},
     reconcileIdleShutdown() {},
     requestAgonesShutdown() {},
+  }
+}
+
+function createNoopAgonesPlayerTracker() {
+  return {
+    enabled: false,
+    publishCapacity: async () => false,
+    start: () => false,
+    stop() {},
   }
 }
 
@@ -621,6 +632,8 @@ function buildRuntimeState({ initialBinding = null, initialSource = null } = {})
       storage: null,
       world: null,
       worldDir: null,
+      agones: null,
+      agonesPlayerTracker: createNoopAgonesPlayerTracker(),
       agonesIdleController: createNoopAgonesIdleController(),
     },
   }
@@ -692,34 +705,46 @@ function updateAdminConnectionCount(channel, count) {
   runtimeState.resources.agonesIdleController.reconcileIdleShutdown(`admin_${channel}`)
 }
 
-async function configureAgonesIdleShutdown(world) {
-  const agonesSdkHttpPort = Number.parseInt(process.env.AGONES_SDK_HTTP_PORT || '', 10)
-  const sdkPort = Number.isFinite(agonesSdkHttpPort) && agonesSdkHttpPort > 0 ? agonesSdkHttpPort : AGONES_SDK_DEFAULT_HTTP_PORT
-  const timeoutMs = resolveAgonesIdleShutdownTimeoutMs(process.env)
-  const enabled = timeoutMs > 0
-  const shutdownUrl = `http://127.0.0.1:${sdkPort}/shutdown`
-
-  runtimeState.resources.agonesIdleController = createAgonesIdleController({
-    enabled,
-    timeoutMs,
-    shutdownUrl,
+function configureAgonesIntegration(world) {
+  const agones = createAgonesSdkHttp({ env: process.env })
+  const idleTimeoutMs = resolveAgonesIdleShutdownTimeoutMs(process.env)
+  const agonesIdleControllerEnabled = !!agones && idleTimeoutMs > 0
+  const agonesIdleController = createAgonesIdleController({
+    enabled: agonesIdleControllerEnabled,
+    timeoutMs: idleTimeoutMs,
+    agones,
     getActiveSessionCount,
     beforeShutdown: async () => {
       await world.network.save()
     },
   })
-
-  if (!enabled) return
-
-  world.network.on('playerJoined', () => {
-    runtimeState.resources.agonesIdleController.reconcileIdleShutdown('player_joined')
+  const agonesPlayerTracker = createAgonesPlayerTracker({
+    agones,
+    world,
+    env: process.env,
   })
-  world.network.on('playerLeft', () => {
-    runtimeState.resources.agonesIdleController.reconcileIdleShutdown('player_left')
-  })
+  agonesPlayerTracker.start()
 
-  console.info(`[agones-idle] enabled with timeout=${timeoutMs / 1000}s`)
-  runtimeState.resources.agonesIdleController.reconcileIdleShutdown('ready')
+  runtimeState.resources.agones = agones
+  runtimeState.resources.agonesPlayerTracker = agonesPlayerTracker
+  runtimeState.resources.agonesIdleController = agonesIdleController
+
+  if (agonesIdleControllerEnabled) {
+    world.network.on('playerJoined', () => {
+      runtimeState.resources.agonesIdleController.reconcileIdleShutdown('player_joined')
+    })
+    world.network.on('playerLeft', () => {
+      runtimeState.resources.agonesIdleController.reconcileIdleShutdown('player_left')
+    })
+  }
+
+  return {
+    agones,
+    agonesIdleController,
+    agonesIdleControllerEnabled,
+    agonesPlayerTracker,
+    idleTimeoutMs,
+  }
 }
 
 async function initializeRuntime({ source, binding = null } = {}) {
@@ -774,7 +799,20 @@ async function initializeRuntime({ source, binding = null } = {}) {
     runtimeState.registryState = createRegistryState(process.env)
 
     flushWorldProxyCalls()
-    await configureAgonesIdleShutdown(world)
+    const agonesIntegration = configureAgonesIntegration(world)
+
+    await completeRuntimeStartup({
+      agones: agonesIntegration.agones,
+      agonesIdleController: agonesIntegration.agonesIdleController,
+      agonesIdleControllerEnabled: agonesIntegration.agonesIdleControllerEnabled,
+      idleTimeoutMs: agonesIntegration.idleTimeoutMs,
+      registryState: runtimeState.registryState,
+      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+      commitHash: process.env.COMMIT_HASH || null,
+      registerWithRegistryImpl: (registryState, payload) => {
+        void registerWithRegistry(registryState, payload)
+      },
+    })
 
     setRuntimeLifecycleState(runtimeState, 'ready', {
       bootstrapId:
@@ -788,14 +826,13 @@ async function initializeRuntime({ source, binding = null } = {}) {
       worldSlug: binding?.world?.slug || runtimeState.lifecycle.worldSlug,
     })
 
-    void registerWithRegistry(runtimeState.registryState, {
-      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
-      commitHash: process.env.COMMIT_HASH || null,
-    })
+    void agonesIntegration.agonesPlayerTracker.publishCapacity('startup')
 
     return world
   })()
     .catch(err => {
+      runtimeState.resources.agonesIdleController.clearIdleShutdownTimer('bootstrap_failed')
+      runtimeState.resources.agonesPlayerTracker.stop?.()
       setRuntimeLifecycleState(runtimeState, 'failed', {
         bootstrapId: runtimeState.lifecycle.bootstrapId,
         source,
@@ -1154,9 +1191,10 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
     world: worldProxy,
     assets: assetsProxy,
     adminHtmlPath,
-    onConnectionCountChanged: count => updateAdminConnectionCount(connectionChannel, count),
+    getAgones: () => runtimeState.resources.agones,
     isRuntimeReady: () => isRuntimeReady(runtimeState),
     getRuntimeState: () => runtimeState.lifecycle.state,
+    onConnectionCountChanged: count => updateAdminConnectionCount(connectionChannel, count),
   })
 
   app.route({
@@ -1217,8 +1255,8 @@ if (useDualPort) {
     logger: { level: 'error' },
     https: tlsConfig,
   })
-  
-  await wssServer.register(ws)  
+
+  await wssServer.register(ws)
   registerCommonRoutes(wssServer, { includeBootstrapControl: true, connectionChannel: 'wss' })
 }
 
@@ -1254,6 +1292,7 @@ if (hasInitialWorldBinding) {
 
 async function shutdown(reason) {
   runtimeState.resources.agonesIdleController.clearIdleShutdownTimer(reason)
+  runtimeState.resources.agonesPlayerTracker.stop?.()
   if (runtimeState.resources.world?.network?.save) {
     await runtimeState.resources.world.network.save()
   }
