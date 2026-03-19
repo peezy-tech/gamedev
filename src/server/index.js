@@ -673,6 +673,29 @@ const runtimeState = buildRuntimeState({
   initialBinding: initialRuntimeBinding,
   initialSource: initialRuntimeSource,
 })
+
+if (runtimeState.lifecycle.state === 'standby' && hasValue(process.env.AGONES_SDK_HTTP_PORT)) {
+  const standbyAgones = createAgonesSdkHttp({ env: process.env })
+  if (standbyAgones && typeof standbyAgones.ready === 'function') {
+    void (async () => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        try {
+          await standbyAgones.ready()
+          console.info('[agones] requested Agones Ready')
+          return
+        } catch (err) {
+          if (attempt === 9) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.warn(`[agones] failed to request Agones Ready (${message})`)
+            return
+          }
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+    })()
+  }
+}
+
 if (runtimeState.lifecycle.state === 'standby') {
   logRuntimeEvent('info', 'standby', runtimeState)
 }

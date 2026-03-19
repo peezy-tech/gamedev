@@ -85,6 +85,34 @@ async function startControlPlaneStub({ issuer } = {}) {
   }
 }
 
+async function startAgonesReadyStub() {
+  const requests = []
+  const server = http.createServer((req, res) => {
+    requests.push({
+      method: req.method,
+      url: req.url,
+    })
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ ok: true }))
+  })
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+
+  const address = server.address()
+  const port = typeof address === 'object' && address ? address.port : 0
+
+  return {
+    port,
+    requests,
+    async stop() {
+      await new Promise(resolve => server.close(resolve))
+    },
+  }
+}
+
 function buildStandbyBinding({ worldId, runtimeInstanceId, worldUrl, auth = {}, controlInternalBaseUrl = 'http://world-service.internal/api' } = {}) {
   return {
     bootstrapId: `${worldId}:${runtimeInstanceId}`,
@@ -195,6 +223,31 @@ test('runtime boots into standby with pre-init bootstrap status', async t => {
   assert.equal(status.state, 'standby')
   assert.equal(status.runtime.instanceId, server.runtimeInstanceId)
   assert.equal(status.world.id, null)
+})
+
+test('runtime requests Agones Ready while booting into standby when the SDK sidecar is configured', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const agonesStub = await startAgonesReadyStub()
+  t.after(async () => {
+    await agonesStub.stop()
+  })
+
+  const server = await startStandbyRuntimeServer({
+    env: {
+      AGONES_SDK_HTTP_PORT: String(agonesStub.port),
+    },
+  })
+  t.after(async () => {
+    await server.stop()
+  })
+
+  await waitFor(() => agonesStub.requests.find(request => request.method === 'POST' && request.url === '/ready') || false)
+
+  assert.ok(agonesStub.requests.find(request => request.method === 'POST' && request.url === '/ready'))
 })
 
 test('runtime gates gameplay and admin entrypoints until bootstrap is ready', async t => {
