@@ -21,6 +21,7 @@ export async function completeRuntimeStartup({
   agonesIdleController = null,
   agonesIdleControllerEnabled = false,
   idleTimeoutMs = 0,
+  requestAgonesReady = true,
   registryState = null,
   worldId = null,
   commitHash = null,
@@ -29,7 +30,7 @@ export async function completeRuntimeStartup({
 } = {}) {
   const log = createLogger(logger)
 
-  if (agones && typeof agones.ready === 'function') {
+  if (requestAgonesReady && agones && typeof agones.ready === 'function') {
     try {
       await agones.ready()
       log.info('[agones] requested Agones Ready')

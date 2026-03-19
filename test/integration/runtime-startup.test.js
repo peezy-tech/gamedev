@@ -83,3 +83,35 @@ test('completeRuntimeStartup fails fast when Agones Ready cannot be delivered', 
   assert.deepEqual(messages.info, [])
   assert.deepEqual(messages.error, ['[agones] failed to request Agones Ready (fetch failed)'])
 })
+
+test('completeRuntimeStartup skips Agones Ready when requestAgonesReady is false', async () => {
+  const events = []
+  const { logger, messages } = createLogger()
+
+  await completeRuntimeStartup({
+    agones: {
+      ready: async () => {
+        events.push('ready')
+      },
+    },
+    agonesIdleControllerEnabled: true,
+    agonesIdleController: {
+      reconcileIdleShutdown: reason => {
+        events.push(`idle:${reason}`)
+      },
+    },
+    idleTimeoutMs: 15000,
+    requestAgonesReady: false,
+    registryState: { listable: true },
+    worldId: 'world-123',
+    commitHash: 'abc123',
+    registerWithRegistryImpl: async (_registryState, payload) => {
+      events.push(`registry:${payload.worldId}:${payload.commitHash}`)
+    },
+    logger,
+  })
+
+  assert.deepEqual(events, ['idle:startup', 'registry:world-123:abc123'])
+  assert.deepEqual(messages.error, [])
+  assert.deepEqual(messages.info, ['[agones-idle] enabled with timeout=15s'])
+})

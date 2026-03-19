@@ -829,6 +829,7 @@ async function initializeRuntime({ source, binding = null } = {}) {
       agonesIdleController: agonesIntegration.agonesIdleController,
       agonesIdleControllerEnabled: agonesIntegration.agonesIdleControllerEnabled,
       idleTimeoutMs: agonesIntegration.idleTimeoutMs,
+      requestAgonesReady: source !== 'push',
       registryState: runtimeState.registryState,
       worldId: world?.network?.worldId || process.env.WORLD_ID || null,
       commitHash: process.env.COMMIT_HASH || null,
