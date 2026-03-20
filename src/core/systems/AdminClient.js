@@ -37,7 +37,6 @@ function normalizeRuntimeCredentials(data) {
   return {
     worldId: normalizeRuntimeCredentialValue(data.worldId),
     hasAdminCode: !!data.hasAdminCode,
-    canRevealAdminCode: !!data.canRevealAdminCode,
     adminCode: normalizeRuntimeCredentialValue(data.adminCode),
   }
 }

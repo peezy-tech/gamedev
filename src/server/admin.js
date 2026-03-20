@@ -7,7 +7,6 @@ import { readJWT } from '../core/utils-server.js'
 import { cleaner } from './cleaner'
 import {
   ADMIN_CREDENTIAL_COMMAND,
-  isAdminCredentialRevealEnabled,
   handleRuntimeCredentialCommand,
 } from './adminCredentials.js'
 import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
@@ -292,7 +291,6 @@ export async function admin(
     getRuntimeState = null,
   } = {}
 ) {
-  const adminCredentialRevealEnabled = isAdminCredentialRevealEnabled(process.env)
   const subscribers = new Set()
   const playerSubscribers = new Set()
   const runtimeSubscribers = new Set()
@@ -324,7 +322,6 @@ export async function admin(
       allowed: !!allowed,
       revealed: !!revealed,
       reason,
-      revealEnabled: adminCredentialRevealEnabled,
       worldId: world?.network?.worldId || process.env.WORLD_ID || null,
       remoteAddress: req?.socket?.remoteAddress || null,
       userAgent: req?.headers?.['user-agent'] || null,
@@ -905,7 +902,6 @@ export async function admin(
           if (data.type === ADMIN_CREDENTIAL_COMMAND) {
             const commandResult = handleRuntimeCredentialCommand({
               canDeploy: capabilities.deploy,
-              revealEnabled: adminCredentialRevealEnabled,
               worldId: world?.network?.worldId || process.env.WORLD_ID || null,
               adminCode: process.env.ADMIN_CODE,
             })

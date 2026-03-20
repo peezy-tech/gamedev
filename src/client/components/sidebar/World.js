@@ -231,13 +231,6 @@ export function World({ world, hidden }) {
     }
   }
 
-  const hasAdminCode = !!runtimeCredentials?.hasAdminCode
-  const canRevealAdminCode = !!runtimeCredentials?.canRevealAdminCode
-  const adminCodeValue = normalizeCredentialValue(runtimeCredentials?.adminCode)
-  const adminCodeDisplay = adminCodeValue || (hasAdminCode ? '••••••••' : 'Not set')
-  const worldIdValue = runtimeCredentials?.worldId || 'Unavailable'
-  const worldUrlValue = resolveWorldUrl() || 'Unavailable'
-
   return (
     <Pane hidden={hidden}>
       <div
@@ -412,15 +405,6 @@ export function World({ world, hidden }) {
               )}
               {!runtimeCredentials && credentialsLoading && (
                 <div className='world-credentials-note'>Loading runtime credentials...</div>
-              )}
-              {runtimeCredentials && (
-                <>
-                  {hasAdminCode && !canRevealAdminCode && !adminCodeValue && (
-                    <div className='world-credentials-note'>
-                      Admin code reveal is disabled by operator (`ADMIN_CREDENTIAL_REVEAL_ENABLED=false`).
-                    </div>
-                  )}
-                </>
               )}
               <FieldToggle
                 label='Copy Setup Prompt'
