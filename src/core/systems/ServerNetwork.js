@@ -9,7 +9,7 @@ import * as THREE from '../extras/three'
 import { Ranks } from '../extras/ranks'
 import { validateBlueprintScriptFields } from '../blueprintValidation'
 import { ensureBlueprintSyncMetadata, ensureEntitySyncMetadata } from '../../server/syncMetadata.js'
-import { getWorldMaxPlayers } from '../../server/worldLimits.js'
+import { getMaxUploadSizeMb, getWorldMaxPlayers } from '../../server/worldLimits.js'
 import { deriveAdminUrlFromRequest } from '../../server/forwardedPrefix.js'
 
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
@@ -562,7 +562,7 @@ export class ServerNetwork extends System {
         assetsUrl: process.env.ASSETS_BASE_URL,
         apiUrl,
         adminUrl,
-        maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
+        maxUploadSize: getMaxUploadSizeMb(),
         settings: this.world.settings.serialize(),
         chat: this.world.chat.serialize(),
         blueprints: this.world.blueprints.serialize(),

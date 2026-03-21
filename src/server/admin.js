@@ -713,7 +713,7 @@ export async function admin(
     sendPacket(ws, 'snapshot', {
       serverTime: performance.now(),
       assetsUrl: assets.url,
-      maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
+      maxUploadSize: getMaxUploadSizeMb(),
       settings: world.settings.serialize(),
       spawn: world.network.spawn,
       blueprints: world.blueprints.serialize(),
@@ -1228,7 +1228,7 @@ export async function admin(
     return {
       worldId: network.worldId,
       assetsUrl: assets.url,
-      maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
+      maxUploadSize: getMaxUploadSizeMb(),
       settings: world.settings.serialize(),
       spawn: network.spawn,
       blueprints: world.blueprints.serialize(),
@@ -1530,7 +1530,11 @@ export async function admin(
     const maxUploadSizeMb = getMaxUploadSizeMb()
     let mp
     try {
-      mp = await req.file()
+      mp = await req.file({
+        limits: {
+          fileSize: maxUploadSizeBytes,
+        },
+      })
     } catch (error) {
       if (isUploadTooLargeError(error)) {
         return reply.code(413).send({ error: 'upload_too_large', maxUploadSize: maxUploadSizeMb })
