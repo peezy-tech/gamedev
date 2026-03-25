@@ -46,9 +46,9 @@ export function createAgonesPlayerTracker({
   const log = createLogger(logger)
   const canTrackPlayers =
     !!agones &&
-    typeof agones.setPlayerCapacity === 'function' &&
-    typeof agones.playerConnect === 'function' &&
-    typeof agones.playerDisconnect === 'function'
+    typeof agones.updateList === 'function' &&
+    typeof agones.addListValue === 'function' &&
+    typeof agones.removeListValue === 'function'
   const canSubscribe =
     !!world &&
     typeof world?.settings?.on === 'function' &&
@@ -80,7 +80,9 @@ export function createAgonesPlayerTracker({
     }
 
     try {
-      await agones.setPlayerCapacity(nextCapacity)
+      await agones.updateList('players', {
+        capacity: String(nextCapacity),
+      })
       lastPublishedCapacity = nextCapacity
       log.info(`[agones] updated player capacity to ${nextCapacity} (${reason})`)
       return true
@@ -100,11 +102,8 @@ export function createAgonesPlayerTracker({
     }
 
     try {
-      const connected = await agones.playerConnect(normalizedPlayerId)
-      if (connected === false) {
-        log.info(`[agones] player connect ignored for ${normalizedPlayerId} (already connected)`)
-      }
-      return connected !== false
+      await agones.addListValue('players', normalizedPlayerId)
+      return true
     } catch (err) {
       log.warn(`[agones] failed to track player connect for ${normalizedPlayerId} (${formatErrorMessage(err)})`)
       return false
@@ -121,11 +120,8 @@ export function createAgonesPlayerTracker({
     }
 
     try {
-      const disconnected = await agones.playerDisconnect(normalizedPlayerId)
-      if (disconnected === false) {
-        log.info(`[agones] player disconnect ignored for ${normalizedPlayerId} (not connected)`)
-      }
-      return disconnected !== false
+      await agones.removeListValue('players', normalizedPlayerId)
+      return true
     } catch (err) {
       log.warn(`[agones] failed to track player disconnect for ${normalizedPlayerId} (${formatErrorMessage(err)})`)
       return false
