@@ -66,25 +66,33 @@ export function createAgonesSdkHttp({ env = process.env, fetchImpl = globalThis.
     ready() {
       return request('/ready')
     },
-    async setPlayerCapacity(count) {
-      return request('/alpha/player/capacity', {
-        method: 'PUT',
-        body: { count },
+    async getList(name) {
+      const response = await request(`/v1beta1/lists/${encodeURIComponent(name)}`, {
+        method: 'GET',
       })
+      return readJsonResponse(response)
     },
-    async playerConnect(playerID) {
-      const response = await request('/alpha/player/connect', {
-        body: { playerID },
+
+    async updateList(name, body) {
+      const response = await request(`/v1beta1/lists/${encodeURIComponent(name)}`, {
+        method: 'PATCH',
+        body,
       })
-      const payload = await readJsonResponse(response)
-      return normalizeAgonesBool(payload?.bool)
+      return readJsonResponse(response)
     },
-    async playerDisconnect(playerID) {
-      const response = await request('/alpha/player/disconnect', {
-        body: { playerID },
+
+    async addListValue(name, value) {
+      const response = await request(`/v1beta1/lists/${encodeURIComponent(name)}:addValue`, {
+        body: { value },
       })
-      const payload = await readJsonResponse(response)
-      return normalizeAgonesBool(payload?.bool)
+      return readJsonResponse(response)
+    },
+
+    async removeListValue(name, value) {
+      const response = await request(`/v1beta1/lists/${encodeURIComponent(name)}:removeValue`, {
+        body: { value },
+      })
+      return readJsonResponse(response)
     },
     shutdown() {
       return request('/shutdown')
