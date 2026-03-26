@@ -53,15 +53,15 @@ test('createAgonesPlayerTracker wires playerJoined and playerLeft events into Ag
     env: {},
     logger,
     agones: {
-      async setPlayerCapacity(capacity) {
-        events.push(['capacity', capacity])
+      async updateList(name, body) {
+        events.push(['capacity', name, body.capacity])
       },
-      async playerConnect(playerId) {
-        events.push(['connect', playerId])
+      async addListValue(name, playerId) {
+        events.push(['connect', name, playerId])
         return true
       },
-      async playerDisconnect(playerId) {
-        events.push(['disconnect', playerId])
+      async removeListValue(name, playerId) {
+        events.push(['disconnect', name, playerId])
         return false
       },
     },
@@ -74,14 +74,14 @@ test('createAgonesPlayerTracker wires playerJoined and playerLeft events into Ag
   await setImmediatePromise()
 
   assert.deepEqual(events, [
-    ['connect', 'player-1'],
-    ['disconnect', 'player-1'],
+    ['connect', 'players', 'player-1'],
+    ['disconnect', 'players', 'player-1'],
   ])
   assert.deepEqual(messages.warn, [])
-  assert.deepEqual(messages.info, ['[agones] player disconnect ignored for player-1 (not connected)'])
+  assert.deepEqual(messages.info, [])
 })
 
-test('createAgonesPlayerTracker publishes startup capacity and playerLimit updates', async () => {
+test('createAgonesPlayerTracker does not publish the stale startup capacity before playerLimit is loaded', async () => {
   const world = createWorld(null)
   const capacities = []
   const { logger, messages } = createLogger()
@@ -92,20 +92,58 @@ test('createAgonesPlayerTracker publishes startup capacity and playerLimit updat
     },
     logger,
     agones: {
-      async setPlayerCapacity(capacity) {
-        capacities.push(capacity)
+      async updateList(name, body) {
+        capacities.push([name, Number(body.capacity)])
       },
-      async playerConnect() {
+      async addListValue() {
         return true
       },
-      async playerDisconnect() {
+      async removeListValue() {
         return true
       },
     },
   })
 
   tracker.start()
-  await tracker.publishCapacity('startup')
+
+  world.settings.playerLimit = 18
+  world.settings.emit('change', {
+    playerLimit: { prev: null, value: 18 },
+  })
+  await setImmediatePromise()
+
+  assert.deepEqual(capacities, [['players', 18]])
+  assert.deepEqual(messages.warn, [])
+  assert.deepEqual(messages.info, [
+    '[agones] updated player capacity to 18 (player_limit_changed)',
+  ])
+})
+
+test('createAgonesPlayerTracker publishes the current capacity after bootstrap', async () => {
+  const world = createWorld(null)
+  const capacities = []
+  const { logger, messages } = createLogger()
+  const tracker = createAgonesPlayerTracker({
+    world,
+    env: {
+      PUBLIC_WORLD_MAX_PLAYERS: '40',
+    },
+    logger,
+    agones: {
+      async updateList(name, body) {
+        capacities.push([name, Number(body.capacity)])
+      },
+      async addListValue() {
+        return true
+      },
+      async removeListValue() {
+        return true
+      },
+    },
+  })
+
+  tracker.start()
+  await tracker.publishCapacity('bootstrap_ready')
 
   world.settings.playerLimit = 18
   world.settings.emit('change', {
@@ -119,10 +157,13 @@ test('createAgonesPlayerTracker publishes startup capacity and playerLimit updat
   })
   await setImmediatePromise()
 
-  assert.deepEqual(capacities, [40, 18])
+  assert.deepEqual(capacities, [
+    ['players', 40],
+    ['players', 18],
+  ])
   assert.deepEqual(messages.warn, [])
   assert.deepEqual(messages.info, [
-    '[agones] updated player capacity to 40 (startup)',
+    '[agones] updated player capacity to 40 (bootstrap_ready)',
     '[agones] updated player capacity to 18 (player_limit_changed)',
   ])
 })
