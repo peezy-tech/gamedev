@@ -690,6 +690,30 @@ test('runtime emits step-level bootstrap debug logs when enabled', async t => {
   )
   assert.equal(initStartEvent.stage, 'resolve_env')
 
+  const assetsInitEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_assets_init_complete',
+    entry => entry.debug === true && entry.worldId === worldId
+  )
+  assert.equal(assetsInitEvent.stage, 'assets_init')
+  assert.equal(typeof assetsInitEvent.stepDurationMs, 'number')
+
+  const getDbEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_get_db_complete',
+    entry => entry.debug === true && entry.worldId === worldId
+  )
+  assert.equal(getDbEvent.stage, 'get_db')
+  assert.equal(typeof getDbEvent.stepDurationMs, 'number')
+
+  const storageInitEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_storage_init_complete',
+    entry => entry.debug === true && entry.worldId === worldId
+  )
+  assert.equal(storageInitEvent.stage, 'storage_init')
+  assert.equal(typeof storageInitEvent.stepDurationMs, 'number')
+
   const worldInitCompleteEvent = await waitForRuntimeEvent(
     server,
     'bootstrap_world_init_complete',

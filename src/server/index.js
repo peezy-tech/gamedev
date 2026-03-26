@@ -857,15 +857,53 @@ async function initializeRuntime({ source, binding = null } = {}) {
       stage,
     })
 
-    stage = 'prepare_storage'
+    stage = 'assets_init'
     await fs.ensureDir(worldDir)
+    const assetsInitStartedAt = Date.now()
     await assets.init({ rootDir, worldDir })
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_assets_init_complete', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      stepDurationMs: Date.now() - assetsInitStartedAt,
+      worldDir,
+    })
 
+    stage = 'get_db'
+    const getDbStartedAt = Date.now()
     const db = await getDB({ worldDir })
-    await cleaner.init({ db })
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_get_db_complete', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      stepDurationMs: Date.now() - getDbStartedAt,
+      worldDir,
+    })
 
+    stage = 'cleaner_init'
+    const cleanerInitStartedAt = Date.now()
+    await cleaner.init({ db })
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_cleaner_init_complete', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      stepDurationMs: Date.now() - cleanerInitStartedAt,
+      worldDir,
+    })
+
+    stage = 'storage_init'
     const storage = new Storage(db)
+    const storageInitStartedAt = Date.now()
     await storage.init()
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_storage_init_complete', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      stepDurationMs: Date.now() - storageInitStartedAt,
+      worldDir,
+    })
+
+    stage = 'prepare_storage'
     logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_storage_ready', {
       durationMs: Date.now() - startedAt,
       source,
