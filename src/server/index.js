@@ -850,7 +850,7 @@ async function initializeRuntime({ source, binding = null } = {}) {
       worldSlug: binding?.world?.slug || runtimeState.lifecycle.worldSlug,
     })
 
-    void agonesIntegration.agonesPlayerTracker.publishCapacity('bootstrap_ready')
+    void agonesIntegration.agonesPlayerTracker.publishCapacity('startup')
 
     return world
   })()

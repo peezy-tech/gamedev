@@ -147,6 +147,7 @@ export function createAgonesPlayerTracker({
     world.settings.on('change', onSettingsChange)
     world.network.on('playerJoined', onPlayerJoined)
     world.network.on('playerLeft', onPlayerLeft)
+    void publishCapacity('startup')
     return true
   }
 
