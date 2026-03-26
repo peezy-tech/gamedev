@@ -89,6 +89,14 @@ function nowIso() {
   return new Date().toISOString()
 }
 
+function isTruthyEnvFlag(value) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
 function logRuntimeEvent(level, event, state, extra = {}) {
   const payload = {
     component: 'runtime',
@@ -136,6 +144,14 @@ function logRuntimeEvent(level, event, state, extra = {}) {
     return
   }
   console.info(JSON.stringify(payload))
+}
+
+function logRuntimeBootstrapDebug(state, event, extra = {}) {
+  if (!runtimeBootstrapDebugEnabled) return
+  logRuntimeEvent('info', event, state, {
+    debug: true,
+    ...extra,
+  })
 }
 
 function resolveDocsRoot() {
@@ -210,6 +226,12 @@ async function syncRuntimePublicConfigFromLobby() {
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 4000)
+  const startedAt = Date.now()
+
+  logRuntimeBootstrapDebug(null, 'bootstrap_metadata_fetch_start', {
+    url: endpoint,
+    runtimeInstanceId: resolveRuntimeBootstrapInstanceId(process.env),
+  })
 
   try {
     const response = await fetch(endpoint, {
@@ -222,6 +244,11 @@ async function syncRuntimePublicConfigFromLobby() {
     })
 
     if (!response.ok) {
+      logRuntimeBootstrapDebug(null, 'bootstrap_metadata_fetch_failed', {
+        durationMs: Date.now() - startedAt,
+        responseStatus: response.status,
+        runtimeInstanceId: resolveRuntimeBootstrapInstanceId(process.env),
+      })
       console.warn(`[startup] runtime bootstrap metadata request failed (${response.status})`)
       return null
     }
@@ -235,9 +262,23 @@ async function syncRuntimePublicConfigFromLobby() {
     if (appliedKeys.length) {
       console.info(`[startup] runtime bootstrap metadata applied: ${appliedKeys.join(', ')}`)
     }
+    logRuntimeBootstrapDebug(null, 'bootstrap_metadata_fetch_success', {
+      appliedKeys,
+      bootstrapId: binding?.bootstrapId || null,
+      durationMs: Date.now() - startedAt,
+      responseStatus: response.status,
+      runtimeInstanceId: resolveRuntimeBootstrapInstanceId(process.env),
+      worldId: binding?.world?.id || process.env.WORLD_ID || null,
+      worldSlug: binding?.world?.slug || null,
+    })
     return binding
   } catch (err) {
     const message = err?.name === 'AbortError' ? 'timeout' : err?.message || String(err)
+    logRuntimeBootstrapDebug(null, 'bootstrap_metadata_fetch_failed', {
+      durationMs: Date.now() - startedAt,
+      error: err,
+      runtimeInstanceId: resolveRuntimeBootstrapInstanceId(process.env),
+    })
     console.warn(`[startup] runtime bootstrap metadata request failed (${message})`)
     return null
   } finally {
@@ -643,6 +684,7 @@ validateStaticRuntimeEnv(process.env)
 validateRuntimeBootstrapMode(process.env)
 
 const runtimeBootstrapMode = resolveRuntimeBootstrapMode(process.env)
+const runtimeBootstrapDebugEnabled = isTruthyEnvFlag(process.env.RUNTIME_BOOTSTRAP_DEBUG)
 if (runtimeBootstrapMode === 'push' && !hasValue(process.env.RUNTIME_BOOTSTRAP_MODE)) {
   process.env.RUNTIME_BOOTSTRAP_MODE = 'push'
 }
@@ -778,9 +820,24 @@ async function initializeRuntime({ source, binding = null } = {}) {
     return runtimeState.initializationPromise
   }
 
+  const startedAt = Date.now()
+  let stage = 'resolve_env'
   runtimeState.initializationPromise = (async () => {
     const { authConfig, worldDir } = finalizeBoundRuntimeEnv(process.env)
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_initialize_start', {
+      bootstrapId:
+        binding?.bootstrapId
+        || runtimeState.lifecycle.bootstrapId
+        || buildRuntimeBootstrapId({
+          worldId: process.env.WORLD_ID,
+          runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
+        }),
+      source,
+      stage,
+      worldDir,
+    })
 
+    stage = 'load_runtime_modules'
     const [
       { assets },
       { cleaner },
@@ -794,7 +851,13 @@ async function initializeRuntime({ source, binding = null } = {}) {
       import('./Storage.js'),
       import('../core/createServerWorld.js'),
     ])
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_modules_ready', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+    })
 
+    stage = 'prepare_storage'
     await fs.ensureDir(worldDir)
     await assets.init({ rootDir, worldDir })
 
@@ -803,8 +866,21 @@ async function initializeRuntime({ source, binding = null } = {}) {
 
     const storage = new Storage(db)
     await storage.init()
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_storage_ready', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      worldDir,
+    })
 
+    stage = 'init_world'
     const world = createServerWorld()
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_world_init_start', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      worldDir,
+    })
     await world.init({
       assetsDir: assets.dir,
       assetsUrl: assets.url,
@@ -812,6 +888,13 @@ async function initializeRuntime({ source, binding = null } = {}) {
       assets,
       storage,
       authConfig,
+    })
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_world_init_complete', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+      worldSlug: binding?.world?.slug || runtimeState.lifecycle.worldSlug,
     })
 
     runtimeState.resources.assets = assets
@@ -824,6 +907,13 @@ async function initializeRuntime({ source, binding = null } = {}) {
     flushWorldProxyCalls()
     const agonesIntegration = configureAgonesIntegration(world)
 
+    stage = 'complete_runtime_startup'
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_startup_finalize_start', {
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+    })
     await completeRuntimeStartup({
       agones: agonesIntegration.agones,
       agonesIdleController: agonesIntegration.agonesIdleController,
@@ -836,6 +926,21 @@ async function initializeRuntime({ source, binding = null } = {}) {
       registerWithRegistryImpl: (registryState, payload) => {
         void registerWithRegistry(registryState, payload)
       },
+    })
+    logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_initialize_complete', {
+      bootstrapId:
+        binding?.bootstrapId
+        || runtimeState.lifecycle.bootstrapId
+        || buildRuntimeBootstrapId({
+          worldId: process.env.WORLD_ID,
+          runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
+        }),
+      durationMs: Date.now() - startedAt,
+      source,
+      stage,
+      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+      worldSlug: binding?.world?.slug || runtimeState.lifecycle.worldSlug,
+      worldDir,
     })
 
     setRuntimeLifecycleState(runtimeState, 'ready', {
@@ -855,6 +960,21 @@ async function initializeRuntime({ source, binding = null } = {}) {
     return world
   })()
     .catch(err => {
+      logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_initialize_failed', {
+        bootstrapId:
+          binding?.bootstrapId
+          || runtimeState.lifecycle.bootstrapId
+          || buildRuntimeBootstrapId({
+            worldId: process.env.WORLD_ID || runtimeState.lifecycle.worldId,
+            runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
+          }),
+        durationMs: Date.now() - startedAt,
+        error: err,
+        source,
+        stage,
+        worldId: process.env.WORLD_ID || runtimeState.lifecycle.worldId || null,
+        worldSlug: binding?.world?.slug || runtimeState.lifecycle.worldSlug,
+      })
       runtimeState.resources.agonesIdleController.clearIdleShutdownTimer('bootstrap_failed')
       runtimeState.resources.agonesPlayerTracker.stop?.()
       setRuntimeLifecycleState(runtimeState, 'failed', {
@@ -1014,6 +1134,12 @@ async function handleBootstrapRequest(req, reply) {
   const normalizedBinding = parseRuntimeBootstrapPayload(binding, {
     runtimeInstanceId: expectedRuntimeInstanceId,
   })
+  logRuntimeBootstrapDebug(runtimeState, 'bootstrap_request_received', {
+    bootstrapId: normalizedBinding.bootstrapId || null,
+    runtimeInstanceId: normalizedBinding.runtime.instanceId || expectedRuntimeInstanceId || null,
+    worldId: normalizedBinding.world.id,
+    worldSlug: normalizedBinding.world.slug,
+  })
   const normalizedBindingKey = serializeRuntimeBootstrapBinding(normalizedBinding)
   const existingBindingKey = runtimeState.lifecycle.bindingKey
   const existingBinding = runtimeState.lifecycle.binding
@@ -1078,6 +1204,13 @@ async function handleBootstrapRequest(req, reply) {
 
   const candidateEnv = { ...process.env }
   const appliedKeys = applyHostedRuntimeBootstrapPayload(candidateEnv, normalizedBinding)
+  logRuntimeBootstrapDebug(runtimeState, 'bootstrap_binding_candidate_prepared', {
+    appliedKeys,
+    bootstrapId: normalizedBinding.bootstrapId || null,
+    runtimeInstanceId: normalizedBinding.runtime.instanceId || expectedRuntimeInstanceId || null,
+    worldId: normalizedBinding.world.id,
+    worldSlug: normalizedBinding.world.slug,
+  })
 
   try {
     finalizeBoundRuntimeEnv(candidateEnv)
@@ -1098,6 +1231,13 @@ async function handleBootstrapRequest(req, reply) {
       }),
     binding: normalizedBinding,
     source: 'push',
+    worldId: normalizedBinding.world.id,
+    worldSlug: normalizedBinding.world.slug,
+  })
+  logRuntimeBootstrapDebug(runtimeState, 'bootstrap_binding_applied', {
+    appliedKeys,
+    bootstrapId: normalizedBinding.bootstrapId || null,
+    runtimeInstanceId: normalizedBinding.runtime.instanceId || expectedRuntimeInstanceId || null,
     worldId: normalizedBinding.world.id,
     worldSlug: normalizedBinding.world.slug,
   })

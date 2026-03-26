@@ -639,6 +639,73 @@ test('runtime emits structured standby, bootstrap success, and rebind rejection 
   assert.equal(rebindEvent.worldId, worldId)
 })
 
+test('runtime emits step-level bootstrap debug logs when enabled', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer({
+    env: {
+      RUNTIME_BOOTSTRAP_DEBUG: '1',
+    },
+  })
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+
+  const response = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+    })),
+  })
+  assert.equal(response.status, 200)
+
+  const requestEvent = await waitForRuntimeEvent(server, 'bootstrap_request_received', entry => entry.debug === true)
+  assert.equal(requestEvent.bootstrapId, `${worldId}:${server.runtimeInstanceId}`)
+  assert.equal(requestEvent.worldId, worldId)
+
+  const bindingAppliedEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_binding_applied',
+    entry => entry.debug === true && entry.worldId === worldId
+  )
+  assert.ok(bindingAppliedEvent.appliedKeys.includes('WORLD_ID'))
+  assert.ok(bindingAppliedEvent.appliedKeys.includes('PUBLIC_API_URL'))
+
+  const initStartEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_runtime_initialize_start',
+    entry => entry.debug === true && entry.source === 'push'
+  )
+  assert.equal(initStartEvent.stage, 'resolve_env')
+
+  const worldInitCompleteEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_world_init_complete',
+    entry => entry.debug === true && entry.worldId === worldId
+  )
+  assert.equal(typeof worldInitCompleteEvent.durationMs, 'number')
+
+  const initCompleteEvent = await waitForRuntimeEvent(
+    server,
+    'bootstrap_runtime_initialize_complete',
+    entry => entry.debug === true && entry.worldId === worldId
+  )
+  assert.equal(initCompleteEvent.stage, 'complete_runtime_startup')
+  assert.equal(typeof initCompleteEvent.durationMs, 'number')
+})
+
 test('runtime emits structured bootstrap failure logs', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')
