@@ -147,6 +147,9 @@ export class AssetsS3 {
 
     // Upload built-in assets from local directory to S3
     const builtInAssetsDir = path.join(rootDir, 'src/world/assets')
+    if (process.env.RUNTIME_BOOTSTRAP_MODE) {
+      return
+    }
     if (await fs.exists(builtInAssetsDir)) {
       await this.uploadDirectory(builtInAssetsDir, builtInAssetsDir)
     }
@@ -167,8 +170,6 @@ export class AssetsS3 {
         // Upload file with its original path structure
         const buffer = await fs.readFile(filePath)
         const relativePath = subPath ? path.join(subPath, file) : file
-
-        // Always upload built-in assets (overwrite existing)
         await this.uploadBuffer(buffer, relativePath)
       }
     }
