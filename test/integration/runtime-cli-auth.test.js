@@ -134,3 +134,29 @@ test('cli auth status rejects invalid bearer tokens', async t => {
   assert.equal(invalid.res.status, 401)
   assert.equal(invalid.data?.error, 'invalid_token')
 })
+
+test('invalid websocket auth tokens fall back to a guest snapshot in lobby identity mode', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+  }
+
+  const world = await startWorldServer({
+    env: {
+      PUBLIC_AUTH_URL: 'https://auth.example.test/identity',
+    },
+  })
+  t.after(async () => {
+    await world.stop()
+  })
+
+  const { ws, snapshot } = await connectWorldSocket(`${world.wsUrl}?authToken=expired-token`)
+  try {
+    assert.equal(snapshot?.authToken, null)
+    const player = Array.isArray(snapshot?.entities)
+      ? snapshot.entities.find(entity => entity?.type === 'player' && entity?.owner === snapshot?.id)
+      : null
+    assert.equal(player?.name, 'Anonymous')
+  } finally {
+    ws.close()
+  }
+})

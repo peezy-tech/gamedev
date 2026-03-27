@@ -25,7 +25,7 @@ const RUNTIME_SESSION_TYP = 'runtime_session'
 const RUNTIME_SESSION_AUDIENCE = 'runtime:ws'
 const IDENTITY_EXCHANGE_TYP = 'identity_exchange'
 const IDENTITY_EXCHANGE_AUDIENCE = 'runtime:exchange'
-const DEFAULT_RUNTIME_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
+const DEFAULT_RUNTIME_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 const DEFAULT_VERIFY_TIMEOUT_MS = 5000
 
 function parsePositiveInt(value, fallback) {

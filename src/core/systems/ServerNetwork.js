@@ -470,7 +470,6 @@ export class ServerNetwork extends System {
 
       // get or create user
       let user
-      let invalidStandaloneToken = false
       if (authToken) {
         try {
           const tokenData = await readJWT(authToken, {
@@ -492,15 +491,8 @@ export class ServerNetwork extends System {
             await this.db('users').insert(user).onConflict('id').ignore()
           }
         } catch (err) {
-          invalidStandaloneToken = true
-          console.error('failed to read authToken:', authToken)
+          console.warn('failed to read authToken, continuing as guest')
         }
-      }
-      if (!user && this.usesLobbyIdentity && invalidStandaloneToken) {
-        const packet = writePacket('kick', 'invalid_auth')
-        ws.send(packet)
-        ws.close()
-        return
       }
       if (!user) {
         const isStandaloneLobbyGuest = this.usesLobbyIdentity

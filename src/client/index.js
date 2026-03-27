@@ -460,7 +460,9 @@ async function exchangeForRuntimeSession(runtimeApiUrl, identityToken) {
   })
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Unable to exchange token' }))
-    throw new Error(error.message || error.error || 'Unable to exchange token')
+    const err = new Error(error.message || error.error || 'Unable to exchange token')
+    err.status = res.status
+    throw err
   }
   const data = await res.json()
   const token = typeof data?.token === 'string' ? data.token.trim() : ''
@@ -489,6 +491,12 @@ async function getConnectionUrl(onStatus) {
     throw new Error('PUBLIC_WS_URL is required for runtime connection')
   }
 
+  const continueAsGuest = (message = 'Continuing as guest...') => {
+    clearRuntimeAuthState()
+    onStatus?.('connecting', message)
+    return buildWsUrl(baseWsUrl)
+  }
+
   if (usesLobbyIdentity) {
     const authBaseUrl = env.PUBLIC_AUTH_URL
     onStatus?.('auth', 'Authorizing...')
@@ -511,17 +519,23 @@ async function getConnectionUrl(onStatus) {
           }
         }
         if (!hasSession) {
-          onStatus?.('connecting', 'Continuing as guest...')
-          return buildWsUrl(baseWsUrl)
+          return continueAsGuest()
         }
       } else {
         throw err
       }
     }
 
-    const identityToken = await fetchIdentityExchangeToken(authBaseUrl)
-    const runtimeSessionToken = await exchangeForRuntimeSession(apiUrl, identityToken)
-    return buildWsUrl(baseWsUrl, runtimeSessionToken)
+    try {
+      const identityToken = await fetchIdentityExchangeToken(authBaseUrl)
+      const runtimeSessionToken = await exchangeForRuntimeSession(apiUrl, identityToken)
+      return buildWsUrl(baseWsUrl, runtimeSessionToken)
+    } catch (err) {
+      if (err?.status === 400 || err?.status === 401) {
+        return continueAsGuest()
+      }
+      throw err
+    }
   }
 
   return buildWsUrl(baseWsUrl)

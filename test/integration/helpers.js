@@ -274,7 +274,7 @@ async function launchRuntimeProcess({ env, readyUrl, timeoutMs = 20000, failureL
   }
 }
 
-export async function startWorldServer({ adminCode = 'admin' } = {}) {
+export async function startWorldServer({ adminCode = 'admin', env: extraEnv = {} } = {}) {
   await ensureBuildReady()
   const port = await getAvailablePort()
   const worldDir = await createTempDir('hyperfy-world-')
@@ -298,6 +298,7 @@ export async function startWorldServer({ adminCode = 'admin' } = {}) {
     DB_URI: 'local',
     CLEAN: 'true',
     HOST: '127.0.0.1',
+    ...extraEnv,
   }
 
   const processHandle = await launchRuntimeProcess({
