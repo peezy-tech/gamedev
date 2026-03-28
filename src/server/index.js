@@ -44,6 +44,7 @@ import {
   serializeRuntimeBootstrapBinding,
   usesLegacyControlPlaneBaseUrl,
   verifyRuntimeBootstrapAuthorization,
+  usesHostedRuntimeBootstrap,
 } from './runtimeBootstrap.js'
 import { buildRuntimeControlAuthorization, createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
 import { Ranks } from '../core/extras/ranks'
