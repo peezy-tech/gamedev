@@ -243,17 +243,13 @@ export async function createStandaloneGuestSession({
 }
 
 export function buildCliAuthPage({
-  callbackUrl,
   sessionId,
-  state,
   worldId,
   requiredCapability = 'builder',
   publicAuthUrl = null,
 } = {}) {
   const config = JSON.stringify({
-    callbackUrl: normalizeString(callbackUrl),
     sessionId: normalizeString(sessionId),
-    state: normalizeString(state),
     worldId: normalizeString(worldId),
     requiredCapability: normalizeString(requiredCapability) || 'builder',
     publicAuthUrl: hasValue(publicAuthUrl) ? publicAuthUrl.trim() : null,
@@ -643,18 +639,6 @@ export function buildCliAuthPage({
         return !!capabilities?.builder
       }
 
-      function validateCallbackUrl(value) {
-        try {
-          const parsed = new URL(value)
-          const hostname = parsed.hostname
-          if (!hostname) return null
-          if (hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '::1') return null
-          return parsed.toString()
-        } catch {
-          return null
-        }
-      }
-
       async function fetchStatus(token) {
         const response = await fetch(\`\${apiBaseUrl()}/auth/cli/status\`, {
           headers: {
@@ -712,47 +696,24 @@ export function buildCliAuthPage({
         return token
       }
 
-      async function submitToken(token, status) {
-        if (config.sessionId) {
-          const response = await fetch(\`\${apiBaseUrl()}/auth/cli/session/\${encodeURIComponent(config.sessionId)}\`, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              accept: 'application/json',
-            },
-            body: JSON.stringify({
-              worldUrl: worldRootUrl(),
-              authToken: token,
-            }),
-          })
-          if (!response.ok) {
-            const payload = await response.json().catch(() => null)
-            throw new Error(payload?.error || 'session_complete_failed')
-          }
-          return
+      async function submitToken(token) {
+        if (!config.sessionId) {
+          throw new Error('Invalid session id')
         }
-
-        const callbackUrl = validateCallbackUrl(config.callbackUrl)
-        if (!callbackUrl) {
-          throw new Error('Invalid callback URL')
-        }
-        const response = await fetch(callbackUrl, {
+        const response = await fetch(\`\${apiBaseUrl()}/auth/cli/session/\${encodeURIComponent(config.sessionId)}\`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
+            accept: 'application/json',
           },
           body: JSON.stringify({
-            state: config.state,
-            worldId: status?.worldId || config.worldId || '',
             worldUrl: worldRootUrl(),
             authToken: token,
-            user: status?.user || null,
-            capabilities: status?.capabilities || null,
           }),
         })
         if (!response.ok) {
           const payload = await response.json().catch(() => null)
-          throw new Error(payload?.error || 'callback_failed')
+          throw new Error(payload?.error || 'session_complete_failed')
         }
       }
 
@@ -794,7 +755,7 @@ export function buildCliAuthPage({
               'success'
             )
             setHint('Permission confirmed. The CLI is storing this world token locally.', 'success')
-            await submitToken(token, status)
+            await submitToken(token)
             clearInterval(polling)
             setTimeout(() => {
               window.close()

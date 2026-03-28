@@ -1117,21 +1117,17 @@ async function handleCliAuthPage(req, reply) {
   if (!isRuntimeReady(runtimeState)) {
     return sendRuntimeNotReady(reply, runtimeState, { html: true })
   }
-  const callbackUrl = typeof req.query?.callback === 'string' ? req.query.callback.trim() : ''
   const sessionId = typeof req.query?.session === 'string' ? req.query.session.trim() : ''
-  const state = typeof req.query?.state === 'string' ? req.query.state.trim() : ''
   const worldId = typeof req.query?.worldId === 'string' ? req.query.worldId.trim() : resolveBoundWorldId() || ''
   const requiredCapability = typeof req.query?.required === 'string' ? req.query.required.trim() : 'builder'
-  if (!sessionId && (!callbackUrl || !state)) {
+  if (!sessionId) {
     return reply.code(400).type('text/html').send(
-      '<!doctype html><html><body>Missing session or callback parameters.</body></html>'
+      '<!doctype html><html><body>Missing session.</body></html>'
     )
   }
   reply.type('text/html').send(
     buildCliAuthPage({
-      callbackUrl,
       sessionId,
-      state,
       worldId,
       requiredCapability,
       publicAuthUrl: process.env.PUBLIC_AUTH_URL || null,
