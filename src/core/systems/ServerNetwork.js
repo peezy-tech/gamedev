@@ -9,6 +9,7 @@ import * as THREE from '../extras/three'
 import { Ranks } from '../extras/ranks'
 import { validateBlueprintScriptFields } from '../blueprintValidation'
 import { ensureBlueprintSyncMetadata, ensureEntitySyncMetadata } from '../../server/syncMetadata.js'
+import { hasSupportedAdminCode } from '../../server/runtimeBootstrap.js'
 import { getMaxUploadSizeMb, getWorldMaxPlayers } from '../../server/worldLimits.js'
 import { deriveAdminUrlFromRequest } from '../../server/forwardedPrefix.js'
 
@@ -563,6 +564,7 @@ export class ServerNetwork extends System {
         ai: this.world.ai?.serialize?.() || null,
         authToken,
         hasAdminCode: !!process.env.ADMIN_CODE,
+        adminCodeAuthSupported: hasSupportedAdminCode(process.env),
       })
 
       this.sockets.set(socket.id, socket)
@@ -593,7 +595,7 @@ export class ServerNetwork extends System {
     // become admin command
     if (cmd === 'admin') {
       const code = arg1
-      if (process.env.ADMIN_CODE && process.env.ADMIN_CODE === code) {
+      if (hasSupportedAdminCode(process.env) && process.env.ADMIN_CODE === code) {
         const alreadyAdmin = player.isAdmin()
         if (!player.isAdmin()) {
           const id = player.data.id

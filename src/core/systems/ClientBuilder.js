@@ -213,9 +213,12 @@ export class ClientBuilder extends System {
   getAdminGateMessage() {
     const admin = this.world.admin
     if (!admin) return 'Admin connection unavailable.'
+    if (admin.error === 'connection_error') return 'Admin connection failed.'
+    if (!admin.adminCodeAuthSupported && this.world.settings?.hasAdminCode) {
+      return 'Admin connection required. Sign in with a builder/admin account.'
+    }
     if (admin.requireCode && !admin.code) return 'Admin code required. Use /admin <code>.'
     if (admin.error === 'invalid_code') return 'Invalid admin code. Use /admin <code>.'
-    if (admin.error === 'connection_error') return 'Admin connection failed.'
     if (admin.error === 'missing_code') return 'Admin code required. Use /admin <code>.'
     return 'Admin connection required. Use /admin <code>.'
   }

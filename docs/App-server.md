@@ -13,7 +13,7 @@ App-server is the dev server that syncs local files to a world via `/admin`. It 
     - platform slug proxy: `https://<host>/worlds/<slug>`
   - `WORLD_ID` (must match the target worldId)
 - Run `gamedev auth` once in the project to cache a browser-authenticated world token in `.lobby/auth.json`.
-- `ADMIN_CODE` is no longer used by the CLI or app-server. If your world uses an admin code, it is only for in-world `/admin <code>` privilege escalation.
+- `ADMIN_CODE` is no longer used by the CLI or app-server. On standalone worlds it is only for in-world `/admin <code>` privilege escalation. Bootstrapped worlds ignore admin-code auth and rely on account roles instead.
 
 ---
 

@@ -4,7 +4,8 @@ import { test } from 'node:test'
 import WebSocket from 'ws'
 
 import { readPacket, writePacket } from '../../src/core/packets.js'
-import { fetchJson, startWorldServer, waitFor } from './helpers.js'
+import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
+import { fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
 
 async function canListenOnLoopback() {
   return new Promise(resolve => {
@@ -53,6 +54,26 @@ async function connectWorldSocket(wsUrl) {
     ws.addEventListener('error', onError)
     ws.addEventListener('close', onClose)
   })
+}
+
+function buildManagedBinding({ worldId, runtimeInstanceId, worldUrl }) {
+  return {
+    bootstrapId: `${worldId}:${runtimeInstanceId}`,
+    world: {
+      id: worldId,
+      slug: 'managed-world',
+      dbSchema: 'world_managed_world',
+      publicMaxUploadSize: 12,
+      publicWorldMaxPlayers: 32,
+      shutdownIdleSeconds: 0,
+    },
+    runtime: {
+      instanceId: runtimeInstanceId,
+      publicApiUrl: `${worldUrl}/api`,
+    },
+    auth: {},
+    control: {},
+  }
 }
 
 test('cli auth guest bootstrap creates a reusable world token that /admin can elevate', async t => {
@@ -159,4 +180,86 @@ test('invalid websocket auth tokens fall back to a guest snapshot in lobby ident
   } finally {
     ws.close()
   }
+})
+
+test('bootstrapped worlds disable admin-code auth for admin endpoints and in-world escalation', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+  }
+
+  const server = await startStandbyRuntimeServer({
+    env: {
+      ADMIN_CODE: 'secret-code',
+      RUNTIME_BOOTSTRAP_MODE: 'push',
+    },
+  })
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const binding = buildManagedBinding({
+    worldId,
+    runtimeInstanceId: server.runtimeInstanceId,
+    worldUrl: server.worldUrl,
+  })
+  const bootstrapRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret),
+    },
+    body: JSON.stringify(binding),
+  })
+  assert.equal(bootstrapRes.status, 200)
+
+  const adminSnapshot = await fetchJson(`${server.worldUrl}/admin/snapshot`, {
+    adminCode: 'secret-code',
+  })
+  assert.equal(adminSnapshot.res.status, 403)
+  assert.equal(adminSnapshot.data?.error, 'admin_required')
+
+  const guest = await fetchJson(`${server.worldUrl}/api/auth/cli/guest`, {
+    method: 'POST',
+  })
+  assert.equal(guest.res.status, 200)
+  assert.equal(typeof guest.data?.token, 'string')
+
+  const before = await fetchJson(`${server.worldUrl}/api/auth/cli/status`, {
+    authToken: guest.data.token,
+  })
+  assert.equal(before.res.status, 200)
+  assert.equal(before.data?.hasAdminCode, true)
+  assert.equal(before.data?.adminCodeAuthSupported, false)
+  assert.deepEqual(before.data?.capabilities, {
+    builder: false,
+    deploy: false,
+  })
+
+  const wsUrl = `${server.worldUrl.replace(/^http/, 'ws')}/ws`
+  const { ws, snapshot } = await connectWorldSocket(`${wsUrl}?authToken=${encodeURIComponent(guest.data.token)}`)
+  try {
+    assert.equal(snapshot?.hasAdminCode, true)
+    assert.equal(snapshot?.adminCodeAuthSupported, false)
+    ws.send(
+      writePacket('command', {
+        cmd: 'admin',
+        value: 'secret-code',
+        args: ['/admin', 'secret-code'],
+      })
+    )
+    await new Promise(resolve => setTimeout(resolve, 300))
+  } finally {
+    ws.close()
+  }
+
+  const after = await fetchJson(`${server.worldUrl}/api/auth/cli/status`, {
+    authToken: guest.data.token,
+  })
+  assert.equal(after.res.status, 200)
+  assert.equal(after.data?.adminCodeAuthSupported, false)
+  assert.deepEqual(after.data?.capabilities, {
+    builder: false,
+    deploy: false,
+  })
 })

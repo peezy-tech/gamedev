@@ -32,6 +32,7 @@ import {
   clearPushRuntimeBindingEnv,
   derivePublicAdminUrl,
   derivePublicWsUrlFromApiUrl,
+  hasSupportedAdminCode,
   hasValue,
   parseRuntimeBootstrapPayload,
   resolveControlInternalBaseUrl,
@@ -376,6 +377,7 @@ function warnIfRuntimeUsesLegacyControlPlaneBaseUrl(env = process.env) {
 
 function warnIfAdminCodeUnset(env = process.env) {
   if (warnedAboutMissingAdminCode) return
+  if (usesHostedRuntimeBootstrap(env)) return
   if (hasValue(env.ADMIN_CODE)) return
   warnedAboutMissingAdminCode = true
   console.warn('[envs] ADMIN_CODE not set - admin privileges are open to all players')
@@ -1139,6 +1141,7 @@ async function handleCliAuthStatus(req, reply) {
     db: runtimeState.resources.db,
     worldId,
     adminCode: process.env.ADMIN_CODE,
+    adminCodeSupported: hasSupportedAdminCode(process.env),
   })
   if (!status.authenticated) {
     const code = status.error === 'db_unavailable' ? 503 : 401

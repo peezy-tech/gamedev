@@ -19,6 +19,7 @@ test('runtime credentials API uses runtime_credentials_get command', async () =>
       credentials: {
         worldId: 'world-123',
         hasAdminCode: true,
+        adminCodeAuthSupported: false,
         adminCode: null,
       },
     }
@@ -30,6 +31,7 @@ test('runtime credentials API uses runtime_credentials_get command', async () =>
   assert.deepEqual(credentials, {
     worldId: 'world-123',
     hasAdminCode: true,
+    adminCodeAuthSupported: false,
     adminCode: null,
   })
 })
@@ -43,6 +45,7 @@ test('runtime credentials API caches response in memory', async () => {
       credentials: {
         worldId: 'world-123',
         hasAdminCode: true,
+        adminCodeAuthSupported: true,
         adminCode: null,
       },
     }
@@ -64,6 +67,7 @@ test('runtime credentials API force refresh bypasses cache', async () => {
       credentials: {
         worldId: `world-${calls}`,
         hasAdminCode: true,
+        adminCodeAuthSupported: true,
         adminCode: null,
       },
     }
@@ -76,11 +80,13 @@ test('runtime credentials API force refresh bypasses cache', async () => {
   assert.deepEqual(first, {
     worldId: 'world-1',
     hasAdminCode: true,
+    adminCodeAuthSupported: true,
     adminCode: null,
   })
   assert.deepEqual(second, {
     worldId: 'world-2',
     hasAdminCode: true,
+    adminCodeAuthSupported: true,
     adminCode: null,
   })
 })
@@ -90,6 +96,7 @@ test('runtime credential cache clears on disconnect and auth error', () => {
   client.runtimeCredentials = {
     worldId: 'world-123',
     hasAdminCode: true,
+    adminCodeAuthSupported: true,
     adminCode: null,
   }
 
@@ -99,6 +106,7 @@ test('runtime credential cache clears on disconnect and auth error', () => {
   client.runtimeCredentials = {
     worldId: 'world-123',
     hasAdminCode: true,
+    adminCodeAuthSupported: true,
     adminCode: null,
   }
   client.onMessage({
@@ -111,6 +119,24 @@ test('runtime credentials API rejects invalid payloads', async () => {
   const client = createAdminClient()
   client.request = async () => ({ ok: true })
   await assert.rejects(() => client.getRuntimeCredentials(), err => err?.code === 'invalid_response')
+})
+
+test('admin snapshot only requires code when admin-code auth is supported', () => {
+  const client = createAdminClient()
+
+  client.onSnapshot({
+    adminUrl: 'http://example.com/admin',
+    hasAdminCode: true,
+    adminCodeAuthSupported: false,
+  })
+  assert.equal(client.requireCode, false)
+
+  client.onSnapshot({
+    adminUrl: 'http://example.com/admin',
+    hasAdminCode: true,
+    adminCodeAuthSupported: true,
+  })
+  assert.equal(client.requireCode, true)
 })
 
 test('admin shutdown API uses agones_shutdown command', async () => {

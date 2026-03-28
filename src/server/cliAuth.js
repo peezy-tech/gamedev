@@ -1,6 +1,7 @@
 import { createJWT, readJWT } from '../core/utils-server.js'
 import { Ranks } from '../core/extras/ranks'
 import { uuid } from '../core/utils'
+import { allowsOpenAdminAccess, hasSupportedAdminCode } from './runtimeBootstrap.js'
 
 function normalizeString(value) {
   if (typeof value !== 'string') return ''
@@ -26,8 +27,13 @@ function parseUserRank(value) {
   return Number.isFinite(rank) ? rank : Ranks.VISITOR
 }
 
-function buildCapabilities(rank, { adminCode = process.env.ADMIN_CODE } = {}) {
-  if (!hasAdminCodeConfigured(adminCode)) {
+function buildCapabilities(
+  rank,
+  {
+    openAdminAccess = allowsOpenAdminAccess(process.env),
+  } = {}
+) {
+  if (openAdminAccess) {
     return {
       builder: true,
       deploy: true,
@@ -44,6 +50,8 @@ export async function resolveCliAuthStatus({
   db,
   worldId,
   adminCode = process.env.ADMIN_CODE,
+  adminCodeSupported = hasSupportedAdminCode(process.env),
+  openAdminAccess = allowsOpenAdminAccess(process.env),
 } = {}) {
   const token = normalizeString(authToken)
   if (!token) {
@@ -81,7 +89,8 @@ export async function resolveCliAuthStatus({
     authenticated: true,
     worldId: normalizeString(worldId) || null,
     hasAdminCode: hasAdminCodeConfigured(adminCode),
-    capabilities: buildCapabilities(rank, { adminCode }),
+    adminCodeAuthSupported: adminCodeSupported,
+    capabilities: buildCapabilities(rank, { openAdminAccess }),
     user: {
       id: user.id,
       name: hasValue(user.name) ? user.name.trim() : 'Anonymous',
@@ -684,7 +693,9 @@ export function buildCliAuthPage({
           )
           setHint(authBaseUrl()
             ? 'If you need full deploy access, make sure this account is an admin for the world.'
-            : 'For standalone worlds, open the world in this browser and run /admin <code> on the same account.',
+            : status?.adminCodeAuthSupported
+              ? 'For standalone worlds, open the world in this browser and run /admin <code> on the same account.'
+              : 'This world does not support admin-code escalation. Use an account with builder/admin access.',
             'warn')
         } catch (error) {
           setStatus(

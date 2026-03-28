@@ -10,6 +10,7 @@ import {
   handleRuntimeCredentialCommand,
 } from './adminCredentials.js'
 import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
+import { hasSupportedAdminCode } from './runtimeBootstrap.js'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
@@ -200,6 +201,7 @@ function isCodeValid(expected, code) {
 }
 
 function isAdminCodeValid(code) {
+  if (!hasSupportedAdminCode(process.env)) return false
   const adminCode = process.env.ADMIN_CODE
   return isCodeValid(adminCode, code)
 }
@@ -720,6 +722,7 @@ export async function admin(
       entities: serializeEntitiesForAdmin(world),
       players: includePlayers ? serializePlayersForAdmin(world) : [],
       hasAdminCode: !!process.env.ADMIN_CODE,
+      adminCodeAuthSupported: hasSupportedAdminCode(process.env),
       adminUrl: process.env.PUBLIC_ADMIN_URL,
     })
   }
@@ -904,6 +907,7 @@ export async function admin(
               canDeploy: capabilities.deploy,
               worldId: world?.network?.worldId || process.env.WORLD_ID || null,
               adminCode: process.env.ADMIN_CODE,
+              adminCodeSupported: hasSupportedAdminCode(process.env),
             })
             auditRuntimeCredentialReveal({
               req,
@@ -1235,6 +1239,7 @@ export async function admin(
       entities: serializeEntitiesForAdmin(world),
       players: serializePlayersForAdmin(world),
       hasAdminCode: !!process.env.ADMIN_CODE,
+      adminCodeAuthSupported: hasSupportedAdminCode(process.env),
       adminUrl: process.env.PUBLIC_ADMIN_URL,
     }
   })

@@ -9,12 +9,14 @@ function normalizeWorldId(worldId) {
 export function buildRuntimeCredentialResponse({
   worldId,
   adminCode,
+  adminCodeSupported = typeof adminCode === 'string' && adminCode.length > 0,
 } = {}) {
   const normalizedWorldId = normalizeWorldId(worldId)
   const hasAdminCode = typeof adminCode === 'string' && adminCode.length > 0
   return {
     worldId: normalizedWorldId,
     hasAdminCode,
+    adminCodeAuthSupported: !!adminCodeSupported,
     adminCode: null,
   }
 }
@@ -23,6 +25,7 @@ export function handleRuntimeCredentialCommand({
   canDeploy,
   worldId,
   adminCode,
+  adminCodeSupported = typeof adminCode === 'string' && adminCode.length > 0,
 } = {}) {
   if (!canDeploy) {
     return {
@@ -37,13 +40,14 @@ export function handleRuntimeCredentialCommand({
   const credentials = buildRuntimeCredentialResponse({
     worldId,
     adminCode,
+    adminCodeSupported,
   })
   const hasAdminCode = credentials.hasAdminCode
   const revealed = false
 
   return {
     ok: true,
-    reason: hasAdminCode ? 'admin_code_hidden' : 'admin_code_unset',
+    reason: hasAdminCode ? (credentials.adminCodeAuthSupported ? 'admin_code_hidden' : 'admin_code_disabled') : 'admin_code_unset',
     revealed,
     credentials,
   }
