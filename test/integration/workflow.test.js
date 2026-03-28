@@ -90,6 +90,12 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
           return data.entities?.find(entity => entity.id === entityId) || false
         })
 
+        {
+          const data = readJsonFile(worldPath)
+          const entity = data.entities?.find(item => item.id === entityId)
+          assert.equal(Object.hasOwn(entity, 'state'), false)
+        }
+
         await admin.request('entity_modify', {
           change: { id: entityId, props: { text: 'hello' } },
         })

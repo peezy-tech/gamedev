@@ -795,18 +795,20 @@ export class DirectAppServer {
     return byId
   }
 
-  _buildManifestEntityStateOwnershipIndex(manifest) {
-    const byId = new Map()
-    const entities = Array.isArray(manifest?.entities) ? manifest.entities : []
-    const defaultOwnership = this._getEntityStateOwnership(OWNERSHIP_REMOTE)
-    for (const entity of entities) {
-      const id = normalizeSyncString(entity?.id)
-      if (!id) continue
-      const direct = normalizeOwnershipValue(entity?.stateOwnership, null)
-      const nested = normalizeOwnershipValue(entity?.sync?.state, null)
-      byId.set(id, direct || nested || defaultOwnership)
+  _toAuthoredManifest(manifest) {
+    if (!manifest || typeof manifest !== 'object') return manifest
+    const entities = Array.isArray(manifest.entities)
+      ? manifest.entities.map(entity => {
+          if (!entity || typeof entity !== 'object' || Array.isArray(entity)) return entity
+          const next = { ...entity }
+          delete next.state
+          return next
+        })
+      : []
+    return {
+      ...manifest,
+      entities,
     }
-    return byId
   }
 
   _normalizeBaselineSyncValue(kind, entry) {
@@ -1028,14 +1030,12 @@ export class DirectAppServer {
     base,
     local,
     remote,
-    stateOwnership = OWNERSHIP_REMOTE,
   }) {
     const baseValue = normalizeEntityForCompare(base)
     const localValue = normalizeEntityForCompare(local)
     const remoteValue = normalizeEntityForCompare(remote)
     const transformOwnership = this._getEntityTransformOwnership()
     const propsOwnership = this._getEntityPropsOwnership()
-    const normalizedStateOwnership = normalizeOwnershipValue(stateOwnership, this._getEntityStateOwnership())
 
     if (!localValue || !remoteValue) {
       const result = resolveThreeWayValue({
@@ -1101,17 +1101,6 @@ export class DirectAppServer {
     merged.props = propsResult.merged
     unresolvedFields.push(...propsResult.conflicts)
     autoResolvedFields.push(...propsResult.autoResolved)
-
-    this._resolveEntityField({
-      field: 'state',
-      base: baseValue,
-      local: localValue,
-      remote: remoteValue,
-      ownership: normalizedStateOwnership,
-      merged,
-      unresolvedFields,
-      autoResolvedFields,
-    })
 
     if (unresolvedFields.length > 0) {
       return {
@@ -1297,7 +1286,6 @@ export class DirectAppServer {
     const baselineEntities = this._syncEntriesById(this.syncState?.objects?.entities)
     const remoteBlueprints = this.snapshot?.blueprints || new Map()
     const localEntities = this._buildManifestEntityIndex(manifest)
-    const localEntityStateOwnership = this._buildManifestEntityStateOwnershipIndex(manifest)
     const remoteEntities = new Map()
     for (const entity of this.snapshot?.entities?.values() || []) {
       if (entity?.type !== 'app' || !entity?.id) continue
@@ -1421,7 +1409,6 @@ export class DirectAppServer {
           base: baselineValue,
           local: localEntity,
           remote: remoteEntity,
-          stateOwnership: localEntityStateOwnership.get(id) || this._getEntityStateOwnership(),
         })
         if (reconciliation.conflict) {
           plan.conflicts.push(reconciliation.conflict)
@@ -2125,7 +2112,7 @@ export class DirectAppServer {
         uploader: null,
         pinned: desired.pinned,
         props: desired.props,
-        state: desired.state,
+        state: existingRaw?.state && typeof existingRaw.state === 'object' ? existingRaw.state : {},
       }
       await this.client.request('entity_add', { entity: data })
       this.snapshot.entities.set(entityId, data)
@@ -2139,8 +2126,6 @@ export class DirectAppServer {
     if (!isEqual(existing.scale, desired.scale)) change.scale = desired.scale
     if (!isEqual(existing.pinned, desired.pinned)) change.pinned = desired.pinned
     if (!isEqual(existing.props, desired.props)) change.props = desired.props
-    if (!isEqual(existing.state, desired.state)) change.state = desired.state
-
     if (Object.keys(change).length > 1) {
       await this.client.request('entity_modify', { change })
       this.snapshot.entities.set(entityId, { ...existingRaw, ...change })
@@ -2868,9 +2853,10 @@ export class DirectAppServer {
   }
 
   _writeWorldFile(manifest) {
-    if (isEqual(this.manifest.data, manifest)) return
-    this._writeFileAtomic(this.worldFile, JSON.stringify(manifest, null, 2) + '\n')
-    this.manifest.data = manifest
+    const authoredManifest = this._toAuthoredManifest(manifest)
+    if (isEqual(this.manifest.data, authoredManifest)) return
+    this._writeFileAtomic(this.worldFile, JSON.stringify(authoredManifest, null, 2) + '\n')
+    this.manifest.data = authoredManifest
   }
 
   _startWatchers() {
@@ -4027,7 +4013,7 @@ export class DirectAppServer {
           uploader: null,
           pinned: entity.pinned,
           props: resolvedProps,
-          state: entity.state,
+          state: existing?.state && typeof existing.state === 'object' ? existing.state : {},
         }
         await this.client.request('entity_add', { entity: data })
         this.snapshot.entities.set(id, { ...data })
@@ -4043,7 +4029,6 @@ export class DirectAppServer {
       const existingProps =
         existing.props && typeof existing.props === 'object' && !Array.isArray(existing.props) ? existing.props : {}
       if (!isEqual(existingProps, resolvedProps)) change.props = resolvedProps
-      if (!isEqual(existing.state, entity.state)) change.state = entity.state
 
       if (Object.keys(change).length > 1) {
         await this.client.request('entity_modify', { change })

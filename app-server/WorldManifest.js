@@ -96,8 +96,10 @@ export class WorldManifest {
             errors.push(`entities[${index}].props must be an object`)
           }
         }
-        if (!entity.state || typeof entity.state !== 'object') {
-          errors.push(`entities[${index}].state must be an object`)
+        if (entity.state !== undefined) {
+          if (!entity.state || typeof entity.state !== 'object' || Array.isArray(entity.state)) {
+            errors.push(`entities[${index}].state must be an object`)
+          }
         }
       })
     }
@@ -152,7 +154,6 @@ export class WorldManifest {
           scale: Array.isArray(e.scale) ? e.scale.slice(0, 3) : [1, 1, 1],
           pinned: Boolean(e.pinned),
           props: e.props && typeof e.props === 'object' && !Array.isArray(e.props) ? e.props : {},
-          state: e.state && typeof e.state === 'object' ? e.state : {},
         }))
     }
 

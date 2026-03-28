@@ -61,8 +61,7 @@ npm run world:entities -- delete --ids tmp/delete-ids.json --yes
     "quaternion": [0, 0, 0, 1],
     "scale": [1, 1, 1],
     "pinned": false,
-    "props": {},
-    "state": {}
+    "props": {}
   }
 ]
 ```
@@ -74,7 +73,6 @@ Fields:
 - `scale` optional (`[x, y, z]`, default `[1,1,1]`)
 - `pinned` optional (default `false`)
 - `props` optional (default cloned from template entity)
-- `state` optional (default cloned from template entity)
 - `id` optional (auto-generated short 10-char ID if omitted)
 
 ## Temp file workflow for agents

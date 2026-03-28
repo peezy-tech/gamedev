@@ -451,7 +451,6 @@ export function createDefaultManifest() {
       scale: [1, 1, 1],
       pinned: false,
       props: {},
-      state: {},
     },
   ]
   return manifest
