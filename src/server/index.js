@@ -14,8 +14,10 @@ import multipart from '@fastify/multipart'
 import { admin } from './admin'
 import {
   buildCliAuthPage,
+  createCliAuthSessionStore,
   createStandaloneGuestSession,
   getCliAuthTokenFromRequest,
+  hasRequiredCliCapability,
   resolveCliAuthStatus,
 } from './cliAuth.js'
 import { createDeferredResource } from './deferredResource.js'
@@ -676,6 +678,9 @@ function buildRuntimeState({ initialBinding = null, initialSource = null } = {})
     },
     initializationPromise: null,
     registryState: createRegistryState(process.env),
+    auth: {
+      cliAuthSessions: createCliAuthSessionStore(),
+    },
     resources: {
       assets: null,
       db: null,
@@ -1113,23 +1118,114 @@ async function handleCliAuthPage(req, reply) {
     return sendRuntimeNotReady(reply, runtimeState, { html: true })
   }
   const callbackUrl = typeof req.query?.callback === 'string' ? req.query.callback.trim() : ''
+  const sessionId = typeof req.query?.session === 'string' ? req.query.session.trim() : ''
   const state = typeof req.query?.state === 'string' ? req.query.state.trim() : ''
   const worldId = typeof req.query?.worldId === 'string' ? req.query.worldId.trim() : resolveBoundWorldId() || ''
   const requiredCapability = typeof req.query?.required === 'string' ? req.query.required.trim() : 'builder'
-  if (!callbackUrl || !state) {
+  if (!sessionId && (!callbackUrl || !state)) {
     return reply.code(400).type('text/html').send(
-      '<!doctype html><html><body>Missing callback or state.</body></html>'
+      '<!doctype html><html><body>Missing session or callback parameters.</body></html>'
     )
   }
   reply.type('text/html').send(
     buildCliAuthPage({
       callbackUrl,
+      sessionId,
       state,
       worldId,
       requiredCapability,
       publicAuthUrl: process.env.PUBLIC_AUTH_URL || null,
     })
   )
+}
+
+async function handleCliAuthSessionCreate(req, reply) {
+  if (!isRuntimeReady(runtimeState)) {
+    return sendRuntimeNotReady(reply, runtimeState)
+  }
+  const boundWorldId = resolveBoundWorldId()
+  const requestedWorldId = typeof req?.body?.worldId === 'string' ? req.body.worldId.trim() : ''
+  if (requestedWorldId && boundWorldId && requestedWorldId !== boundWorldId) {
+    return reply.code(409).send({
+      error: 'world_id_mismatch',
+      expectedWorldId: boundWorldId,
+      receivedWorldId: requestedWorldId,
+    })
+  }
+  const requiredCapability =
+    typeof req?.body?.requiredCapability === 'string' ? req.body.requiredCapability.trim() : 'builder'
+  const session = runtimeState.auth.cliAuthSessions.createSession({
+    worldId: boundWorldId || requestedWorldId || null,
+    requiredCapability,
+  })
+  return reply.code(200).send(session)
+}
+
+async function handleCliAuthSessionStatus(req, reply) {
+  if (!isRuntimeReady(runtimeState)) {
+    return sendRuntimeNotReady(reply, runtimeState)
+  }
+  const sessionId = typeof req.params?.sessionId === 'string' ? req.params.sessionId.trim() : ''
+  const result = runtimeState.auth.cliAuthSessions.readSession(sessionId)
+  if (!result.found || !result.session) {
+    return reply.code(404).send({ error: 'not_found' })
+  }
+  return reply.code(200).send(result.session)
+}
+
+async function handleCliAuthSessionComplete(req, reply) {
+  if (!isRuntimeReady(runtimeState)) {
+    return sendRuntimeNotReady(reply, runtimeState)
+  }
+  const sessionId = typeof req.params?.sessionId === 'string' ? req.params.sessionId.trim() : ''
+  const existing = runtimeState.auth.cliAuthSessions.readSession(sessionId)
+  if (!existing.found || !existing.session) {
+    return reply.code(404).send({ error: 'not_found' })
+  }
+
+  const authToken = typeof req?.body?.authToken === 'string' ? req.body.authToken.trim() : ''
+  const worldUrl = typeof req?.body?.worldUrl === 'string' ? req.body.worldUrl.trim() : ''
+  if (!authToken) {
+    return reply.code(400).send({ error: 'invalid_payload', message: 'authToken is required' })
+  }
+
+  const status = await resolveCliAuthStatus({
+    authToken,
+    db: runtimeState.resources.db,
+    worldId: resolveBoundWorldId(),
+    adminCode: process.env.ADMIN_CODE,
+    adminCodeSupported: hasSupportedAdminCode(process.env),
+  })
+  if (!status.authenticated) {
+    const code = status.error === 'db_unavailable' ? 503 : 401
+    return reply.code(code).send({
+      error: status.error,
+      authenticated: false,
+    })
+  }
+  if (!hasRequiredCliCapability(status.capabilities, existing.session.requiredCapability)) {
+    return reply.code(409).send({
+      error: 'capability_required',
+      capabilities: status.capabilities,
+      requiredCapability: existing.session.requiredCapability,
+    })
+  }
+
+  const completed = runtimeState.auth.cliAuthSessions.completeSession(sessionId, {
+    worldId: status.worldId || existing.session.worldId,
+    worldUrl,
+    authToken,
+    user: status.user,
+    capabilities: status.capabilities,
+  })
+  if (!completed.found || !completed.session) {
+    return reply.code(404).send({ error: 'not_found' })
+  }
+  return reply.code(200).send({
+    ok: true,
+    status: completed.session.status,
+    result: completed.session.result || null,
+  })
 }
 
 async function handleCliAuthStatus(req, reply) {
@@ -1436,6 +1532,9 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
   })
 
   app.post('/api/auth/exchange', handleAuthExchange)
+  app.post('/api/auth/cli/session', handleCliAuthSessionCreate)
+  app.get('/api/auth/cli/session/:sessionId', handleCliAuthSessionStatus)
+  app.post('/api/auth/cli/session/:sessionId', handleCliAuthSessionComplete)
   app.get('/api/auth/cli/status', handleCliAuthStatus)
   app.post('/api/auth/cli/guest', handleCliAuthGuest)
 

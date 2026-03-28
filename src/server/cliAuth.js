@@ -1,7 +1,11 @@
+import crypto from 'node:crypto'
+
 import { createJWT, readJWT } from '../core/utils-server.js'
 import { Ranks } from '../core/extras/ranks'
 import { uuid } from '../core/utils'
 import { allowsOpenAdminAccess, hasSupportedAdminCode } from './runtimeBootstrap.js'
+
+const CLI_AUTH_SESSION_TTL_MS = 10 * 60 * 1000
 
 function normalizeString(value) {
   if (typeof value !== 'string') return ''
@@ -42,6 +46,114 @@ function buildCapabilities(
   return {
     builder: rank >= Ranks.BUILDER,
     deploy: rank >= Ranks.ADMIN,
+  }
+}
+
+function normalizeCapability(value) {
+  if (value === 'deploy') return 'deploy'
+  if (value === 'auth') return 'auth'
+  return 'builder'
+}
+
+export function hasRequiredCliCapability(capabilities, requiredCapability = 'builder') {
+  const required = normalizeCapability(requiredCapability)
+  if (required === 'auth') return true
+  if (required === 'deploy') return !!capabilities?.deploy
+  return !!capabilities?.builder
+}
+
+function buildCliAuthSessionPayload(session) {
+  if (!session) return null
+  const payload = {
+    sessionId: session.sessionId,
+    status: session.status,
+    worldId: session.worldId || null,
+    requiredCapability: session.requiredCapability,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    expiresAt: session.expiresAt,
+  }
+  if (session.status === 'complete' && session.result) {
+    payload.result = {
+      worldId: session.result.worldId || null,
+      worldUrl: session.result.worldUrl || null,
+      authToken: session.result.authToken || null,
+      user: session.result.user || null,
+      capabilities: session.result.capabilities || null,
+    }
+  }
+  return payload
+}
+
+export function createCliAuthSessionStore({ ttlMs = CLI_AUTH_SESSION_TTL_MS } = {}) {
+  const sessions = new Map()
+
+  function pruneExpiredSessions() {
+    const now = Date.now()
+    for (const [sessionId, session] of sessions) {
+      if (session.expiresAtMs <= now) {
+        sessions.delete(sessionId)
+      }
+    }
+  }
+
+  function createSession({ worldId, requiredCapability = 'builder' } = {}) {
+    pruneExpiredSessions()
+    const now = Date.now()
+    const sessionId = `${crypto.randomUUID()}${crypto.randomBytes(16).toString('hex')}`
+    const session = {
+      sessionId,
+      status: 'pending',
+      worldId: hasValue(worldId) ? worldId.trim() : null,
+      requiredCapability: normalizeCapability(requiredCapability),
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + ttlMs).toISOString(),
+      expiresAtMs: now + ttlMs,
+      result: null,
+    }
+    sessions.set(sessionId, session)
+    return buildCliAuthSessionPayload(session)
+  }
+
+  function readSession(sessionId) {
+    pruneExpiredSessions()
+    const normalizedSessionId = normalizeString(sessionId)
+    if (!normalizedSessionId) {
+      return { found: false, expired: false, session: null }
+    }
+    const session = sessions.get(normalizedSessionId)
+    if (!session) {
+      return { found: false, expired: false, session: null }
+    }
+    return { found: true, expired: false, session: buildCliAuthSessionPayload(session) }
+  }
+
+  function completeSession(sessionId, result = {}) {
+    pruneExpiredSessions()
+    const normalizedSessionId = normalizeString(sessionId)
+    const session = normalizedSessionId ? sessions.get(normalizedSessionId) : null
+    if (!session) {
+      return { found: false, expired: false, session: null }
+    }
+    if (session.status !== 'complete') {
+      session.status = 'complete'
+      session.updatedAt = new Date().toISOString()
+      session.result = {
+        worldId: hasValue(result.worldId) ? result.worldId.trim() : session.worldId || null,
+        worldUrl: hasValue(result.worldUrl) ? result.worldUrl.trim() : null,
+        authToken: normalizeString(result.authToken),
+        user: result.user || null,
+        capabilities: result.capabilities || null,
+      }
+    }
+    return { found: true, expired: false, session: buildCliAuthSessionPayload(session) }
+  }
+
+  return {
+    createSession,
+    readSession,
+    completeSession,
   }
 }
 
@@ -132,6 +244,7 @@ export async function createStandaloneGuestSession({
 
 export function buildCliAuthPage({
   callbackUrl,
+  sessionId,
   state,
   worldId,
   requiredCapability = 'builder',
@@ -139,6 +252,7 @@ export function buildCliAuthPage({
 } = {}) {
   const config = JSON.stringify({
     callbackUrl: normalizeString(callbackUrl),
+    sessionId: normalizeString(sessionId),
     state: normalizeString(state),
     worldId: normalizeString(worldId),
     requiredCapability: normalizeString(requiredCapability) || 'builder',
@@ -599,6 +713,25 @@ export function buildCliAuthPage({
       }
 
       async function submitToken(token, status) {
+        if (config.sessionId) {
+          const response = await fetch(\`\${apiBaseUrl()}/auth/cli/session/\${encodeURIComponent(config.sessionId)}\`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              accept: 'application/json',
+            },
+            body: JSON.stringify({
+              worldUrl: worldRootUrl(),
+              authToken: token,
+            }),
+          })
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null)
+            throw new Error(payload?.error || 'session_complete_failed')
+          }
+          return
+        }
+
         const callbackUrl = validateCallbackUrl(config.callbackUrl)
         if (!callbackUrl) {
           throw new Error('Invalid callback URL')

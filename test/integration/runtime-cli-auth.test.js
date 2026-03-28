@@ -135,6 +135,85 @@ test('cli auth guest bootstrap creates a reusable world token that /admin can el
   })
 })
 
+test('cli auth session flow completes on the world server without a loopback callback', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+  }
+
+  const world = await startWorldServer({ adminCode: 'secret-code' })
+  t.after(async () => {
+    await world.stop()
+  })
+
+  const created = await fetchJson(`${world.worldUrl}/api/auth/cli/session`, {
+    method: 'POST',
+    body: {
+      worldId: world.worldId,
+      requiredCapability: 'auth',
+    },
+  })
+  assert.equal(created.res.status, 200)
+  assert.equal(created.data?.status, 'pending')
+  assert.equal(typeof created.data?.sessionId, 'string')
+  assert.equal(created.data?.worldId, world.worldId)
+  assert.equal(created.data?.requiredCapability, 'auth')
+
+  const page = await fetch(`${world.worldUrl}/auth/cli?session=${encodeURIComponent(created.data.sessionId)}`)
+  const html = await page.text()
+  assert.equal(page.status, 200)
+  assert.match(html, /Authorize CLI Access/)
+  assert.match(html, new RegExp(created.data.sessionId))
+
+  const guest = await fetchJson(`${world.worldUrl}/api/auth/cli/guest`, {
+    method: 'POST',
+  })
+  assert.equal(guest.res.status, 200)
+  assert.equal(typeof guest.data?.token, 'string')
+
+  const insufficient = await fetchJson(`${world.worldUrl}/api/auth/cli/session`, {
+    method: 'POST',
+    body: {
+      worldId: world.worldId,
+      requiredCapability: 'deploy',
+    },
+  })
+  assert.equal(insufficient.res.status, 200)
+
+  const insufficientComplete = await fetchJson(
+    `${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(insufficient.data.sessionId)}`,
+    {
+      method: 'POST',
+      body: {
+        worldUrl: world.worldUrl,
+        authToken: guest.data.token,
+      },
+    }
+  )
+  assert.equal(insufficientComplete.res.status, 409)
+  assert.equal(insufficientComplete.data?.error, 'capability_required')
+
+  const completed = await fetchJson(`${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`, {
+    method: 'POST',
+    body: {
+      worldUrl: world.worldUrl,
+      authToken: guest.data.token,
+    },
+  })
+  assert.equal(completed.res.status, 200)
+  assert.equal(completed.data?.ok, true)
+  assert.equal(completed.data?.status, 'complete')
+
+  const polled = await fetchJson(`${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`)
+  assert.equal(polled.res.status, 200)
+  assert.equal(polled.data?.status, 'complete')
+  assert.equal(polled.data?.result?.authToken, guest.data.token)
+  assert.equal(polled.data?.result?.worldId, world.worldId)
+  assert.deepEqual(polled.data?.result?.capabilities, {
+    builder: false,
+    deploy: false,
+  })
+})
+
 test('cli auth status rejects invalid bearer tokens', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')

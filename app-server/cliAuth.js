@@ -22,6 +22,10 @@ function normalizeCapability(value) {
   return 'builder'
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 export function hasRequiredCapability(capabilities, requiredCapability = 'builder') {
   const required = normalizeCapability(requiredCapability)
   if (required === 'auth') return true
@@ -211,20 +215,125 @@ async function launchBrowser(url) {
   return false
 }
 
-export function buildCliAuthUrl({ worldUrl, worldId, callbackUrl, state, requiredCapability = 'builder' } = {}) {
+export function buildCliAuthUrl({
+  worldUrl,
+  worldId,
+  callbackUrl,
+  sessionId,
+  state,
+  requiredCapability = 'builder',
+} = {}) {
   const normalizedWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
   if (!normalizedWorldUrl) {
     throw createError('invalid_world_url', 'Invalid world URL')
   }
   const url = new URL(joinUrl(normalizedWorldUrl, '/auth/cli'))
   if (callbackUrl) url.searchParams.set('callback', callbackUrl)
+  if (sessionId) url.searchParams.set('session', sessionId)
   if (worldId) url.searchParams.set('worldId', worldId)
   if (state) url.searchParams.set('state', state)
   url.searchParams.set('required', normalizeCapability(requiredCapability))
   return url.toString()
 }
 
-export async function runBrowserCliAuth({
+async function createRemoteCliAuthSession({ worldUrl, worldId, requiredCapability = 'builder' } = {}) {
+  const normalizedWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+  if (!normalizedWorldUrl) {
+    throw createError('invalid_world_url', 'Invalid world URL')
+  }
+  const response = await fetch(joinUrl(normalizedWorldUrl, '/api/auth/cli/session'), {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({
+      worldId,
+      requiredCapability: normalizeCapability(requiredCapability),
+    }),
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    if (response.status === 404 || response.status === 405) {
+      throw createError('cli_auth_session_unsupported', 'World does not support server-mediated CLI auth sessions', {
+        status: response.status,
+        data,
+      })
+    }
+    throw createError(
+      data?.error || `session_create_failed:${response.status}`,
+      data?.message || 'Failed to create CLI auth session',
+      {
+        status: response.status,
+        data,
+      },
+    )
+  }
+  const sessionId = typeof data?.sessionId === 'string' ? data.sessionId.trim() : ''
+  if (!sessionId) {
+    throw createError('invalid_session_response', 'World did not return a CLI auth session id', { data })
+  }
+  return data
+}
+
+async function fetchRemoteCliAuthSession({ worldUrl, sessionId } = {}) {
+  const normalizedWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+  if (!normalizedWorldUrl) {
+    throw createError('invalid_world_url', 'Invalid world URL')
+  }
+  if (typeof sessionId !== 'string' || !sessionId.trim()) {
+    throw createError('session_missing', 'Missing CLI auth session id')
+  }
+  const response = await fetch(joinUrl(normalizedWorldUrl, `/api/auth/cli/session/${encodeURIComponent(sessionId.trim())}`), {
+    headers: {
+      accept: 'application/json',
+    },
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw createError(
+      data?.error || `session_status_failed:${response.status}`,
+      data?.message || 'Failed to read CLI auth session',
+      {
+        status: response.status,
+        data,
+      },
+    )
+  }
+  return data
+}
+
+async function waitForRemoteCliAuthSession({
+  worldUrl,
+  sessionId,
+  timeoutMs = 10 * 60 * 1000,
+  intervalMs = 1000,
+} = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const session = await fetchRemoteCliAuthSession({ worldUrl, sessionId })
+    if (session?.status === 'complete' && session?.result?.authToken) {
+      return session.result
+    }
+    if (session?.status === 'expired') {
+      throw createError('auth_timeout', 'Timed out waiting for browser authentication')
+    }
+    await sleep(intervalMs)
+  }
+  throw createError('auth_timeout', 'Timed out waiting for browser authentication')
+}
+
+async function openCliAuthUrl(authUrl, { log = console } = {}) {
+  log?.log?.(`World auth URL:\n${authUrl}`)
+  const opened = await launchBrowser(authUrl)
+  if (!opened) {
+    log?.warn?.('Browser did not open automatically. Open the URL above to continue authentication.')
+    return
+  }
+  log?.log?.('Opening browser for world auth...')
+}
+
+async function runLoopbackBrowserCliAuth({
   rootDir = process.cwd(),
   worldUrl,
   worldId,
@@ -247,13 +356,7 @@ export async function runBrowserCliAuth({
       requiredCapability,
     })
 
-    log?.log?.(`World auth URL:\n${authUrl}`)
-    const opened = await launchBrowser(authUrl)
-    if (!opened) {
-      log?.warn?.('Browser did not open automatically. Open the URL above to continue authentication.')
-    } else {
-      log?.log?.(`Opening browser for world auth...`)
-    }
+    await openCliAuthUrl(authUrl, { log })
 
     const payload = await callback.result
     const entry = writeProjectAuthEntry(rootDir, {
@@ -269,6 +372,58 @@ export async function runBrowserCliAuth({
     }
   } finally {
     await callback.close().catch(() => {})
+  }
+}
+
+export async function runBrowserCliAuth({
+  rootDir = process.cwd(),
+  worldUrl,
+  worldId,
+  requiredCapability = 'builder',
+  timeoutMs,
+  log = console,
+} = {}) {
+  try {
+    const session = await createRemoteCliAuthSession({
+      worldUrl,
+      worldId,
+      requiredCapability,
+    })
+    const authUrl = buildCliAuthUrl({
+      worldUrl,
+      worldId,
+      sessionId: session.sessionId,
+      requiredCapability,
+    })
+    await openCliAuthUrl(authUrl, { log })
+    const payload = await waitForRemoteCliAuthSession({
+      worldUrl,
+      sessionId: session.sessionId,
+      timeoutMs,
+    })
+    const entry = writeProjectAuthEntry(rootDir, {
+      worldUrl: payload.worldUrl || worldUrl,
+      worldId: payload.worldId || worldId,
+      authToken: payload.authToken,
+      userId: payload?.user?.id || null,
+      userName: payload?.user?.name || null,
+    })
+    return {
+      entry,
+      capabilities: payload?.capabilities || null,
+    }
+  } catch (error) {
+    if (error?.code === 'cli_auth_session_unsupported') {
+      return runLoopbackBrowserCliAuth({
+        rootDir,
+        worldUrl,
+        worldId,
+        requiredCapability,
+        timeoutMs,
+        log,
+      })
+    }
+    throw error
   }
 }
 
