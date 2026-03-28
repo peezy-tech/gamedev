@@ -9,8 +9,7 @@ import * as THREE from '../extras/three'
 import { Ranks } from '../extras/ranks'
 import { validateBlueprintScriptFields } from '../blueprintValidation'
 import { ensureBlueprintSyncMetadata, ensureEntitySyncMetadata } from '../../server/syncMetadata.js'
-import { getWorldMaxPlayers } from '../../server/worldLimits.js'
-import { validateWorldIdConfig } from '../../server/worldIdMismatch.js'
+import { getMaxUploadSizeMb, getWorldMaxPlayers } from '../../server/worldLimits.js'
 import { deriveAdminUrlFromRequest } from '../../server/forwardedPrefix.js'
 
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
@@ -33,6 +32,12 @@ function normalizeUserName(value) {
   const trimmed = value.trim()
   if (!trimmed || trimmed.startsWith('anon_')) return 'Anonymous'
   return trimmed
+}
+
+function getPlayerCustomData(data) {
+  const custom = data?.custom
+  if (!custom || typeof custom !== 'object' || Array.isArray(custom)) return null
+  return custom
 }
 
 function deriveAdminUrlFromEnv() {
@@ -64,6 +69,7 @@ function serializePlayerForAdmin(player) {
     name: player.data.name,
     avatar: player.data.avatar,
     sessionAvatar: player.data.sessionAvatar,
+    custom: getPlayerCustomData(player.data),
     position: player.data.position,
     quaternion: player.data.quaternion,
     rank: player.data.rank,
@@ -200,11 +206,8 @@ export class ServerNetwork extends System {
     }
     const worldIdRow = await this.db('config').where({ key: 'worldId' }).first()
     const dbWorldId = worldIdRow?.value?.trim()
-    const worldIdCheck = validateWorldIdConfig({ envWorldId, dbWorldId })
-    if (worldIdCheck.mismatch) {
-      console.warn(
-        `[envs] WORLD_ID mismatch accepted by ALLOW_WORLD_ID_CONFIG_MISMATCH=true: env=${envWorldId} db=${dbWorldId}`
-      )
+    if (dbWorldId && envWorldId !== dbWorldId) {
+      throw new Error(`[envs] WORLD_ID mismatch: env=${envWorldId} db=${dbWorldId}`)
     }
     this.worldId = envWorldId
     // hydrate blueprints
@@ -455,9 +458,10 @@ export class ServerNetwork extends System {
       }
 
       // check connection params
-      let authToken = params.authToken
-      let name = params.name
-      let avatar = params.avatar
+      const connectionParams = params && typeof params === 'object' ? params : {}
+      let authToken = connectionParams.authToken
+      let name = connectionParams.name
+      let avatar = connectionParams.avatar
       if (typeof authToken === 'string') {
         authToken = authToken.trim()
       } else {
@@ -466,7 +470,6 @@ export class ServerNetwork extends System {
 
       // get or create user
       let user
-      let invalidStandaloneToken = false
       if (authToken) {
         try {
           const tokenData = await readJWT(authToken, {
@@ -488,15 +491,8 @@ export class ServerNetwork extends System {
             await this.db('users').insert(user).onConflict('id').ignore()
           }
         } catch (err) {
-          invalidStandaloneToken = true
-          console.error('failed to read authToken:', authToken)
+          console.warn('failed to read authToken, continuing as guest')
         }
-      }
-      if (!user && this.usesLobbyIdentity && invalidStandaloneToken) {
-        const packet = writePacket('kick', 'invalid_auth')
-        ws.send(packet)
-        ws.close()
-        return
       }
       if (!user) {
         const isStandaloneLobbyGuest = this.usesLobbyIdentity
@@ -558,7 +554,7 @@ export class ServerNetwork extends System {
         assetsUrl: process.env.ASSETS_BASE_URL,
         apiUrl,
         adminUrl,
-        maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
+        maxUploadSize: getMaxUploadSizeMb(),
         settings: this.world.settings.serialize(),
         chat: this.world.chat.serialize(),
         blueprints: this.world.blueprints.serialize(),
@@ -589,34 +585,31 @@ export class ServerNetwork extends System {
   }
 
   onCommand = async (socket, data) => {
-    const { args } = data
+    const { cmd = data?.args?.[0] || '', value = '', args = [] } = data
     // handle slash commands
     const player = socket.player
     const playerId = player.data.id
-    const [cmd, arg1, arg2] = args
+    const [, arg1, arg2] = args
     // become admin command
     if (cmd === 'admin') {
       const code = arg1
       if (process.env.ADMIN_CODE && process.env.ADMIN_CODE === code) {
-        const id = player.data.id
-        const userId = player.data.userId
-        const granted = !player.isAdmin()
-        let rank
-        if (granted) {
-          rank = Ranks.ADMIN
-        } else {
-          rank = Ranks.VISITOR
+        const alreadyAdmin = player.isAdmin()
+        if (!player.isAdmin()) {
+          const id = player.data.id
+          const userId = player.data.userId
+          const rank = Ranks.ADMIN
+          player.modify({ rank })
+          this.send('entityModified', { id, rank })
+          await this.db('users').where('id', userId).update({ rank })
         }
-        player.modify({ rank })
-        this.send('entityModified', { id, rank })
         socket.send('chatAdded', {
           id: uuid(),
           from: null,
           fromId: null,
-          body: granted ? 'Admin granted!' : 'Admin revoked!',
+          body: alreadyAdmin ? 'Admin already granted.' : 'Admin granted!',
           createdAt: moment().toISOString(),
         })
-        await this.db('users').where('id', userId).update({ rank })
       }
     }
     if (cmd === 'name') {
@@ -668,7 +661,7 @@ export class ServerNetwork extends System {
     }
     // emit event for all except admin
     if (cmd !== 'admin') {
-      this.world.events.emit('command', { playerId, args })
+      this.world.events.emit('command', { playerId, cmd, value, args })
     }
   }
 
@@ -958,6 +951,10 @@ export class ServerNetwork extends System {
       if (nextData.hasOwnProperty('avatar') || nextData.hasOwnProperty('sessionAvatar')) {
         playerUpdate.avatar = entity.data.avatar
         playerUpdate.sessionAvatar = entity.data.sessionAvatar
+        hasPlayerUpdate = true
+      }
+      if (nextData.hasOwnProperty('custom')) {
+        playerUpdate.custom = getPlayerCustomData(entity.data)
         hasPlayerUpdate = true
       }
       if (hasPlayerUpdate) {

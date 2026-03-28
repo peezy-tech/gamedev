@@ -26,7 +26,7 @@ import { Snaps } from './systems/Snaps'
 import { Wind } from './systems/Wind'
 import { XR } from './systems/XR'
 import { EVM } from './systems/EVMClient'
-import { Hyperliquid } from './systems/HyperliquidClient'
+import { Hyperliquid } from './systems/Hyperliquid'
 
 export function createClientWorld() {
   const world = new World()

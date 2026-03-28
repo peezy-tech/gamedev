@@ -160,8 +160,7 @@ export class UI extends Node {
       this.canvas.style.width = this._width + 'px'
       this.canvas.style.height = this._height + 'px'
       pivotCanvas(this._pivot, this.canvas, this._width, this._height)
-      this.canvas.style.left = `calc(${this.position.x * 100}% + ${this._offset.x}px)`
-      this.canvas.style.top = `calc(${this.position.y * 100}% + ${this._offset.y}px)`
+      this.updateScreenTransform()
       this.canvas.style.pointerEvents = this._pointerEvents ? 'auto' : 'none'
       if (this._pointerEvents) {
         let hit
@@ -275,6 +274,13 @@ export class UI extends Node {
     this.needsRedraw = false
   }
 
+  updateScreenTransform() {
+    if (!this.canvas) return
+    this.canvas.style.left = `calc(${this.position.x * 100}% + ${this._offset.x}px)`
+    this.canvas.style.top = `calc(${this.position.y * 100}% + ${this._offset.y}px)`
+    this.canvas.style.zIndex = String(Math.floor(this.position.z || 0))
+  }
+
   mount() {
     if (this.ctx.world.network.isServer) return
     if (this.parent?.ui) return console.error('ui: cannot be nested inside another ui')
@@ -313,6 +319,9 @@ export class UI extends Node {
       this.draw()
     }
     if (didMove) {
+      if (this._space === 'screen' && this.canvas) {
+        this.updateScreenTransform()
+      }
       // if (this._billboard !== 'none') {
       //   v1.setFromMatrixPosition(this.matrixWorld)
       //   v2.setFromMatrixScale(this.matrixWorld)

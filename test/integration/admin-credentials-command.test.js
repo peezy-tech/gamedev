@@ -4,7 +4,6 @@ import {
   ADMIN_CREDENTIAL_COMMAND,
   buildRuntimeCredentialResponse,
   handleRuntimeCredentialCommand,
-  isAdminCredentialRevealEnabled,
 } from '../../src/server/adminCredentials.js'
 
 test('command contract uses runtime_credentials_get name', () => {
@@ -14,7 +13,6 @@ test('command contract uses runtime_credentials_get name', () => {
 test('runtime credential command denies callers without deploy capability', () => {
   const result = handleRuntimeCredentialCommand({
     canDeploy: false,
-    revealEnabled: true,
     worldId: 'world-123',
     adminCode: 'secret-code',
   })
@@ -28,41 +26,37 @@ test('runtime credential command denies callers without deploy capability', () =
   })
 })
 
-test('runtime credential command returns world id but hides admin code when reveal is disabled', () => {
+test('runtime credential command no longer reveals admin code to deploy-capable callers', () => {
   const result = handleRuntimeCredentialCommand({
     canDeploy: true,
-    revealEnabled: false,
     worldId: 'world-123',
     adminCode: 'secret-code',
   })
 
   assert.equal(result.ok, true)
   assert.equal(result.revealed, false)
-  assert.equal(result.reason, 'reveal_disabled')
+  assert.equal(result.reason, 'admin_code_hidden')
   assert.deepEqual(result.credentials, {
     worldId: 'world-123',
     hasAdminCode: true,
-    canRevealAdminCode: false,
     adminCode: null,
   })
 })
 
-test('runtime credential command returns admin code when reveal is enabled', () => {
+test('runtime credential command returns world id when admin code is not configured', () => {
   const result = handleRuntimeCredentialCommand({
     canDeploy: true,
-    revealEnabled: true,
     worldId: 'world-123',
-    adminCode: 'secret-code',
+    adminCode: '',
   })
 
   assert.equal(result.ok, true)
-  assert.equal(result.revealed, true)
-  assert.equal(result.reason, 'revealed')
+  assert.equal(result.revealed, false)
+  assert.equal(result.reason, 'admin_code_unset')
   assert.deepEqual(result.credentials, {
     worldId: 'world-123',
-    hasAdminCode: true,
-    canRevealAdminCode: true,
-    adminCode: 'secret-code',
+    hasAdminCode: false,
+    adminCode: null,
   })
 })
 
@@ -71,22 +65,11 @@ test('buildRuntimeCredentialResponse handles empty world id and missing admin co
     buildRuntimeCredentialResponse({
       worldId: '  ',
       adminCode: '',
-      revealEnabled: true,
     }),
     {
       worldId: null,
       hasAdminCode: false,
-      canRevealAdminCode: true,
       adminCode: null,
     }
   )
-})
-
-test('isAdminCredentialRevealEnabled parses truthy and falsy env values', () => {
-  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: 'true' }), true)
-  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: '1' }), true)
-  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: 'false' }), false)
-  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: '0' }), false)
-  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: 'off' }), false)
-  assert.equal(isAdminCredentialRevealEnabled({ ADMIN_CREDENTIAL_REVEAL_ENABLED: '' }), false)
 })

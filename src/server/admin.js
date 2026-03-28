@@ -7,9 +7,10 @@ import { readJWT } from '../core/utils-server.js'
 import { cleaner } from './cleaner'
 import {
   ADMIN_CREDENTIAL_COMMAND,
-  isAdminCredentialRevealEnabled,
   handleRuntimeCredentialCommand,
 } from './adminCredentials.js'
+import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
+import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
 const SCRIPT_BLUEPRINT_FIELDS = new Set([
@@ -230,6 +231,12 @@ function parseUserRank(value) {
   return Number.isFinite(rank) ? rank : Ranks.VISITOR
 }
 
+function getPlayerCustomData(data) {
+  const custom = data?.custom
+  if (!custom || typeof custom !== 'object' || Array.isArray(custom)) return null
+  return custom
+}
+
 function sendPacket(ws, name, payload) {
   try {
     ws.send(writePacket(name, payload))
@@ -246,6 +253,7 @@ function serializePlayersForAdmin(world) {
       name: player.data.name,
       avatar: player.data.avatar,
       sessionAvatar: player.data.sessionAvatar,
+      custom: getPlayerCustomData(player.data),
       position: player.data.position,
       quaternion: player.data.quaternion,
       rank: player.data.rank,
@@ -259,16 +267,48 @@ function serializeEntitiesForAdmin(world) {
   return world.entities.serialize().filter(entity => entity?.type !== 'player')
 }
 
-export async function admin(fastify, { world, assets, adminHtmlPath, onConnectionCountChanged } = {}) {
-  const adminCredentialRevealEnabled = isAdminCredentialRevealEnabled(process.env)
+
+function sendRuntimeNotReady(reply, state = null) {
+  reply.header('Retry-After', '1')
+  return reply.code(503).send({
+    error: 'runtime_not_ready',
+    state,
+    message: 'Runtime bootstrap has not completed',
+    retryable: true,
+  })
+}
+
+export async function admin(
+  fastify,
+  {
+    world,
+    assets,
+    adminHtmlPath,
+    onConnectionCountChanged,
+    agones = null,
+    getAgones = null,
+    isRuntimeReady = null,
+    getRuntimeState = null,
+  } = {}
+) {
   const subscribers = new Set()
   const playerSubscribers = new Set()
   const runtimeSubscribers = new Set()
   const db = world?.network?.db
+  const runtimeReady = typeof isRuntimeReady === 'function' ? isRuntimeReady : () => true
+  const runtimeState = typeof getRuntimeState === 'function' ? getRuntimeState : () => null
+  const resolveAgones = typeof getAgones === 'function' ? getAgones : () => agones
   let changefeedWriteQueue = Promise.resolve()
   const deployLocks = new Map()
   const lockTtlSeconds = Number.parseInt(process.env.DEPLOY_LOCK_TTL || '120', 10)
   const lockTtlMs = Number.isFinite(lockTtlSeconds) && lockTtlSeconds > 0 ? lockTtlSeconds * 1000 : 120000
+
+  fastify.addHook('onRequest', async (req, reply) => {
+    const upgradeHeader = String(req.headers.upgrade || '').toLowerCase()
+    if (upgradeHeader === 'websocket') return
+    if (runtimeReady()) return
+    return sendRuntimeNotReady(reply, runtimeState())
+  })
 
   function auditRuntimeCredentialReveal({
     req,
@@ -282,7 +322,6 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
       allowed: !!allowed,
       revealed: !!revealed,
       reason,
-      revealEnabled: adminCredentialRevealEnabled,
       worldId: world?.network?.worldId || process.env.WORLD_ID || null,
       remoteAddress: req?.socket?.remoteAddress || null,
       userAgent: req?.headers?.['user-agent'] || null,
@@ -674,7 +713,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
     sendPacket(ws, 'snapshot', {
       serverTime: performance.now(),
       assetsUrl: assets.url,
-      maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
+      maxUploadSize: getMaxUploadSizeMb(),
       settings: world.settings.serialize(),
       spawn: world.network.spawn,
       blueprints: world.blueprints.serialize(),
@@ -742,6 +781,22 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
       reply.type('text/html').send(html)
     },
     wsHandler: (ws, req) => {
+      const receivedWs = ws
+      ws = resolveWebSocketConnection(ws)
+      if (!ws || typeof ws.on !== 'function' || typeof ws.send !== 'function') {
+        req.log.error({
+          received: describeWebSocketConnection(receivedWs),
+          resolved: describeWebSocketConnection(ws),
+          upgrade: req.headers?.upgrade || null,
+        }, 'invalid websocket connection for /admin')
+        ws?.close?.(1011, 'invalid_websocket')
+        return
+      }
+      if (!runtimeReady()) {
+        ws?.close?.(1013, 'runtime_not_ready')
+        return
+      }
+
       let authed = false
       let defaultNetworkId = null
       let subscriptions = { snapshot: false, players: false, runtime: false }
@@ -823,10 +878,30 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
         const lastOpId = normalizeOperationValue(data?.lastOpId) || undefined
 
         try {
+          if (data.type === ADMIN_SHUTDOWN_COMMAND) {
+            const commandResult = await handleAdminShutdownCommand({
+              canDeploy: capabilities.deploy,
+              agones: resolveAgones(),
+              beforeShutdown: async () => {
+                await world.network.save()
+              },
+            })
+            if (!commandResult.ok) {
+              sendPacket(ws, 'adminResult', {
+                ok: false,
+                error: commandResult.error,
+                reason: commandResult.reason,
+                requestId,
+              })
+              return
+            }
+            sendPacket(ws, 'adminResult', { ok: true, requestId })
+            return
+          }
+
           if (data.type === ADMIN_CREDENTIAL_COMMAND) {
             const commandResult = handleRuntimeCredentialCommand({
               canDeploy: capabilities.deploy,
-              revealEnabled: adminCredentialRevealEnabled,
               worldId: world?.network?.worldId || process.env.WORLD_ID || null,
               adminCode: process.env.ADMIN_CODE,
             })
@@ -1153,7 +1228,7 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
     return {
       worldId: network.worldId,
       assetsUrl: assets.url,
-      maxUploadSize: process.env.PUBLIC_MAX_UPLOAD_SIZE,
+      maxUploadSize: getMaxUploadSizeMb(),
       settings: world.settings.serialize(),
       spawn: network.spawn,
       blueprints: world.blueprints.serialize(),
@@ -1455,7 +1530,11 @@ export async function admin(fastify, { world, assets, adminHtmlPath, onConnectio
     const maxUploadSizeMb = getMaxUploadSizeMb()
     let mp
     try {
-      mp = await req.file()
+      mp = await req.file({
+        limits: {
+          fileSize: maxUploadSizeBytes,
+        },
+      })
     } catch (error) {
       if (isUploadTooLargeError(error)) {
         return reply.code(413).send({ error: 'upload_too_large', maxUploadSize: maxUploadSizeMb })
