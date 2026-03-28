@@ -32,6 +32,7 @@ test('scaffold writes scene scaffold and world manifest', async () => {
   assert.equal(world.formatVersion, 2)
   assert.equal(world.entities.length, 1)
   assert.equal(world.entities[0].blueprint, '$scene')
+  assert.equal(Object.hasOwn(world.entities[0], 'state'), false)
 
   const tsconfigPath = path.join(rootDir, 'tsconfig.json')
   const tsconfig = await readJson(tsconfigPath)

@@ -29,7 +29,7 @@ World projects are meant to live in their own repository (no engine source). The
 apps/                       App scripts + blueprint JSON (defaults)
 assets/                     Local assets referenced by blueprints
 shared/                     Shared script modules (import via @shared/ or shared/)
-world.json                  World layout + per-instance overrides
+world.json                  World layout + per-instance placement/props overrides
 tsconfig.json               TypeScript config (points at `gamedev` types)
 .nvmrc                      Node version for this project
 .env                         Local world/app-server config (gitignored)
@@ -45,7 +45,7 @@ tsconfig.json               TypeScript config (points at `gamedev` types)
 - `apps/<AppName>/**/*.js` for module helpers.
 - `shared/**/*.js` for shared modules used by multiple apps.
 - `apps/<AppName>/*.json` for blueprint defaults (props, model, flags, `scriptFormat`).
-- `world.json` for layout and per-instance overrides.
+- `world.json` for layout and per-instance placement/props overrides.
 - `assets/` for local files referenced by props/blueprints.
 
 ## What Not to Edit

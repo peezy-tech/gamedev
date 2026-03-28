@@ -29,7 +29,7 @@ Notes
 - On first run, app-server creates:
   - `apps/` (built-in templates + $scene)
   - `assets/` (downloaded referenced assets)
-  - `world.json` (world layout + per-entity overrides)
+  - `world.json` (world layout + per-entity placement/props overrides)
 - If you want to pull script sources from an existing world, use:
   - `gamedev world export` (module-mode sources)
   - `gamedev world export --include-built-scripts` (legacy single-file scripts)
@@ -73,7 +73,7 @@ gamedev apps deploy myApp --target prod
 - Editing instance props in the admin UI updates `world.json` when app-server is running.
 - Editing `world.json` while app-server is running applies the change back into the world.
 
-Use blueprint JSON for defaults, and use `world.json` for per-instance tweaks.
+Use blueprint JSON for defaults, and use `world.json` for per-instance placement/props tweaks.
 
 ---
 

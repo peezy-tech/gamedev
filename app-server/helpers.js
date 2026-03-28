@@ -748,7 +748,6 @@ export function normalizeEntityForCompare(source) {
     scale: Array.isArray(source.scale) ? source.scale.slice(0, 3) : [1, 1, 1],
     pinned: Boolean(source.pinned),
     props,
-    state: source.state && typeof source.state === 'object' ? source.state : {},
   }
 }
 
