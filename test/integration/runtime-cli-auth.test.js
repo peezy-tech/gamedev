@@ -56,6 +56,66 @@ async function connectWorldSocket(wsUrl) {
   })
 }
 
+async function connectAdminSocket(worldUrl, authToken) {
+  const ws = new WebSocket(`${worldUrl.replace(/^http/, 'ws')}/admin`, {
+    headers: authToken ? { authorization: `Bearer ${authToken}` } : undefined,
+  })
+
+  return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup()
+      ws.close()
+      reject(new Error('timeout'))
+    }, 5000)
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      ws.removeEventListener('open', onOpen)
+      ws.removeEventListener('message', onMessage)
+      ws.removeEventListener('error', onError)
+      ws.removeEventListener('close', onClose)
+    }
+
+    const onOpen = () => {
+      ws.send(
+        writePacket('adminAuth', {
+          authToken,
+          subscriptions: { snapshot: false, players: false, runtime: false },
+        })
+      )
+    }
+
+    const onMessage = event => {
+      const [method, data] = readPacket(event.data)
+      if (method === 'onAdminAuthOk') {
+        cleanup()
+        resolve({ ws, data })
+        return
+      }
+      if (method === 'onAdminAuthError') {
+        cleanup()
+        ws.close()
+        reject(new Error(data?.error || 'auth_error'))
+      }
+    }
+
+    const onError = err => {
+      cleanup()
+      reject(err instanceof Error ? err : new Error('ws_error'))
+    }
+
+    const onClose = () => {
+      cleanup()
+      reject(new Error('ws_closed'))
+    }
+
+    ws.addEventListener('open', onOpen)
+    ws.addEventListener('message', onMessage)
+    ws.addEventListener('error', onError)
+    ws.addEventListener('close', onClose)
+  })
+}
+
 function buildManagedBinding({ worldId, runtimeInstanceId, worldUrl }) {
   return {
     bootstrapId: `${worldId}:${runtimeInstanceId}`,
@@ -133,6 +193,50 @@ test('cli auth guest bootstrap creates a reusable world token that /admin can el
     builder: true,
     deploy: true,
   })
+})
+
+test('standalone open-admin mode accepts guest cli tokens on /admin even before rank elevation', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+  }
+
+  const world = await startWorldServer({ adminCode: '' })
+  t.after(async () => {
+    await world.stop()
+  })
+
+  const guest = await fetchJson(`${world.worldUrl}/api/auth/cli/guest`, {
+    method: 'POST',
+  })
+  assert.equal(guest.res.status, 200)
+  assert.equal(typeof guest.data?.token, 'string')
+  assert.equal(guest.data?.user?.rank, 0)
+
+  const status = await fetchJson(`${world.worldUrl}/api/auth/cli/status`, {
+    authToken: guest.data.token,
+  })
+  assert.equal(status.res.status, 200)
+  assert.deepEqual(status.data?.capabilities, {
+    builder: true,
+    deploy: true,
+  })
+
+  const snapshot = await fetchJson(`${world.worldUrl}/admin/snapshot`, {
+    authToken: guest.data.token,
+  })
+  assert.equal(snapshot.res.status, 200)
+  assert.equal(snapshot.data?.worldId, world.worldId)
+
+  const { ws, data } = await connectAdminSocket(world.worldUrl, guest.data.token)
+  try {
+    assert.equal(data?.ok, true)
+    assert.deepEqual(data?.capabilities, {
+      builder: true,
+      deploy: true,
+    })
+  } finally {
+    ws.close()
+  }
 })
 
 test('cli auth session flow completes on the world server without a loopback callback', async t => {
