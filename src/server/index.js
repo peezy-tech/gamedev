@@ -302,6 +302,11 @@ function mapLobbyRoleToRank(role) {
   return Ranks.VISITOR
 }
 
+function parseStoredUserRank(value) {
+  const rank = Number(value)
+  return Number.isFinite(rank) ? rank : Ranks.VISITOR
+}
+
 async function resolveLobbyRoleRank(userId, { worldId = resolveBoundWorldId() } = {}) {
   const endpoint = resolveLobbyInternalUserUrl(userId)
   const authorization = resolveRuntimeControlAuthorization(worldId)
@@ -327,6 +332,16 @@ async function resolveLobbyRoleRank(userId, { worldId = resolveBoundWorldId() } 
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+async function resolveAuthenticatedUserRank(userId, db, authConfig, { worldId = resolveBoundWorldId() } = {}) {
+  if (!db || !userId) return Ranks.VISITOR
+  if (authConfig?.usesControlPlaneRank) {
+    return resolveLobbyRoleRank(userId, { worldId })
+  }
+
+  const existingUser = await db('users').where('id', userId).first('rank')
+  return parseStoredUserRank(existingUser?.rank)
 }
 
 function isPostgresDbEnv(env = process.env) {
@@ -1088,7 +1103,9 @@ async function handleAuthExchange(req, reply) {
 
   const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
   const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
-  const rank = await resolveLobbyRoleRank(userId, { worldId: boundWorldId })
+  // Lobby identity does not imply control-plane rank authority. Only hosted runtimes
+  // should rehydrate rank from world-service; self-hosted worlds keep their local rank.
+  const rank = await resolveAuthenticatedUserRank(userId, db, authConfig, { worldId: boundWorldId })
 
   await db('users')
     .insert({
