@@ -251,7 +251,7 @@ function buildEntityFromTemplate(template, transform, id) {
   entity.scale = transform.scale ?? [1, 1, 1]
   entity.pinned = transform.pinned ?? false
   entity.props = transform.props ?? deepClone(template.props ?? {})
-  entity.state = transform.state ?? deepClone(template.state ?? {})
+  delete entity.state
 
   return entity
 }
@@ -295,13 +295,6 @@ function validateTransformItem(item, index) {
       throw new Error(`Transform #${index} field \"props\" must be an object`)
     }
     validated.props = deepClone(item.props)
-  }
-
-  if (item.state !== undefined) {
-    if (!isPlainObject(item.state)) {
-      throw new Error(`Transform #${index} field \"state\" must be an object`)
-    }
-    validated.state = deepClone(item.state)
   }
 
   return validated

@@ -12,8 +12,9 @@ App-server is the dev server that syncs local files to a world via `/admin`. It 
     - direct runtime: `http://localhost:3000`
     - platform slug proxy: `https://<host>/worlds/<slug>`
   - `WORLD_ID` (must match the target worldId)
-- Run `gamedev auth` once in the project to cache a browser-authenticated world token in `.lobby/auth.json`.
-- `ADMIN_CODE` is no longer used by the CLI or app-server. If your world uses an admin code, it is only for in-world `/admin <code>` privilege escalation.
+- Run `gamedev auth` or start `gamedev dev`/`gamedev app-server` once in the project to cache a browser-authenticated world token in `.lobby/auth.json`.
+  Continuous script sync requires deploy access; if the cached token only has builder access, the CLI will prompt for stronger auth.
+- `ADMIN_CODE` is no longer used by the CLI or app-server. On standalone worlds it is only for in-world `/admin <code>` privilege escalation. Bootstrapped worlds ignore admin-code auth and rely on account roles instead.
 
 ---
 
@@ -29,7 +30,7 @@ Notes
 - On first run, app-server creates:
   - `apps/` (built-in templates + $scene)
   - `assets/` (downloaded referenced assets)
-  - `world.json` (world layout + per-entity overrides)
+  - `world.json` (world layout + per-entity placement/props overrides)
 - If you want to pull script sources from an existing world, use:
   - `gamedev world export` (module-mode sources)
   - `gamedev world export --include-built-scripts` (legacy single-file scripts)
@@ -73,7 +74,7 @@ gamedev apps deploy myApp --target prod
 - Editing instance props in the admin UI updates `world.json` when app-server is running.
 - Editing `world.json` while app-server is running applies the change back into the world.
 
-Use blueprint JSON for defaults, and use `world.json` for per-instance tweaks.
+Use blueprint JSON for defaults, and use `world.json` for per-instance placement/props tweaks.
 
 ---
 
@@ -130,7 +131,7 @@ For prod targets, the CLI asks for confirmation unless you pass `--yes`.
 ### Troubleshooting
 
 - Bootstrap didn’t happen: ensure the target world is empty/default or run `gamedev world export` (add `--include-built-scripts` for legacy single-file apps).
-- Unauthorized: rerun `gamedev auth`, then confirm the signed-in account has builder or admin access in the world.
+- Unauthorized: rerun `gamedev auth`, then confirm the signed-in account has deploy access in the world.
 - Script updates rejected: confirm the signed-in account has deploy access and the deploy lock is free.
 - WORLD_ID mismatch: set `WORLD_ID` to match the target world id.
 - Changes not appearing: confirm `apps/<appName>/index.js` (or blueprint JSON) is being edited and app-server is connected.

@@ -1,6 +1,11 @@
+import crypto from 'node:crypto'
+
 import { createJWT, readJWT } from '../core/utils-server.js'
 import { Ranks } from '../core/extras/ranks'
 import { uuid } from '../core/utils'
+import { allowsOpenAdminAccess, hasSupportedAdminCode } from './runtimeBootstrap.js'
+
+const CLI_AUTH_SESSION_TTL_MS = 10 * 60 * 1000
 
 function normalizeString(value) {
   if (typeof value !== 'string') return ''
@@ -26,8 +31,13 @@ function parseUserRank(value) {
   return Number.isFinite(rank) ? rank : Ranks.VISITOR
 }
 
-function buildCapabilities(rank, { adminCode = process.env.ADMIN_CODE } = {}) {
-  if (!hasAdminCodeConfigured(adminCode)) {
+function buildCapabilities(
+  rank,
+  {
+    openAdminAccess = allowsOpenAdminAccess(process.env),
+  } = {}
+) {
+  if (openAdminAccess) {
     return {
       builder: true,
       deploy: true,
@@ -39,11 +49,121 @@ function buildCapabilities(rank, { adminCode = process.env.ADMIN_CODE } = {}) {
   }
 }
 
+function normalizeCapability(value) {
+  if (value === 'deploy') return 'deploy'
+  if (value === 'auth') return 'auth'
+  return 'builder'
+}
+
+export function hasRequiredCliCapability(capabilities, requiredCapability = 'builder') {
+  const required = normalizeCapability(requiredCapability)
+  if (required === 'auth') return true
+  if (required === 'deploy') return !!capabilities?.deploy
+  return !!capabilities?.builder
+}
+
+function buildCliAuthSessionPayload(session) {
+  if (!session) return null
+  const payload = {
+    sessionId: session.sessionId,
+    status: session.status,
+    worldId: session.worldId || null,
+    requiredCapability: session.requiredCapability,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    expiresAt: session.expiresAt,
+  }
+  if (session.status === 'complete' && session.result) {
+    payload.result = {
+      worldId: session.result.worldId || null,
+      worldUrl: session.result.worldUrl || null,
+      authToken: session.result.authToken || null,
+      user: session.result.user || null,
+      capabilities: session.result.capabilities || null,
+    }
+  }
+  return payload
+}
+
+export function createCliAuthSessionStore({ ttlMs = CLI_AUTH_SESSION_TTL_MS } = {}) {
+  const sessions = new Map()
+
+  function pruneExpiredSessions() {
+    const now = Date.now()
+    for (const [sessionId, session] of sessions) {
+      if (session.expiresAtMs <= now) {
+        sessions.delete(sessionId)
+      }
+    }
+  }
+
+  function createSession({ worldId, requiredCapability = 'builder' } = {}) {
+    pruneExpiredSessions()
+    const now = Date.now()
+    const sessionId = `${crypto.randomUUID()}${crypto.randomBytes(16).toString('hex')}`
+    const session = {
+      sessionId,
+      status: 'pending',
+      worldId: hasValue(worldId) ? worldId.trim() : null,
+      requiredCapability: normalizeCapability(requiredCapability),
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + ttlMs).toISOString(),
+      expiresAtMs: now + ttlMs,
+      result: null,
+    }
+    sessions.set(sessionId, session)
+    return buildCliAuthSessionPayload(session)
+  }
+
+  function readSession(sessionId) {
+    pruneExpiredSessions()
+    const normalizedSessionId = normalizeString(sessionId)
+    if (!normalizedSessionId) {
+      return { found: false, expired: false, session: null }
+    }
+    const session = sessions.get(normalizedSessionId)
+    if (!session) {
+      return { found: false, expired: false, session: null }
+    }
+    return { found: true, expired: false, session: buildCliAuthSessionPayload(session) }
+  }
+
+  function completeSession(sessionId, result = {}) {
+    pruneExpiredSessions()
+    const normalizedSessionId = normalizeString(sessionId)
+    const session = normalizedSessionId ? sessions.get(normalizedSessionId) : null
+    if (!session) {
+      return { found: false, expired: false, session: null }
+    }
+    if (session.status !== 'complete') {
+      session.status = 'complete'
+      session.updatedAt = new Date().toISOString()
+      session.result = {
+        worldId: hasValue(result.worldId) ? result.worldId.trim() : session.worldId || null,
+        worldUrl: hasValue(result.worldUrl) ? result.worldUrl.trim() : null,
+        authToken: normalizeString(result.authToken),
+        user: result.user || null,
+        capabilities: result.capabilities || null,
+      }
+    }
+    return { found: true, expired: false, session: buildCliAuthSessionPayload(session) }
+  }
+
+  return {
+    createSession,
+    readSession,
+    completeSession,
+  }
+}
+
 export async function resolveCliAuthStatus({
   authToken,
   db,
   worldId,
   adminCode = process.env.ADMIN_CODE,
+  adminCodeSupported = hasSupportedAdminCode(process.env),
+  openAdminAccess = allowsOpenAdminAccess(process.env),
 } = {}) {
   const token = normalizeString(authToken)
   if (!token) {
@@ -81,7 +201,8 @@ export async function resolveCliAuthStatus({
     authenticated: true,
     worldId: normalizeString(worldId) || null,
     hasAdminCode: hasAdminCodeConfigured(adminCode),
-    capabilities: buildCapabilities(rank, { adminCode }),
+    adminCodeAuthSupported: adminCodeSupported,
+    capabilities: buildCapabilities(rank, { openAdminAccess }),
     user: {
       id: user.id,
       name: hasValue(user.name) ? user.name.trim() : 'Anonymous',
@@ -122,15 +243,13 @@ export async function createStandaloneGuestSession({
 }
 
 export function buildCliAuthPage({
-  callbackUrl,
-  state,
+  sessionId,
   worldId,
   requiredCapability = 'builder',
   publicAuthUrl = null,
 } = {}) {
   const config = JSON.stringify({
-    callbackUrl: normalizeString(callbackUrl),
-    state: normalizeString(state),
+    sessionId: normalizeString(sessionId),
     worldId: normalizeString(worldId),
     requiredCapability: normalizeString(requiredCapability) || 'builder',
     publicAuthUrl: hasValue(publicAuthUrl) ? publicAuthUrl.trim() : null,
@@ -520,18 +639,6 @@ export function buildCliAuthPage({
         return !!capabilities?.builder
       }
 
-      function validateCallbackUrl(value) {
-        try {
-          const parsed = new URL(value)
-          const hostname = parsed.hostname
-          if (!hostname) return null
-          if (hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '::1') return null
-          return parsed.toString()
-        } catch {
-          return null
-        }
-      }
-
       async function fetchStatus(token) {
         const response = await fetch(\`\${apiBaseUrl()}/auth/cli/status\`, {
           headers: {
@@ -589,28 +696,24 @@ export function buildCliAuthPage({
         return token
       }
 
-      async function submitToken(token, status) {
-        const callbackUrl = validateCallbackUrl(config.callbackUrl)
-        if (!callbackUrl) {
-          throw new Error('Invalid callback URL')
+      async function submitToken(token) {
+        if (!config.sessionId) {
+          throw new Error('Invalid session id')
         }
-        const response = await fetch(callbackUrl, {
+        const response = await fetch(\`\${apiBaseUrl()}/auth/cli/session/\${encodeURIComponent(config.sessionId)}\`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
+            accept: 'application/json',
           },
           body: JSON.stringify({
-            state: config.state,
-            worldId: status?.worldId || config.worldId || '',
             worldUrl: worldRootUrl(),
             authToken: token,
-            user: status?.user || null,
-            capabilities: status?.capabilities || null,
           }),
         })
         if (!response.ok) {
           const payload = await response.json().catch(() => null)
-          throw new Error(payload?.error || 'callback_failed')
+          throw new Error(payload?.error || 'session_complete_failed')
         }
       }
 
@@ -652,7 +755,7 @@ export function buildCliAuthPage({
               'success'
             )
             setHint('Permission confirmed. The CLI is storing this world token locally.', 'success')
-            await submitToken(token, status)
+            await submitToken(token)
             clearInterval(polling)
             setTimeout(() => {
               window.close()
@@ -684,7 +787,9 @@ export function buildCliAuthPage({
           )
           setHint(authBaseUrl()
             ? 'If you need full deploy access, make sure this account is an admin for the world.'
-            : 'For standalone worlds, open the world in this browser and run /admin <code> on the same account.',
+            : status?.adminCodeAuthSupported
+              ? 'For standalone worlds, open the world in this browser and run /admin <code> on the same account.'
+              : 'This world does not support admin-code escalation. Use an account with builder/admin access.',
             'warn')
         } catch (error) {
           setStatus(

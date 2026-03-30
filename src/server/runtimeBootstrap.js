@@ -47,6 +47,14 @@ export function usesHostedRuntimeBootstrap(env = process.env) {
   return !hasValue(env.WORLD_ID) && (hasValue(env.RUNTIME_BOOTSTRAP_INSTANCE_ID) || hasValue(env.POD_NAME))
 }
 
+export function hasSupportedAdminCode(env = process.env) {
+  return hasValue(env.ADMIN_CODE) && !usesHostedRuntimeBootstrap(env)
+}
+
+export function allowsOpenAdminAccess(env = process.env) {
+  return !usesHostedRuntimeBootstrap(env) && !hasValue(env.ADMIN_CODE)
+}
+
 export function clearPushRuntimeBindingEnv(env = process.env) {
   for (const key of PUSH_RUNTIME_BINDING_ENV_KEYS) {
     delete env[key]

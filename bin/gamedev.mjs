@@ -486,7 +486,7 @@ async function startCommand(args = []) {
       rootDir: projectDir,
       worldUrl: env.WORLD_URL,
       worldId: env.WORLD_ID,
-      requiredCapability: 'builder',
+      requiredCapability: 'deploy',
       interactive: process.stdin.isTTY,
       log: console,
     })
@@ -584,7 +584,7 @@ async function appServerCommand(args = []) {
       rootDir: projectDir,
       worldUrl: env.WORLD_URL,
       worldId: env.WORLD_ID,
-      requiredCapability: 'builder',
+      requiredCapability: 'deploy',
       interactive: process.stdin.isTTY,
       log: console,
     })
@@ -848,12 +848,12 @@ async function syncCommand(args) {
   return runSyncCommand({ command, args: commandArgs, rootDir: projectDir, helpPrefix: 'gamedev sync' })
 }
 
-async function connectAdminServer({ worldUrl, worldId, rootDir }) {
+async function connectAdminServer({ worldUrl, worldId, rootDir, requiredCapability = 'builder' }) {
   const auth = await ensureProjectAuth({
     rootDir,
     worldUrl,
     worldId,
-    requiredCapability: 'builder',
+    requiredCapability,
     interactive: process.stdin.isTTY,
     log: console,
   })
@@ -976,12 +976,18 @@ async function worldCommand(args) {
 
     let server
     try {
-      server = await connectAdminServer({ worldUrl, worldId, rootDir: projectDir })
       if (action === 'export') {
+        server = await connectAdminServer({ worldUrl, worldId, rootDir: projectDir })
         const includeBuiltScripts = actionArgs.includes('--include-built-scripts')
         await server.exportWorldToDisk(undefined, { includeBuiltScripts })
         console.log('✅ World export complete')
       } else {
+        server = await connectAdminServer({
+          worldUrl,
+          worldId,
+          rootDir: projectDir,
+          requiredCapability: 'deploy',
+        })
         await server.importWorldFromDisk()
         console.log('✅ World import complete')
       }

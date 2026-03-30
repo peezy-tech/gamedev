@@ -10,6 +10,7 @@ import {
   handleRuntimeCredentialCommand,
 } from './adminCredentials.js'
 import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
+import { allowsOpenAdminAccess, hasSupportedAdminCode } from './runtimeBootstrap.js'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
@@ -200,6 +201,7 @@ function isCodeValid(expected, code) {
 }
 
 function isAdminCodeValid(code) {
+  if (!hasSupportedAdminCode(process.env)) return false
   const adminCode = process.env.ADMIN_CODE
   return isCodeValid(adminCode, code)
 }
@@ -388,6 +390,9 @@ export async function admin(
   }
 
   async function getCapabilitiesFromAuthToken(token) {
+    if (allowsOpenAdminAccess(process.env)) {
+      return { builder: true, deploy: true }
+    }
     if (!token || !db) return { builder: false, deploy: false }
     const worldId = world?.network?.worldId || process.env.WORLD_ID
     const claims = await readJWT(token, { worldId })
@@ -720,6 +725,7 @@ export async function admin(
       entities: serializeEntitiesForAdmin(world),
       players: includePlayers ? serializePlayersForAdmin(world) : [],
       hasAdminCode: !!process.env.ADMIN_CODE,
+      adminCodeAuthSupported: hasSupportedAdminCode(process.env),
       adminUrl: process.env.PUBLIC_ADMIN_URL,
     })
   }
@@ -825,9 +831,10 @@ export async function admin(
             ws.close()
             return
           }
+          const openAdminAccess = allowsOpenAdminAccess(process.env)
           const codeCapabilities = getCapabilitiesFromAdminCode(data?.code)
-          let builderOk = codeCapabilities.builder
-          let deployOk = codeCapabilities.deploy
+          let builderOk = openAdminAccess || codeCapabilities.builder
+          let deployOk = openAdminAccess || codeCapabilities.deploy
           if (!builderOk || !deployOk) {
             const payloadToken = typeof data?.authToken === 'string' ? data.authToken.trim() : ''
             const headerToken = getRuntimeAuthTokenFromRequest(req) || ''
@@ -904,6 +911,7 @@ export async function admin(
               canDeploy: capabilities.deploy,
               worldId: world?.network?.worldId || process.env.WORLD_ID || null,
               adminCode: process.env.ADMIN_CODE,
+              adminCodeSupported: hasSupportedAdminCode(process.env),
             })
             auditRuntimeCredentialReveal({
               req,
@@ -1235,6 +1243,7 @@ export async function admin(
       entities: serializeEntitiesForAdmin(world),
       players: serializePlayersForAdmin(world),
       hasAdminCode: !!process.env.ADMIN_CODE,
+      adminCodeAuthSupported: hasSupportedAdminCode(process.env),
       adminUrl: process.env.PUBLIC_ADMIN_URL,
     }
   })

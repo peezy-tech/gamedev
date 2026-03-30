@@ -39,6 +39,26 @@ test('runtime credential command no longer reveals admin code to deploy-capable 
   assert.deepEqual(result.credentials, {
     worldId: 'world-123',
     hasAdminCode: true,
+    adminCodeAuthSupported: true,
+    adminCode: null,
+  })
+})
+
+test('runtime credential command reports admin code as disabled on bootstrapped worlds', () => {
+  const result = handleRuntimeCredentialCommand({
+    canDeploy: true,
+    worldId: 'world-123',
+    adminCode: 'secret-code',
+    adminCodeSupported: false,
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.revealed, false)
+  assert.equal(result.reason, 'admin_code_disabled')
+  assert.deepEqual(result.credentials, {
+    worldId: 'world-123',
+    hasAdminCode: true,
+    adminCodeAuthSupported: false,
     adminCode: null,
   })
 })
@@ -56,6 +76,7 @@ test('runtime credential command returns world id when admin code is not configu
   assert.deepEqual(result.credentials, {
     worldId: 'world-123',
     hasAdminCode: false,
+    adminCodeAuthSupported: false,
     adminCode: null,
   })
 })
@@ -69,6 +90,7 @@ test('buildRuntimeCredentialResponse handles empty world id and missing admin co
     {
       worldId: null,
       hasAdminCode: false,
+      adminCodeAuthSupported: false,
       adminCode: null,
     }
   )

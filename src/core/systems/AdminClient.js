@@ -37,6 +37,10 @@ function normalizeRuntimeCredentials(data) {
   return {
     worldId: normalizeRuntimeCredentialValue(data.worldId),
     hasAdminCode: !!data.hasAdminCode,
+    adminCodeAuthSupported:
+      data.adminCodeAuthSupported === undefined
+        ? !!data.hasAdminCode
+        : !!data.adminCodeAuthSupported,
     adminCode: normalizeRuntimeCredentialValue(data.adminCode),
   }
 }
@@ -56,6 +60,7 @@ export class AdminClient extends System {
     this.deployLockToken = null
     this.deployLockScope = null
     this.requireCode = false
+    this.adminCodeAuthSupported = false
     this.runtimeCredentials = null
   }
 
@@ -65,13 +70,16 @@ export class AdminClient extends System {
     if (adminUrl) {
       this.adminUrl = normalizeAdminUrl(adminUrl)
       this.requireCode = !!requireAdminCode
+      this.adminCodeAuthSupported = !!requireAdminCode
       this.connect()
     }
   }
 
   onSnapshot(data) {
     this.adminUrl = normalizeAdminUrl(data.adminUrl) || deriveAdminUrl(data.apiUrl)
-    this.requireCode = !!data.hasAdminCode
+    this.adminCodeAuthSupported =
+      data.adminCodeAuthSupported === undefined ? !!data.hasAdminCode : !!data.adminCodeAuthSupported
+    this.requireCode = this.adminCodeAuthSupported
     this.runtimeCredentials = null
     this.refreshAuthToken(data.authToken)
     this.connect()

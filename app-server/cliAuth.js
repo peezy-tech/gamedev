@@ -1,5 +1,3 @@
-import crypto from 'crypto'
-import http from 'http'
 import { spawn } from 'child_process'
 
 import { joinUrl, normalizeWorldAdminBaseUrl } from './helpers.js'
@@ -20,6 +18,10 @@ function normalizeCapability(value) {
   if (value === 'deploy') return 'deploy'
   if (value === 'auth') return 'auth'
   return 'builder'
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 export function hasRequiredCapability(capabilities, requiredCapability = 'builder') {
@@ -54,138 +56,6 @@ export async function fetchCliAuthStatus({ worldUrl, authToken }) {
   return data
 }
 
-function createCallbackServer({ worldId, worldUrl, state, timeoutMs = 10 * 60 * 1000 } = {}) {
-  const expectedState = typeof state === 'string' && state.trim() ? state.trim() : crypto.randomUUID()
-  let settled = false
-  let timeoutId = null
-  let server = null
-  let startupResolve = null
-  let startupReject = null
-  let startupState = 'pending'
-  const startup = new Promise((resolve, reject) => {
-    startupResolve = resolve
-    startupReject = reject
-  })
-
-  const close = async () => {
-    if (!server) return
-    const target = server
-    server = null
-    await new Promise(resolve => target.close(() => resolve()))
-  }
-
-  const result = new Promise((resolve, reject) => {
-    server = http.createServer(async (req, res) => {
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-      if (req.method === 'OPTIONS') {
-        res.statusCode = 204
-        res.end()
-        return
-      }
-
-      if (req.method !== 'POST' || req.url !== '/callback') {
-        res.statusCode = 404
-        res.end('Not found')
-        return
-      }
-
-      const chunks = []
-      req.on('data', chunk => {
-        chunks.push(chunk)
-      })
-      req.on('error', async error => {
-        if (settled) return
-        settled = true
-        clearTimeout(timeoutId)
-        res.statusCode = 500
-        res.end(JSON.stringify({ error: 'callback_read_failed' }))
-        await close()
-        reject(error instanceof Error ? error : createError('callback_read_failed'))
-      })
-      req.on('end', async () => {
-        let payload
-        try {
-          payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
-        } catch {
-          res.statusCode = 400
-          res.end(JSON.stringify({ error: 'invalid_payload' }))
-          return
-        }
-
-        const receivedState = typeof payload?.state === 'string' ? payload.state.trim() : ''
-        const authToken = typeof payload?.authToken === 'string' ? payload.authToken.trim() : ''
-        const receivedWorldId = typeof payload?.worldId === 'string' ? payload.worldId.trim() : ''
-        const receivedWorldUrl = typeof payload?.worldUrl === 'string' ? payload.worldUrl.trim() : ''
-
-        if (!authToken || !receivedState || receivedState !== expectedState) {
-          res.statusCode = 400
-          res.end(JSON.stringify({ error: 'invalid_callback_state' }))
-          return
-        }
-        if (worldId && receivedWorldId && receivedWorldId !== worldId) {
-          res.statusCode = 409
-          res.end(JSON.stringify({ error: 'world_id_mismatch' }))
-          return
-        }
-        if (worldUrl && receivedWorldUrl && normalizeWorldAdminBaseUrl(receivedWorldUrl) !== normalizeWorldAdminBaseUrl(worldUrl)) {
-          res.statusCode = 409
-          res.end(JSON.stringify({ error: 'world_url_mismatch' }))
-          return
-        }
-
-        settled = true
-        clearTimeout(timeoutId)
-        res.statusCode = 200
-        res.setHeader('Content-Type', 'application/json')
-        res.end(JSON.stringify({ ok: true }))
-        await close()
-        resolve(payload)
-      })
-    })
-
-    server.listen(0, '127.0.0.1', () => {
-      if (startupState === 'pending') {
-        startupState = 'ready'
-        startupResolve()
-      }
-      timeoutId = setTimeout(async () => {
-        if (settled) return
-        settled = true
-        await close()
-        reject(createError('auth_timeout', 'Timed out waiting for browser authentication'))
-      }, timeoutMs)
-    })
-
-    server.on('error', async error => {
-      if (startupState === 'pending') {
-        startupState = 'failed'
-        startupReject(error instanceof Error ? error : createError('callback_server_failed'))
-      }
-      if (settled) return
-      settled = true
-      clearTimeout(timeoutId)
-      await close()
-      reject(error instanceof Error ? error : createError('callback_server_failed'))
-    })
-  })
-
-  return {
-    state: expectedState,
-    async getCallbackUrl() {
-      await startup
-      const address = server.address()
-      if (!address || typeof address === 'string') {
-        throw createError('callback_server_failed')
-      }
-      return `http://127.0.0.1:${address.port}/callback`
-    },
-    result,
-    close,
-  }
-}
-
 async function launchBrowser(url) {
   const commands =
     process.platform === 'darwin'
@@ -211,17 +81,112 @@ async function launchBrowser(url) {
   return false
 }
 
-export function buildCliAuthUrl({ worldUrl, worldId, callbackUrl, state, requiredCapability = 'builder' } = {}) {
+export function buildCliAuthUrl({
+  worldUrl,
+  worldId,
+  sessionId,
+  requiredCapability = 'builder',
+} = {}) {
   const normalizedWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
   if (!normalizedWorldUrl) {
     throw createError('invalid_world_url', 'Invalid world URL')
   }
   const url = new URL(joinUrl(normalizedWorldUrl, '/auth/cli'))
-  if (callbackUrl) url.searchParams.set('callback', callbackUrl)
+  if (sessionId) url.searchParams.set('session', sessionId)
   if (worldId) url.searchParams.set('worldId', worldId)
-  if (state) url.searchParams.set('state', state)
   url.searchParams.set('required', normalizeCapability(requiredCapability))
   return url.toString()
+}
+
+async function createRemoteCliAuthSession({ worldUrl, worldId, requiredCapability = 'builder' } = {}) {
+  const normalizedWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+  if (!normalizedWorldUrl) {
+    throw createError('invalid_world_url', 'Invalid world URL')
+  }
+  const response = await fetch(joinUrl(normalizedWorldUrl, '/api/auth/cli/session'), {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({
+      worldId,
+      requiredCapability: normalizeCapability(requiredCapability),
+    }),
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw createError(
+      data?.error || `session_create_failed:${response.status}`,
+      data?.message || 'Failed to create CLI auth session',
+      {
+        status: response.status,
+        data,
+      },
+    )
+  }
+  const sessionId = typeof data?.sessionId === 'string' ? data.sessionId.trim() : ''
+  if (!sessionId) {
+    throw createError('invalid_session_response', 'World did not return a CLI auth session id', { data })
+  }
+  return data
+}
+
+async function fetchRemoteCliAuthSession({ worldUrl, sessionId } = {}) {
+  const normalizedWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+  if (!normalizedWorldUrl) {
+    throw createError('invalid_world_url', 'Invalid world URL')
+  }
+  if (typeof sessionId !== 'string' || !sessionId.trim()) {
+    throw createError('session_missing', 'Missing CLI auth session id')
+  }
+  const response = await fetch(joinUrl(normalizedWorldUrl, `/api/auth/cli/session/${encodeURIComponent(sessionId.trim())}`), {
+    headers: {
+      accept: 'application/json',
+    },
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw createError(
+      data?.error || `session_status_failed:${response.status}`,
+      data?.message || 'Failed to read CLI auth session',
+      {
+        status: response.status,
+        data,
+      },
+    )
+  }
+  return data
+}
+
+async function waitForRemoteCliAuthSession({
+  worldUrl,
+  sessionId,
+  timeoutMs = 10 * 60 * 1000,
+  intervalMs = 1000,
+} = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const session = await fetchRemoteCliAuthSession({ worldUrl, sessionId })
+    if (session?.status === 'complete' && session?.result?.authToken) {
+      return session.result
+    }
+    if (session?.status === 'expired') {
+      throw createError('auth_timeout', 'Timed out waiting for browser authentication')
+    }
+    await sleep(intervalMs)
+  }
+  throw createError('auth_timeout', 'Timed out waiting for browser authentication')
+}
+
+async function openCliAuthUrl(authUrl, { log = console } = {}) {
+  log?.log?.(`World auth URL:\n${authUrl}`)
+  const opened = await launchBrowser(authUrl)
+  if (!opened) {
+    log?.warn?.('Browser did not open automatically. Open the URL above to continue authentication.')
+    return
+  }
+  log?.log?.('Opening browser for world auth...')
 }
 
 export async function runBrowserCliAuth({
@@ -232,43 +197,33 @@ export async function runBrowserCliAuth({
   timeoutMs,
   log = console,
 } = {}) {
-  const callback = createCallbackServer({
-    worldId,
+  const session = await createRemoteCliAuthSession({
     worldUrl,
+    worldId,
+    requiredCapability,
+  })
+  const authUrl = buildCliAuthUrl({
+    worldUrl,
+    worldId,
+    sessionId: session.sessionId,
+    requiredCapability,
+  })
+  await openCliAuthUrl(authUrl, { log })
+  const payload = await waitForRemoteCliAuthSession({
+    worldUrl,
+    sessionId: session.sessionId,
     timeoutMs,
   })
-  try {
-    const callbackUrl = await callback.getCallbackUrl()
-    const authUrl = buildCliAuthUrl({
-      worldUrl,
-      worldId,
-      callbackUrl,
-      state: callback.state,
-      requiredCapability,
-    })
-
-    log?.log?.(`World auth URL:\n${authUrl}`)
-    const opened = await launchBrowser(authUrl)
-    if (!opened) {
-      log?.warn?.('Browser did not open automatically. Open the URL above to continue authentication.')
-    } else {
-      log?.log?.(`Opening browser for world auth...`)
-    }
-
-    const payload = await callback.result
-    const entry = writeProjectAuthEntry(rootDir, {
-      worldUrl: payload.worldUrl || worldUrl,
-      worldId: payload.worldId || worldId,
-      authToken: payload.authToken,
-      userId: payload?.user?.id || null,
-      userName: payload?.user?.name || null,
-    })
-    return {
-      entry,
-      capabilities: payload?.capabilities || null,
-    }
-  } finally {
-    await callback.close().catch(() => {})
+  const entry = writeProjectAuthEntry(rootDir, {
+    worldUrl: payload.worldUrl || worldUrl,
+    worldId: payload.worldId || worldId,
+    authToken: payload.authToken,
+    userId: payload?.user?.id || null,
+    userName: payload?.user?.name || null,
+  })
+  return {
+    entry,
+    capabilities: payload?.capabilities || null,
   }
 }
 

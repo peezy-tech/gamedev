@@ -195,6 +195,10 @@ test('phase 1 app-server writes .lobby/sync-state.json baselines', async () => {
         assert.ok(Object.prototype.hasOwnProperty.call(entry, 'lastOpId'))
       }
 
+      for (const entry of entityEntries) {
+        assert.equal(Object.hasOwn(entry.value || {}, 'state'), false)
+      }
+
       const admin = new AdminWsClient({
         worldUrl: world.worldUrl,
         adminCode: world.adminCode,

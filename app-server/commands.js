@@ -260,14 +260,14 @@ export class HyperfyCLI {
     return process.env.HYPERFY_TARGET_CONFIRM === 'true'
   }
 
-  async _connectAdminClient() {
+  async _connectAdminClient({ requiredCapability = 'builder' } = {}) {
     this._requireWorldUrl()
     this._requireWorldId()
     const auth = await ensureProjectAuth({
       rootDir: this.rootDir,
       worldUrl: this.worldUrl,
       worldId: this.worldId,
-      requiredCapability: 'builder',
+      requiredCapability,
       interactive: process.stdin.isTTY,
       log: console,
     })
@@ -411,7 +411,7 @@ export class HyperfyCLI {
 
     console.log(`🚀 Deploying app: ${appName}`)
 
-    const server = await this._connectAdminClient()
+    const server = await this._connectAdminClient({ requiredCapability: 'deploy' })
     try {
       if (!options.dryRun && !options.yes && this._shouldConfirmDeployTarget()) {
         const target = process.env.HYPERFY_TARGET ? ` "${process.env.HYPERFY_TARGET}"` : ''
@@ -452,7 +452,7 @@ export class HyperfyCLI {
 
   async rollback(snapshotId) {
     console.log(`⏪ Rolling back deploy snapshot...`)
-    const server = await this._connectAdminClient()
+    const server = await this._connectAdminClient({ requiredCapability: 'deploy' })
     try {
       const owner = `hyperfy-cli:${process.env.HYPERFY_TARGET || 'default'}:${process.pid}`
       const lock = await server.client.acquireDeployLock({ owner })
@@ -486,7 +486,7 @@ export class HyperfyCLI {
 
   async status() {
     console.log(`📊 Admin Status`)
-    const server = await this._connectAdminClient()
+    const server = await this._connectAdminClient({ requiredCapability: 'builder' })
     try {
       const snapshot = await server.client.getSnapshot()
       const blueprints = Array.isArray(snapshot?.blueprints) ? snapshot.blueprints.length : 0
@@ -572,7 +572,7 @@ export class HyperfyCLI {
       return false
     }
 
-    const server = await this._connectAdminClient()
+    const server = await this._connectAdminClient({ requiredCapability: 'deploy' })
     try {
       const result = await server.resolveSyncConflict(id, { use })
       if (result?.alreadyResolved) {
@@ -592,7 +592,7 @@ export class HyperfyCLI {
   }
 
   async syncResolveInteractive() {
-    const server = await this._connectAdminClient()
+    const server = await this._connectAdminClient({ requiredCapability: 'deploy' })
     try {
       const summary = await server.promptAndResolveSyncConflicts()
       if (!summary?.prompted && summary?.remaining > 0) {
