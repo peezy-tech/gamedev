@@ -818,7 +818,7 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
 export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet }) {
   const apiBaseUrl = useMemo(resolveWorldServiceApiBase, [])
   const isPrivyMode = auth?.mode === 'privy'
-  const canManageWorld = !!auth?.connected
+  const canManageWorld = !!auth?.authenticated
 
   const [loadingWorld, setLoadingWorld] = useState(false)
   const [ownedWorld, setOwnedWorld] = useState(null)
