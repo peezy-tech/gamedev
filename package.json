@@ -54,6 +54,7 @@
     "start": "node build/index.js",
     "prepublishOnly": "npm run build",
     "world:backup": "node scripts/backup-world.mjs",
+    "static:build": "node scripts/build-static.mjs",
     "viewer:dev": "node scripts/build-viewer.mjs --dev",
     "viewer:build": "node scripts/build-viewer.mjs",
     "client:dev": "node scripts/build-client.mjs --dev",

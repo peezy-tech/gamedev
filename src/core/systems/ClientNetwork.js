@@ -2,8 +2,8 @@ import moment from 'moment'
 import { emoteUrls } from '../extras/playerEmotes'
 import { readPacket, writePacket } from '../packets'
 import { storage } from '../storage'
-import { uuid } from '../utils'
-import { hashFile } from '../utils-client'
+import { uuid, sanitizeWsUrl } from '../utils'
+import { hashFile, navigateToServer } from '../utils-client'
 import { System } from './System'
 
 function hasModuleScript(blueprint) {
@@ -32,15 +32,34 @@ export class ClientNetwork extends System {
   }
 
   init({ wsUrl, name, avatar }) {
-    this.maxRetries = 10
-    this.maxWaitTime = 60000
-    this.retryCount = 0
-    this.retryDelay = 6000
-    this.connectStartTime = Date.now()
+    this.retryDelay = 10000
     this.wsUrl = wsUrl
     this.connectParams = { name, avatar }
     this.wasConnected = false
-    this.connect()
+    this._intentionalOffline = false
+    this._reconnectTimer = null
+    this.isOffline = !wsUrl
+    this._registerCommands()
+    if (wsUrl) this.connect()
+  }
+
+  _registerCommands() {
+    this.world.chat.bindCommand('connect', ({ value }) => {
+      const clean = sanitizeWsUrl(value)
+      if (!clean) {
+        this.world.chat.add({ body: 'Usage: /connect wss://host/ws' })
+        return
+      }
+      navigateToServer(clean)
+    })
+    this.world.chat.bindCommand('offline', () => {
+      this._intentionalOffline = true
+      this._clearReconnect()
+      this.ws?.close()
+    })
+    this.world.chat.bindCommand('reconnect', () => {
+      navigateToServer()
+    })
   }
 
   connect() {
@@ -75,8 +94,25 @@ export class ClientNetwork extends System {
 
   onOpen = () => {
     this.wasConnected = true
-    this.retryCount = 0
+    this.isOffline = false
+    this._intentionalOffline = false
+    this._clearReconnect()
     this.world.emit('connectionStatus', { status: 'connected' })
+  }
+
+  _clearReconnect() {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer)
+      this._reconnectTimer = null
+    }
+  }
+
+  _scheduleReconnect() {
+    if (this._intentionalOffline || this._reconnectTimer) return
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null
+      this.connect()
+    }, this.retryDelay)
   }
 
   onError = e => {
@@ -88,6 +124,7 @@ export class ClientNetwork extends System {
   }
 
   send(name, data) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
     // console.log('->', name, data)
     const packet = writePacket(name, data)
     this.ws.send(packet)
@@ -286,6 +323,7 @@ export class ClientNetwork extends System {
   }
 
   onPong = time => {
+    this.world.emit('ping', Math.round(performance.now() - time))
     this.world.stats?.onPong(time)
   }
 
@@ -294,38 +332,24 @@ export class ClientNetwork extends System {
   }
 
   onClose = code => {
-    const elapsed = Date.now() - this.connectStartTime
-    const timedOut = elapsed > this.maxWaitTime
-
-    if (!this.wasConnected && this.retryCount < this.maxRetries && !timedOut) {
-      this.retryCount++
-      this.world.emit('connectionStatus', {
-        status: 'retrying',
-        message: `Connecting to server... (attempt ${this.retryCount}/${this.maxRetries})`,
+    this.isOffline = true
+    if (this.wasConnected) {
+      this.world.chat.add({
+        id: uuid(),
+        from: null,
+        fromId: null,
+        body: `You have been disconnected.`,
+        createdAt: moment().toISOString(),
       })
-      setTimeout(() => this.connect(), this.retryDelay)
-      return
+      this.world.emit('disconnect', code || true)
+    } else {
+      this.world.emit('connectionStatus', { status: 'offline' })
     }
-
-    if (!this.wasConnected && timedOut) {
-      this.world.emit('connectionStatus', {
-        status: 'error',
-        message: 'Cannot find server',
-      })
-    }
-
-    this.world.chat.add({
-      id: uuid(),
-      from: null,
-      fromId: null,
-      body: `You have been disconnected.`,
-      createdAt: moment().toISOString(),
-    })
-    this.world.emit('disconnect', code || true)
-    console.log('disconnect', code)
+    this._scheduleReconnect()
   }
 
   destroy() {
+    this._clearReconnect()
     if (this.ws) {
       this.ws.removeEventListener('open', this.onOpen)
       this.ws.removeEventListener('message', this.onPacket)
