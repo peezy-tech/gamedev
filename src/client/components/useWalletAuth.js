@@ -4,6 +4,7 @@ import { storage } from '../../core/storage'
 const defaultWalletAuthState = {
   enabled: false,
   mode: null,
+  authenticated: false,
   providerAvailable: false,
   providerAvailability: {
     ethereum: false,
@@ -259,10 +260,12 @@ export function useWalletAuth(world) {
 
       const session = await auth.getSessionUser?.().catch(() => null)
       const sessionUserId = typeof session?.user?.id === 'string' ? session.user.id.trim() : ''
+      const walletOnlySession = !!session?.user?.wallet_only
       const sessionWallet = resolveSessionWallet(session, auth)
       sessionWalletRef.current = sessionWallet
       setAuthState({
-        connected: !!sessionUserId,
+        authenticated: !!sessionUserId && !walletOnlySession,
+        connected: !!sessionUserId || !!sessionWallet.address,
         address: sessionWallet.address || null,
         wallet: sessionWallet.address
           ? {
