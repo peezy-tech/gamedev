@@ -24,7 +24,6 @@ import { createDeferredResource } from './deferredResource.js'
 import { createAgonesPlayerTracker } from './agonesPlayerTracking.js'
 import { createAgonesSdkHttp } from './agonesSdkHttp.js'
 import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from './agonesIdleShutdown.js'
-import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { resolveAuthRuntimeConfig } from './authModes'
 import { completeRuntimeStartup } from './runtimeStartup.js'
@@ -469,7 +468,6 @@ function buildRuntimeStatusPayload(state) {
     state: state.lifecycle.state,
     worldId: state.resources.world?.network?.worldId || process.env.WORLD_ID || null,
     commitHash: process.env.COMMIT_HASH || null,
-    listable: !!state.registryState?.listable,
     updatedAt: nowIso(),
   }
 
@@ -481,9 +479,6 @@ function buildRuntimeStatusPayload(state) {
     payload.playerCount = world?.network?.sockets?.size || 0
     payload.playerLimit = world.settings.playerLimit ?? null
   }
-
-  const registry = getRegistryPublicStatus(state.registryState)
-  if (registry) payload.registry = registry
 
   return payload
 }
@@ -608,7 +603,6 @@ function buildRuntimeState({ initialBinding = null, initialSource = null } = {})
       worldSlug: binding?.world?.slug || null,
     },
     initializationPromise: null,
-    registryState: createRegistryState(process.env),
     auth: {
       cliAuthSessions: createCliAuthSessionStore(),
     },
@@ -863,7 +857,6 @@ async function initializeRuntime({ source, binding = null } = {}) {
     runtimeState.resources.storage = storage
     runtimeState.resources.world = world
     runtimeState.resources.worldDir = worldDir
-    runtimeState.registryState = createRegistryState(process.env)
 
     flushWorldProxyCalls()
     const agonesIntegration = configureAgonesIntegration(world)
@@ -881,12 +874,6 @@ async function initializeRuntime({ source, binding = null } = {}) {
       agonesIdleControllerEnabled: agonesIntegration.agonesIdleControllerEnabled,
       idleTimeoutMs: agonesIntegration.idleTimeoutMs,
       requestAgonesReady: source !== 'bootstrap',
-      registryState: runtimeState.registryState,
-      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
-      commitHash: process.env.COMMIT_HASH || null,
-      registerWithRegistryImpl: (registryState, payload) => {
-        void registerWithRegistry(registryState, payload)
-      },
     })
     logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_initialize_complete', {
       bootstrapId:

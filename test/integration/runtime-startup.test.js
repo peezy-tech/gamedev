@@ -22,7 +22,7 @@ function createLogger() {
   }
 }
 
-test('completeRuntimeStartup requests Agones Ready before idle reconciliation and registry registration', async () => {
+test('completeRuntimeStartup requests Agones Ready before idle reconciliation', async () => {
   const events = []
   const { logger, messages } = createLogger()
 
@@ -39,16 +39,10 @@ test('completeRuntimeStartup requests Agones Ready before idle reconciliation an
       },
     },
     idleTimeoutMs: 15000,
-    registryState: { listable: true },
-    worldId: 'world-123',
-    commitHash: 'abc123',
-    registerWithRegistryImpl: async (_registryState, payload) => {
-      events.push(`registry:${payload.worldId}:${payload.commitHash}`)
-    },
     logger,
   })
 
-  assert.deepEqual(events, ['ready', 'idle:startup', 'registry:world-123:abc123'])
+  assert.deepEqual(events, ['ready', 'idle:startup'])
   assert.deepEqual(messages.error, [])
   assert.deepEqual(messages.info, ['[agones] requested Agones Ready', '[agones-idle] enabled with timeout=15s'])
 })
@@ -70,9 +64,6 @@ test('completeRuntimeStartup fails fast when Agones Ready cannot be delivered', 
         reconcileIdleShutdown: reason => {
           events.push(`idle:${reason}`)
         },
-      },
-      registerWithRegistryImpl: async () => {
-        events.push('registry')
       },
       logger,
     }),
@@ -102,16 +93,10 @@ test('completeRuntimeStartup skips Agones Ready when requestAgonesReady is false
     },
     idleTimeoutMs: 15000,
     requestAgonesReady: false,
-    registryState: { listable: true },
-    worldId: 'world-123',
-    commitHash: 'abc123',
-    registerWithRegistryImpl: async (_registryState, payload) => {
-      events.push(`registry:${payload.worldId}:${payload.commitHash}`)
-    },
     logger,
   })
 
-  assert.deepEqual(events, ['idle:startup', 'registry:world-123:abc123'])
+  assert.deepEqual(events, ['idle:startup'])
   assert.deepEqual(messages.error, [])
   assert.deepEqual(messages.info, ['[agones-idle] enabled with timeout=15s'])
 })

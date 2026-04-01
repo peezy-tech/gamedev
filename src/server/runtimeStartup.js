@@ -1,5 +1,3 @@
-import { registerWithRegistry } from './registry'
-
 function formatErrorMessage(err) {
   if (err instanceof Error) return err.message
   return String(err)
@@ -22,10 +20,6 @@ export async function completeRuntimeStartup({
   agonesIdleControllerEnabled = false,
   idleTimeoutMs = 0,
   requestAgonesReady = true,
-  registryState = null,
-  worldId = null,
-  commitHash = null,
-  registerWithRegistryImpl = registerWithRegistry,
   logger = console,
 } = {}) {
   const log = createLogger(logger)
@@ -44,9 +38,4 @@ export async function completeRuntimeStartup({
     log.info(`[agones-idle] enabled with timeout=${idleTimeoutMs / 1000}s`)
     agonesIdleController?.reconcileIdleShutdown('startup')
   }
-
-  void registerWithRegistryImpl(registryState, {
-    worldId,
-    commitHash,
-  })
 }
