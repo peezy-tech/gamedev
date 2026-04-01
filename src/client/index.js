@@ -1,3 +1,5 @@
+/* global env */
+
 import 'ses'
 import '../core/lockdown'
 import { getAddress } from 'ethers'
@@ -8,6 +10,7 @@ import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana'
 import { arbitrum } from '@privy-io/chains'
 
 import { storage } from '../core/storage'
+import { resolveConnectionPolicy } from '../core/utils-client'
 import { Client } from './world-client'
 
 function buildWsUrl(baseUrl, token) {
@@ -1033,31 +1036,7 @@ function PrivyRuntimeAuthSync({ state, children }) {
   return children
 }
 
-function resolveConnectionPolicy() {
-  const searchParams = new URLSearchParams(location.search)
-  const allowOverride =
-    location.hostname === 'localhost' || env.PUBLIC_ALLOW_WS_OVERRIDE === 'true'
-  if (searchParams.get('mode') === 'offline') return { offline: true }
-  if (allowOverride) {
-    const connectUrl = searchParams.get('connect')
-    if (connectUrl) {
-      try {
-        const parsed = new URL(connectUrl)
-        if (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') {
-          return { overrideWsUrl: parsed.origin + parsed.pathname }
-        }
-      } catch {
-        // ignore invalid URLs
-      }
-    }
-  }
-  // No server configured — don't guess from window.location, just go offline
-  if (!env.PUBLIC_WS_URL && !env.PUBLIC_API_URL) return { offline: true }
-  return {}
-}
-
 const connectionPolicy = resolveConnectionPolicy()
-
 const authBaseUrl = hasValue(env.PUBLIC_AUTH_URL) ? env.PUBLIC_AUTH_URL : null
 const privyAppId = hasValue(env.PUBLIC_PRIVY_APP_ID) ? env.PUBLIC_PRIVY_APP_ID : ''
 const privyBridgeState = privyAppId

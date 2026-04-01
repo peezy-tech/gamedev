@@ -1,4 +1,3 @@
-/* global env */
 import { css } from '@firebolt-dev/css'
 import { useContext, useEffect, useMemo, useState } from 'react'
 import { XIcon, CircleArrowRightIcon, HammerIcon, UserXIcon, Volume2Icon, SettingsIcon, UsersIcon } from 'lucide-react'
@@ -17,7 +16,7 @@ import { Ranks } from '../../core/extras/ranks'
 import { storage } from '../../core/storage'
 import { syncLobbyProfilePatch } from '../../core/profileSync'
 import { sanitizeWsUrl } from '../../core/utils'
-import { navigateToServer } from '../../core/utils-client'
+import { getPreferredServerUrl, resolveConnectionPolicy, navigateToServer } from '../../core/utils-client'
 
 const shadowOptions = [
   { label: 'None', value: 'none' },
@@ -387,14 +386,11 @@ export function MainMenu({ world, open, onClose }) {
 }
 
 function ConnectionSection({ world, onClose }) {
+  const connectionPolicy = useMemo(() => resolveConnectionPolicy(), [])
+  const showServerUrl = connectionPolicy.allowUrlOverride
   const [isOffline, setIsOffline] = useState(() => !!world.network?.isOffline)
   const [ping, setPing] = useState(null)
-  const [serverUrl, setServerUrl] = useState(() => {
-    const searchParams = new URLSearchParams(location.search)
-    const fromQuery = searchParams.get('connect')
-    if (fromQuery) return fromQuery
-    return env.PUBLIC_WS_URL || ''
-  })
+  const [serverUrl, setServerUrl] = useState(() => getPreferredServerUrl())
 
   useEffect(() => {
     const onPing = ms => setPing(ms)
@@ -440,13 +436,15 @@ function ConnectionSection({ world, onClose }) {
   return (
     <>
       <Group label='Connection' />
-      <FieldText
-        label='Server'
-        hint='Set the websocket URL to connect to another server'
-        placeholder='wss://your-world.example/ws'
-        value={serverUrl}
-        onChange={value => setServerUrl(value)}
-      />
+      {showServerUrl && (
+        <FieldText
+          label='Server'
+          hint='Set the websocket URL to connect to another server'
+          placeholder='wss://your-world.example/ws'
+          value={serverUrl}
+          onChange={value => setServerUrl(value)}
+        />
+      )}
       <FieldBtn
         label='Status'
         hint='Current connection state'
@@ -455,7 +453,13 @@ function ConnectionSection({ world, onClose }) {
       />
       <FieldBtn
         label={isOffline ? 'Connect to Server' : 'Disconnect from Server'}
-        hint={isOffline ? 'Reload using the server URL above' : 'Close the current websocket connection'}
+        hint={
+          isOffline
+            ? showServerUrl
+              ? 'Reload using the server URL above'
+              : 'Reload using the configured server'
+            : 'Close the current websocket connection'
+        }
         onClick={isOffline ? handleConnect : handleDisconnect}
       />
     </>

@@ -9,7 +9,7 @@ import { assetPath, isTouch } from '../utils'
 import { downloadFile } from '../../core/extras/downloadFile'
 import { useRank } from './useRank'
 import { sanitizeWsUrl } from '../../core/utils'
-import { navigateToServer } from '../../core/utils-client'
+import { getPreferredServerUrl, resolveConnectionPolicy, navigateToServer } from '../../core/utils-client'
 import { MouseLeftIcon } from './MouseLeftIcon'
 import { MouseRightIcon } from './MouseRightIcon'
 import { MouseWheelIcon } from './MouseWheelIcon'
@@ -54,9 +54,10 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
     if (!ui.active) setOpen(true)
   }
   const [showConn, setShowConn] = useState(false)
+  const [connectionPolicy] = useState(() => resolveConnectionPolicy())
   const [isOffline, setIsOffline] = useState(() => !!world.network?.isOffline)
   const [ping, setPing] = useState(null)
-  const [serverUrl, setServerUrl] = useState(() => new URLSearchParams(location.search).get('connect') || '')
+  const [serverUrl, setServerUrl] = useState(() => getPreferredServerUrl())
   useEffect(() => {
     const onPing = ms => setPing(ms)
     const onConnectionStatus = ({ status } = {}) => {
@@ -326,18 +327,20 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
               }
             `}
           >
-            <label className='conn-field'>
-              <span className='conn-field-label'>Server</span>
-              <input
-                type='text'
-                placeholder='wss://your-world.fly.dev/ws'
-                value={serverUrl}
-                onChange={e => setServerUrl(e.target.value)}
-                onKeyDown={e => {
-                  if (e.code === 'Enter') { e.preventDefault(); handleConnect() }
-                }}
-              />
-            </label>
+            {connectionPolicy.allowUrlOverride && (
+              <label className='conn-field'>
+                <span className='conn-field-label'>Server</span>
+                <input
+                  type='text'
+                  placeholder='wss://your-world.fly.dev/ws'
+                  value={serverUrl}
+                  onChange={e => setServerUrl(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.code === 'Enter') { e.preventDefault(); handleConnect() }
+                  }}
+                />
+              </label>
+            )}
             <div className='conn-status'>
               <span className='conn-status-label'>Status</span>
               <span className='conn-status-value'>
