@@ -821,18 +821,19 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
   const canManageWorld = !!auth?.authenticated
 
   const [loadingWorld, setLoadingWorld] = useState(false)
-  const [ownedWorld, setOwnedWorld] = useState(null)
+  const [ownedWorlds, setOwnedWorlds] = useState([])
   const [worldError, setWorldError] = useState('')
-  const [worldName, setWorldName] = useState('My World')
-  const [worldSlug, setWorldSlug] = useState('my-world')
+  const [worldName, setWorldName] = useState('')
+  const [worldSlug, setWorldSlug] = useState('')
   const [worldDescription, setWorldDescription] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
   const [createError, setCreateError] = useState('')
   const [creatingWorld, setCreatingWorld] = useState(false)
+  const [createWorldOpen, setCreateWorldOpen] = useState(false)
 
-  const refreshOwnedWorld = useCallback(async () => {
+  const refreshOwnedWorlds = useCallback(async () => {
     if (!apiBaseUrl) {
-      setOwnedWorld(null)
+      setOwnedWorlds([])
       setWorldError('World service API is unavailable.')
       return
     }
@@ -842,39 +843,30 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
     setLoadingWorld(false)
     if (!result.ok) {
       if (result.status === 401) {
-        setOwnedWorld(null)
+        setOwnedWorlds([])
         setWorldError('Session expired. Please sign in again.')
         return
       }
-      setOwnedWorld(null)
+      setOwnedWorlds([])
       setWorldError(getErrorMessage(result.body, 'Unable to load your world.'))
       return
     }
     const owned = Array.isArray(result.body?.owned) ? result.body.owned : []
-    const world = owned[0] || null
-    setOwnedWorld(world)
-    if (world) {
-      const nextName = typeof world.name === 'string' ? world.name : 'My World'
-      const nextSlug = typeof world.slug === 'string' ? world.slug : slugify(nextName)
-      const nextDescription = typeof world.description === 'string' ? world.description : ''
-      setWorldName(nextName)
-      setWorldSlug(nextSlug)
-      setWorldDescription(nextDescription)
-      setSlugEdited(true)
-    }
+    setOwnedWorlds(owned)
   }, [apiBaseUrl])
 
   useEffect(() => {
     if (!open) return
     setCreateError('')
+    setCreateWorldOpen(false)
     if (!canManageWorld) {
       setLoadingWorld(false)
-      setOwnedWorld(null)
+      setOwnedWorlds([])
       setWorldError('')
       return
     }
-    void refreshOwnedWorld()
-  }, [open, canManageWorld, refreshOwnedWorld])
+    void refreshOwnedWorlds()
+  }, [open, canManageWorld, refreshOwnedWorlds])
 
   useEffect(() => {
     if (slugEdited) return
@@ -930,7 +922,7 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
       }
       if (result.status === 409 && code === 'world_limit_reached') {
         setCreateError('A personal world already exists for this account.')
-        await refreshOwnedWorld()
+        await refreshOwnedWorlds()
         return
       }
       if (result.status === 409 && code.toLowerCase().includes('slug')) {
@@ -942,16 +934,23 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
     }
     const created = result.body?.world || null
     if (created) {
-      setOwnedWorld(created)
-      setSlugEdited(true)
+      setOwnedWorlds(existing => {
+        const next = Array.isArray(existing) ? existing.filter(world => world?.id !== created?.id) : []
+        return [created, ...next]
+      })
+      setCreateWorldOpen(false)
+      setWorldName('')
+      setWorldSlug('')
+      setWorldDescription('')
+      setSlugEdited(false)
       setCreateError('')
       return
     }
-    await refreshOwnedWorld()
+    await refreshOwnedWorlds()
   }
 
-  const openMyWorld = () => {
-    const slug = typeof ownedWorld?.slug === 'string' ? ownedWorld.slug.trim() : ''
+  const openWorld = slugValue => {
+    const slug = typeof slugValue === 'string' ? slugValue.trim() : ''
     if (!slug) return
     window.location.href = `/worlds/${slug}`
   }
@@ -978,77 +977,122 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
       )
     }
 
-    if (worldError && !ownedWorld) {
-      return (
-        <div className='usermenu-hero'>
-          <div className='usermenu-section-label'>World</div>
-          <div className='usermenu-error'>{worldError}</div>
-        </div>
-      )
-    }
-
-    if (ownedWorld) {
-      return (
-        <div className='usermenu-hero usermenu-hero--world'>
-          <div className='usermenu-section-label'>World</div>
-          <div className='usermenu-hero-name'>{ownedWorld.name || 'My World'}</div>
-          <div className='usermenu-hero-slug'>/{ownedWorld.slug}</div>
-          <div className='usermenu-hero-actions'>
-            <button className='usermenu-btn-enter' onClick={openMyWorld}>
-              Enter
-            </button>
-          </div>
-        </div>
-      )
-    }
-
     return (
-      <div className='usermenu-hero'>
-        <div className='usermenu-section-label'>Create Your World</div>
-        <label className='usermenu-field'>
-          <div className='usermenu-label'>Name</div>
-          <input
-            className='usermenu-input'
-            value={worldName}
-            maxLength={100}
-            onChange={event => setWorldName(event.target.value)}
-          />
-        </label>
-        <label className='usermenu-field'>
-          <div className='usermenu-label'>Slug</div>
-          <input
-            className='usermenu-input'
-            value={worldSlug}
-            maxLength={32}
-            onChange={event => {
-              setSlugEdited(true)
-              setWorldSlug(slugify(event.target.value))
-            }}
-          />
-        </label>
-        <label className='usermenu-field'>
-          <div className='usermenu-label'>Description (optional)</div>
-          <textarea
-            className='usermenu-textarea'
-            value={worldDescription}
-            maxLength={1000}
-            onChange={event => setWorldDescription(event.target.value)}
-          />
-        </label>
-        {createError && <div className='usermenu-error'>{createError}</div>}
-        <div className='usermenu-hero-actions'>
-          <button
-            className={cls('usermenu-btn-primary', { disabled: creatingWorld || loadingWorld })}
-            onClick={() => {
-              if (creatingWorld || loadingWorld) return
-              void createWorld()
-            }}
-          >
-            {creatingWorld && <LoaderIcon size='0.85rem' />}
-            {creatingWorld ? 'Creating...' : 'Create World'}
-          </button>
+      <>
+        {worldError && !ownedWorlds.length ? (
+          <div className='usermenu-hero'>
+            <div className='usermenu-section-label'>World</div>
+            <div className='usermenu-error'>{worldError}</div>
+          </div>
+        ) : null}
+        {ownedWorlds.length ? (
+          <div className='usermenu-hero usermenu-hero--worlds'>
+            <div className='usermenu-section-label'>Your Worlds</div>
+            <div className='usermenu-world-list'>
+              {ownedWorlds.map(worldEntry => {
+                const slug = typeof worldEntry?.slug === 'string' ? worldEntry.slug.trim() : ''
+                const name = typeof worldEntry?.name === 'string' && worldEntry.name.trim() ? worldEntry.name : 'Untitled World'
+                const description =
+                  typeof worldEntry?.description === 'string' ? worldEntry.description.trim() : ''
+                const key = worldEntry?.id || slug || name
+                return (
+                  <div className='usermenu-world-card' key={key}>
+                    <div className='usermenu-world-copy'>
+                      <div className='usermenu-hero-name'>{name}</div>
+                      {slug ? <div className='usermenu-hero-slug'>/{slug}</div> : null}
+                      {description ? <div className='usermenu-muted usermenu-world-description'>{description}</div> : null}
+                    </div>
+                    <div className='usermenu-hero-actions'>
+                      <button className='usermenu-btn-enter' disabled={!slug} onClick={() => openWorld(slug)}>
+                        Enter
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {worldError ? <div className='usermenu-error'>{worldError}</div> : null}
+          </div>
+        ) : null}
+        <div className='usermenu-hero'>
+          <div className='usermenu-section-label'>{ownedWorlds.length ? 'Create Another World' : 'Create Your World'}</div>
+          <div className='usermenu-hero-actions'>
+            {!createWorldOpen ? (
+              <button
+                className={cls('usermenu-btn-primary', { disabled: loadingWorld })}
+                onClick={() => {
+                  if (loadingWorld) return
+                  setCreateError('')
+                  setCreateWorldOpen(true)
+                }}
+              >
+                {ownedWorlds.length ? 'New World' : 'Create World'}
+              </button>
+            ) : (
+              <>
+                <button
+                  className={cls('usermenu-btn-primary', { disabled: creatingWorld || loadingWorld })}
+                  onClick={() => {
+                    if (creatingWorld || loadingWorld) return
+                    void createWorld()
+                  }}
+                >
+                  {creatingWorld && <LoaderIcon size='0.85rem' />}
+                  {creatingWorld ? 'Creating...' : 'Create World'}
+                </button>
+                <button
+                  className={cls('usermenu-btn-secondary', { disabled: creatingWorld })}
+                  onClick={() => {
+                    if (creatingWorld) return
+                    setCreateWorldOpen(false)
+                    setCreateError('')
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+          {createWorldOpen ? (
+            <>
+              <label className='usermenu-field'>
+                <div className='usermenu-label'>Name</div>
+                <input
+                  className='usermenu-input'
+                  value={worldName}
+                  maxLength={100}
+                  placeholder='My World'
+                  onChange={event => setWorldName(event.target.value)}
+                />
+              </label>
+              <label className='usermenu-field'>
+                <div className='usermenu-label'>Slug</div>
+                <input
+                  className='usermenu-input'
+                  value={worldSlug}
+                  maxLength={32}
+                  placeholder='my-world'
+                  onChange={event => {
+                    setSlugEdited(true)
+                    setWorldSlug(slugify(event.target.value))
+                  }}
+                />
+              </label>
+              <label className='usermenu-field'>
+                <div className='usermenu-label'>Description (optional)</div>
+                <textarea
+                  className='usermenu-textarea'
+                  value={worldDescription}
+                  maxLength={1000}
+                  placeholder='What this world is for'
+                  onChange={event => setWorldDescription(event.target.value)}
+                />
+              </label>
+              {createError && <div className='usermenu-error'>{createError}</div>}
+            </>
+          ) : null}
         </div>
-      </div>
+      </>
     )
   }
 
@@ -1152,12 +1196,10 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
           gap: 0.45rem;
           flex-shrink: 0;
         }
-        .usermenu-hero--world {
-          padding: 1.5rem 1rem 1.25rem;
-          align-items: center;
-          text-align: center;
-          background: linear-gradient(160deg, rgba(80, 60, 120, 0.45) 0%, rgba(28, 30, 40, 0.55) 100%);
-          border-bottom: 1px solid rgba(180, 140, 255, 0.12);
+        .usermenu-hero--worlds {
+          gap: 0.75rem;
+          background: rgba(255, 255, 255, 0.02);
+          border-bottom: 1px solid ${theme.borderLight};
         }
         .usermenu-hero-name {
           font-size: 1.05rem;
@@ -1165,20 +1207,42 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
           color: rgba(255, 255, 255, 0.95);
           line-height: 1.2;
         }
-        .usermenu-hero--world .usermenu-hero-name {
-          font-size: 1.2rem;
-          background: linear-gradient(135deg, #fff 0%, rgba(200, 170, 255, 0.95) 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
         .usermenu-hero-slug {
           font-size: 0.78rem;
           color: rgba(255, 255, 255, 0.4);
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         }
-        .usermenu-hero--world .usermenu-hero-slug {
-          color: rgba(180, 150, 255, 0.5);
+        .usermenu-world-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.55rem;
+        }
+        .usermenu-world-card {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+          padding: 0.8rem 0.9rem;
+          border: 1px solid ${theme.border};
+          border-radius: ${theme.radiusSmall};
+          background: rgba(0, 0, 0, 0.16);
+        }
+        .usermenu-world-copy {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .usermenu-world-card .usermenu-hero-actions {
+          margin-top: 0;
+          margin-left: auto;
+          flex-shrink: 0;
+        }
+        .usermenu-world-description {
+          max-width: 100%;
+          line-height: 1.4;
         }
         .usermenu-hero-actions {
           display: flex;
@@ -1212,7 +1276,7 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
         }
         .usermenu-btn-enter {
           height: 2.25rem;
-          border: 1px solid rgba(180, 140, 255, 0.4);
+          border: 1px solid ${theme.border};
           border-radius: ${theme.radiusSmall};
           padding: 0 1.5rem;
           display: inline-flex;
@@ -1221,22 +1285,44 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
           font-size: 0.82rem;
           font-weight: 700;
           letter-spacing: 0.04em;
-          color: rgba(230, 210, 255, 0.95);
-          background: linear-gradient(135deg, rgba(120, 80, 200, 0.35) 0%, rgba(80, 50, 150, 0.25) 100%);
+          color: rgba(255, 255, 255, 0.9);
+          background: rgba(255, 255, 255, 0.06);
           cursor: pointer;
-          position: relative;
-          overflow: hidden;
-          &::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 60%);
-            pointer-events: none;
-          }
           &:hover {
-            background: linear-gradient(135deg, rgba(140, 100, 220, 0.5) 0%, rgba(100, 65, 180, 0.4) 100%);
-            border-color: rgba(200, 170, 255, 0.6);
-            color: #fff;
+            background: ${theme.bgHover};
+            border-color: ${theme.borderHover};
+            color: rgba(255, 255, 255, 0.98);
+          }
+          &:disabled {
+            cursor: default;
+            color: rgba(255, 255, 255, 0.4);
+            background: transparent;
+            border-color: ${theme.border};
+          }
+        }
+        .usermenu-btn-secondary {
+          height: 2.25rem;
+          border: 1px solid ${theme.border};
+          border-radius: ${theme.radiusSmall};
+          padding: 0 1rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.4rem;
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: rgba(255, 255, 255, 0.72);
+          background: transparent;
+          cursor: pointer;
+          &:hover {
+            background: ${theme.bgHover};
+            border-color: ${theme.borderHover};
+            color: rgba(255, 255, 255, 0.94);
+          }
+          &.disabled {
+            cursor: default;
+            color: rgba(255, 255, 255, 0.4);
+            border-color: ${theme.border};
           }
         }
         .usermenu-section {
@@ -1429,6 +1515,9 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
           &:focus {
             border-color: ${theme.borderHover};
             outline: none;
+          }
+          &::placeholder {
+            color: rgba(255, 255, 255, 0.28);
           }
         }
         .usermenu-select {
