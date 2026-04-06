@@ -1057,6 +1057,7 @@ interface WorldAPI {
   getQueryParam(key: string): string | null
   setQueryParam(key: string, value?: string | null): void
   open(url: string, newTab?: boolean): void
+  copy(value: string | { url: string }, options?: { kind?: 'text' | 'image'; type?: 'text' | 'image' }): Promise<boolean>
 
   // Time
   getTime(): number
