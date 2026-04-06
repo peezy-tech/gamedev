@@ -124,6 +124,15 @@ Sets a query parameter in the browsers url
 
 Opens a link, defaults to new tab.
 
+### `.copy(value, options?)`
+
+Copies content to the system clipboard on the client.
+
+- Text: `await world.copy('0xabc...')`
+- Image: `await world.copy(props.image?.url, { kind: 'image' })`
+
+Returns `true` when the clipboard write succeeds, otherwise `false`.
+
 ### `.evm(chainId?)`
 
 Returns the EVM helper API.
