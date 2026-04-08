@@ -102,6 +102,22 @@ export function toWsUrl(httpUrl) {
   return `ws://${url}`
 }
 
+export function deriveHttpBaseUrlFromWsUrl(wsUrl) {
+  const normalized = normalizeBaseUrl(wsUrl)
+  if (!normalized) return null
+  try {
+    const parsed = new URL(normalized)
+    if (parsed.protocol === 'wss:') parsed.protocol = 'https:'
+    if (parsed.protocol === 'ws:') parsed.protocol = 'http:'
+    parsed.search = ''
+    parsed.hash = ''
+    parsed.pathname = parsed.pathname.replace(/\/(?:ws|api|admin)\/?$/, '') || '/'
+    return normalizeBaseUrl(parsed.toString()) || null
+  } catch {
+    return null
+  }
+}
+
 export function joinUrl(base, pathname) {
   const a = normalizeBaseUrl(base)
   const b = (pathname || '').replace(/^\/+/, '')
