@@ -1,6 +1,6 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { LoaderIcon, LogOutIcon, UserIcon, XIcon } from 'lucide-react'
+import { ChevronDownIcon, LoaderIcon, LogOutIcon, UserIcon, XIcon } from 'lucide-react'
 import { useActiveWallet, useLinkAccount, useLogin, usePrivy, useWallets } from '@privy-io/react-auth'
 import { editorTheme as theme } from './editor/editorTheme'
 import { cls } from './cls'
@@ -598,20 +598,23 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
             <div className='usermenu-transfer-grid'>
               <label className='usermenu-field'>
                 <div className='usermenu-label'>Asset</div>
-                <select
-                  className='usermenu-input usermenu-select'
-                  value={transferAsset}
-                  disabled={transferPending}
-                  onChange={event => {
-                    setTransferAsset(event.target.value === 'ETH' ? 'ETH' : 'USDC')
-                    setTransferError('')
-                    setTransferTxHash('')
-                    setCopiedTxHash(false)
-                  }}
-                >
-                  <option value='USDC'>USDC</option>
-                  <option value='ETH'>ETH</option>
-                </select>
+                <div className='usermenu-select-wrap'>
+                  <select
+                    className='usermenu-input usermenu-select'
+                    value={transferAsset}
+                    disabled={transferPending}
+                    onChange={event => {
+                      setTransferAsset(event.target.value === 'ETH' ? 'ETH' : 'USDC')
+                      setTransferError('')
+                      setTransferTxHash('')
+                      setCopiedTxHash(false)
+                    }}
+                  >
+                    <option value='USDC'>USDC</option>
+                    <option value='ETH'>ETH</option>
+                  </select>
+                  <ChevronDownIcon className='usermenu-select-icon' size='0.95rem' strokeWidth={2.1} />
+                </div>
               </label>
               <label className='usermenu-field'>
                 <div className='usermenu-label'>Recipient</div>
@@ -1148,26 +1151,29 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
               </label>
               <label className='usermenu-field'>
                 <div className='usermenu-label'>Region</div>
-                <select
-                  className='usermenu-input usermenu-select'
-                  value={selectedWorldRegion}
-                  disabled={creatingWorld || loadingWorldRegions || worldRegions.length === 0}
-                  onChange={event => {
-                    setSelectedWorldRegion(event.target.value)
-                    setCreateError('')
-                  }}
-                >
-                  {loadingWorldRegions ? <option value=''>Loading regions...</option> : null}
-                  {!loadingWorldRegions && worldRegions.length === 0 ? <option value=''>No regions available</option> : null}
-                  {!loadingWorldRegions
-                    ? worldRegions.map(region => (
-                      <option key={region} value={region}>
-                        {formatWorldRegionLabel(region)}
-                        {region === defaultWorldRegion ? ' (Default)' : ''}
-                      </option>
-                    ))
-                    : null}
-                </select>
+                <div className='usermenu-select-wrap'>
+                  <select
+                    className='usermenu-input usermenu-select'
+                    value={selectedWorldRegion}
+                    disabled={creatingWorld || loadingWorldRegions || worldRegions.length === 0}
+                    onChange={event => {
+                      setSelectedWorldRegion(event.target.value)
+                      setCreateError('')
+                    }}
+                  >
+                    {loadingWorldRegions ? <option value=''>Loading regions...</option> : null}
+                    {!loadingWorldRegions && worldRegions.length === 0 ? <option value=''>No regions available</option> : null}
+                    {!loadingWorldRegions
+                      ? worldRegions.map(region => (
+                        <option key={region} value={region}>
+                          {formatWorldRegionLabel(region)}
+                          {region === defaultWorldRegion ? ' (Default)' : ''}
+                        </option>
+                      ))
+                      : null}
+                  </select>
+                  <ChevronDownIcon className='usermenu-select-icon' size='0.95rem' strokeWidth={2.1} />
+                </div>
               </label>
               {worldRegionsError ? <div className='usermenu-error'>{worldRegionsError}</div> : null}
               {createError && <div className='usermenu-error'>{createError}</div>}
@@ -1602,8 +1608,24 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
             color: rgba(255, 255, 255, 0.28);
           }
         }
+        .usermenu-select-wrap {
+          position: relative;
+        }
         .usermenu-select {
           appearance: none;
+          padding-right: 2.2rem;
+          cursor: pointer;
+        }
+        .usermenu-select:disabled {
+          cursor: default;
+        }
+        .usermenu-select-icon {
+          position: absolute;
+          top: 50%;
+          right: 0.7rem;
+          transform: translateY(-50%);
+          color: rgba(255, 255, 255, 0.42);
+          pointer-events: none;
         }
         .usermenu-textarea {
           min-height: 4rem;
