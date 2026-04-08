@@ -69,6 +69,10 @@ export function createAgonesPlayerTracker({
     const capacityChanged = nextCapacity !== lastObservedCapacity
     lastObservedCapacity = nextCapacity
 
+    if (reason === 'startup' && Number.isInteger(lastPublishedCapacity) && lastPublishedCapacity > 0) {
+      return false
+    }
+
     if (!Number.isInteger(nextCapacity) || nextCapacity <= 0) {
       if (capacityChanged) {
         log.info(`[agones] skipped player capacity update (${reason})`)
