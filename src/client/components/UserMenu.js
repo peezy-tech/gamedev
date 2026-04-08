@@ -920,11 +920,6 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
         setCreateError('Session expired. Please sign in again.')
         return
       }
-      if (result.status === 409 && code === 'world_limit_reached') {
-        setCreateError('A personal world already exists for this account.')
-        await refreshOwnedWorlds()
-        return
-      }
       if (result.status === 409 && code.toLowerCase().includes('slug')) {
         setCreateError('That slug is already in use.')
         return
