@@ -48,6 +48,15 @@ function slugify(value) {
     .slice(0, 32)
 }
 
+function formatWorldRegionLabel(region) {
+  if (typeof region !== 'string') return 'Unknown Region'
+  const normalized = region.trim().toLowerCase()
+  if (!normalized) return 'Unknown Region'
+  if (normalized === 'euc' || normalized === 'euc1') return 'Europe'
+  if (normalized === 'use' || normalized === 'use1') return 'US East'
+  return normalized.toUpperCase()
+}
+
 async function requestJson(url, options = {}) {
   const hasBody = typeof options.body === 'string'
   const response = await fetch(url, {
@@ -826,6 +835,11 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
   const [worldName, setWorldName] = useState('')
   const [worldSlug, setWorldSlug] = useState('')
   const [worldDescription, setWorldDescription] = useState('')
+  const [worldRegions, setWorldRegions] = useState([])
+  const [defaultWorldRegion, setDefaultWorldRegion] = useState('')
+  const [selectedWorldRegion, setSelectedWorldRegion] = useState('')
+  const [loadingWorldRegions, setLoadingWorldRegions] = useState(false)
+  const [worldRegionsError, setWorldRegionsError] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
   const [createError, setCreateError] = useState('')
   const [creatingWorld, setCreatingWorld] = useState(false)
@@ -855,6 +869,43 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
     setOwnedWorlds(owned)
   }, [apiBaseUrl])
 
+  const refreshWorldRegions = useCallback(async () => {
+    if (!apiBaseUrl) {
+      setWorldRegions([])
+      setDefaultWorldRegion('')
+      setSelectedWorldRegion('')
+      setWorldRegionsError('World service API is unavailable.')
+      return
+    }
+    setLoadingWorldRegions(true)
+    setWorldRegionsError('')
+    const result = await requestJson(`${apiBaseUrl}/worlds/regions`, { method: 'GET' })
+    setLoadingWorldRegions(false)
+    if (!result.ok) {
+      setWorldRegions([])
+      setDefaultWorldRegion('')
+      setSelectedWorldRegion('')
+      setWorldRegionsError(getErrorMessage(result.body, 'Unable to load world regions.'))
+      return
+    }
+
+    const nextRegions = Array.isArray(result.body?.regions)
+      ? [...new Set(result.body.regions.filter(region => typeof region === 'string' && region.trim()).map(region => region.trim().toLowerCase()))]
+      : []
+    const nextDefaultRegion =
+      typeof result.body?.defaultRegion === 'string' && result.body.defaultRegion.trim()
+        ? result.body.defaultRegion.trim().toLowerCase()
+        : ''
+
+    setWorldRegions(nextRegions)
+    setDefaultWorldRegion(nextDefaultRegion)
+    setSelectedWorldRegion(currentRegion => {
+      if (currentRegion && nextRegions.includes(currentRegion)) return currentRegion
+      if (nextDefaultRegion && nextRegions.includes(nextDefaultRegion)) return nextDefaultRegion
+      return nextRegions[0] || ''
+    })
+  }, [apiBaseUrl])
+
   useEffect(() => {
     if (!open) return
     setCreateError('')
@@ -863,10 +914,16 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
       setLoadingWorld(false)
       setOwnedWorlds([])
       setWorldError('')
+      setLoadingWorldRegions(false)
+      setWorldRegions([])
+      setDefaultWorldRegion('')
+      setSelectedWorldRegion('')
+      setWorldRegionsError('')
       return
     }
     void refreshOwnedWorlds()
-  }, [open, canManageWorld, refreshOwnedWorlds])
+    void refreshWorldRegions()
+  }, [open, canManageWorld, refreshOwnedWorlds, refreshWorldRegions])
 
   useEffect(() => {
     if (slugEdited) return
@@ -883,7 +940,7 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
   }, [open, onClose])
 
   const createWorld = async () => {
-    if (creatingWorld || loadingWorld) return
+    if (creatingWorld || loadingWorld || loadingWorldRegions) return
     if (!apiBaseUrl) {
       setCreateError('World service API is unavailable.')
       return
@@ -891,6 +948,7 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
     const normalizedName = worldName.trim()
     const normalizedSlug = slugify(worldSlug)
     const normalizedDescription = worldDescription.trim()
+    const normalizedRegion = typeof selectedWorldRegion === 'string' ? selectedWorldRegion.trim().toLowerCase() : ''
     if (!normalizedName) {
       setCreateError('World name is required.')
       return
@@ -903,6 +961,10 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
       setCreateError('Slug can only use lowercase letters, numbers, and hyphens.')
       return
     }
+    if (!normalizedRegion) {
+      setCreateError('World region is required.')
+      return
+    }
     setCreateError('')
     setCreatingWorld(true)
     const result = await requestJson(`${apiBaseUrl}/worlds`, {
@@ -910,6 +972,7 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
       body: JSON.stringify({
         slug: normalizedSlug,
         name: normalizedName,
+        region: normalizedRegion,
         ...(normalizedDescription ? { description: normalizedDescription } : null),
       }),
     })
@@ -1026,9 +1089,9 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
             ) : (
               <>
                 <button
-                  className={cls('usermenu-btn-primary', { disabled: creatingWorld || loadingWorld })}
+                  className={cls('usermenu-btn-primary', { disabled: creatingWorld || loadingWorld || loadingWorldRegions })}
                   onClick={() => {
-                    if (creatingWorld || loadingWorld) return
+                    if (creatingWorld || loadingWorld || loadingWorldRegions) return
                     void createWorld()
                   }}
                 >
@@ -1083,6 +1146,30 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
                   onChange={event => setWorldDescription(event.target.value)}
                 />
               </label>
+              <label className='usermenu-field'>
+                <div className='usermenu-label'>Region</div>
+                <select
+                  className='usermenu-input usermenu-select'
+                  value={selectedWorldRegion}
+                  disabled={creatingWorld || loadingWorldRegions || worldRegions.length === 0}
+                  onChange={event => {
+                    setSelectedWorldRegion(event.target.value)
+                    setCreateError('')
+                  }}
+                >
+                  {loadingWorldRegions ? <option value=''>Loading regions...</option> : null}
+                  {!loadingWorldRegions && worldRegions.length === 0 ? <option value=''>No regions available</option> : null}
+                  {!loadingWorldRegions
+                    ? worldRegions.map(region => (
+                      <option key={region} value={region}>
+                        {formatWorldRegionLabel(region)}
+                        {region === defaultWorldRegion ? ' (Default)' : ''}
+                      </option>
+                    ))
+                    : null}
+                </select>
+              </label>
+              {worldRegionsError ? <div className='usermenu-error'>{worldRegionsError}</div> : null}
               {createError && <div className='usermenu-error'>{createError}</div>}
             </>
           ) : null}
