@@ -549,6 +549,15 @@ Places an IOC sell order for a core perp, spot pair, or builder/HIP-3 perp.
 
 Closes the full open position or spot holding for a ticker.
 
+#### `updateLeverage(ticker, leverage, { type = 'cross' }?)`
+
+Updates leverage for a perpetual market on the connected wallet runtime.
+
+Notes:
+- `ticker` must resolve to a perpetual market, not spot.
+- `leverage` must be an integer greater than or equal to `1`.
+- `type` may be `'cross'` or `'isolated'`.
+
 #### `hasAgentKey()`
 
 Returns whether an agent key is already stored for the connected wallet.

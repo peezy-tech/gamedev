@@ -1047,6 +1047,68 @@ test('Hyperliquid resolves venue-aware prices and orders', async () => {
   ])
 })
 
+test('Hyperliquid updates perp leverage through the exchange client', async () => {
+  const hl = new Hyperliquid({})
+  const leverageCalls = []
+  hl.walletAdapter = {}
+  hl.exchangeClient = {
+    async updateLeverage(payload) {
+      leverageCalls.push(payload)
+      return 'leverage-ok'
+    },
+  }
+  hl._resolveMarketDescriptor = async ticker => {
+    const normalized = hl._normalizeMarketTicker(ticker)
+    if (normalized === 'HYPE/USDC') {
+      return {
+        ticker: 'HYPE/USDC',
+        runtimeTicker: 'HYPE/USDC',
+        streamCoin: '@107',
+        midPriceKey: '@107',
+        marketType: 'spot',
+        venue: 'spot',
+        assetId: 10107,
+        szDecimals: 2,
+      }
+    }
+    return {
+      ticker: 'BTC',
+      runtimeTicker: 'BTC',
+      streamCoin: 'BTC',
+      midPriceKey: 'BTC',
+      marketType: 'perp',
+      venue: 'core',
+      assetId: 0,
+      szDecimals: 5,
+    }
+  }
+
+  assert.equal(await hl.updateLeverage('btc', 5), 'leverage-ok')
+  assert.equal(await hl.updateLeverage('btc', '3', { type: 'isolated' }), 'leverage-ok')
+  await assert.rejects(async () => hl.updateLeverage('hype/usdc', 2), {
+    message: 'Leverage is only available for perpetual markets: HYPE/USDC',
+  })
+  await assert.rejects(async () => hl.updateLeverage('btc', 0), {
+    message: 'Hyperliquid leverage must be an integer greater than or equal to 1',
+  })
+  await assert.rejects(async () => hl.updateLeverage('btc', 2, { type: 'invalid' }), {
+    message: 'Hyperliquid leverage type must be "cross" or "isolated"',
+  })
+
+  assert.deepEqual(leverageCalls, [
+    {
+      asset: 0,
+      isCross: true,
+      leverage: 5,
+    },
+    {
+      asset: 0,
+      isCross: false,
+      leverage: 3,
+    },
+  ])
+})
+
 test('Hyperliquid injects a stable runtime API per owner and address', () => {
   let injected = null
   const world = {
@@ -1096,6 +1158,7 @@ test('Hyperliquid injects a stable runtime API per owner and address', () => {
   assert.equal(typeof ownerAWatchRuntime.getUserFills, 'function')
   assert.equal(typeof ownerAWatchRuntime.getUserFillsByTime, 'function')
   assert.equal(typeof ownerAWatchRuntime.buy, 'function')
+  assert.equal(typeof ownerAWatchRuntime.updateLeverage, 'function')
   assert.equal(typeof ownerAWatchRuntime.withdraw, 'function')
 })
 
@@ -1837,9 +1900,14 @@ test('Hyperliquid addressed runtimes are watch-only for write methods', async ()
 
   let buyCalls = 0
   let hasAgentKeyCalls = 0
+  let updateLeverageCalls = 0
   hl.buy = async () => {
     buyCalls += 1
     return 'buy-ok'
+  }
+  hl.updateLeverage = async () => {
+    updateLeverageCalls += 1
+    return 'leverage-ok'
   }
   hl.hasAgentKey = () => {
     hasAgentKeyCalls += 1
@@ -1847,12 +1915,18 @@ test('Hyperliquid addressed runtimes are watch-only for write methods', async ()
   }
 
   assert.equal(await defaultRuntime.buy('BTC', 1, 1), 'buy-ok')
+  assert.equal(await defaultRuntime.updateLeverage('BTC', 5), 'leverage-ok')
   assert.equal(defaultRuntime.hasAgentKey(), true)
   assert.equal(buyCalls, 1)
+  assert.equal(updateLeverageCalls, 1)
   assert.equal(hasAgentKeyCalls, 1)
 
   await assert.rejects(async () => watchedRuntime.buy('BTC', 1, 1), {
     message: 'Hyperliquid addressed runtimes are watch-only; buy is only available on world.hyperliquid()',
+  })
+  await assert.rejects(async () => watchedRuntime.updateLeverage('BTC', 5), {
+    message:
+      'Hyperliquid addressed runtimes are watch-only; updateLeverage is only available on world.hyperliquid()',
   })
   await assert.rejects(async () => watchedRuntime.sell('BTC', 1, 1), {
     message: 'Hyperliquid addressed runtimes are watch-only; sell is only available on world.hyperliquid()',
