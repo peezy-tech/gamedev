@@ -27,6 +27,7 @@ import {
   DEFAULT_SYNC_POLICY,
   sha256,
   sleep,
+  deriveHttpBaseUrlFromWsUrl,
   normalizeWorldAdminBaseUrl,
   toWsUrl,
   joinUrl,
@@ -91,12 +92,19 @@ import { isValidScriptPath } from '../src/core/blueprintValidation.js'
 import { isEqual } from 'lodash-es'
 import { uuid } from './utils.js'
 import { ensureProjectAuth } from './cliAuth.js'
-import { debugLog, summarizeToken } from './debug.js'
+import { debugLog, fetchWithTimeout, readTimeoutMs, summarizeToken } from './debug.js'
+
+const DEFAULT_WORLD_STATUS_DISCOVERY_TIMEOUT_MS = 5_000
+
+function getWorldStatusDiscoveryTimeoutMs() {
+  return readTimeoutMs('WORLD_ADMIN_REQUEST_TIMEOUT_MS', DEFAULT_WORLD_STATUS_DISCOVERY_TIMEOUT_MS)
+}
 
 export class DirectAppServer {
   constructor({ worldUrl, adminCode, authToken, worldId = null, rootDir = process.cwd() }) {
     this.rootDir = rootDir
-    this.worldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+    this.discoveryWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+    this.worldUrl = this.discoveryWorldUrl
     this.adminCode = adminCode || null
     this.authToken = authToken || null
     this.worldId = worldId || process.env.WORLD_ID || null
@@ -136,9 +144,88 @@ export class DirectAppServer {
     this.scriptFormatWarnings = new Set()
   }
 
+  _buildAdminHeaders(extra = {}) {
+    const headers = { ...extra }
+    if (this.adminCode) headers['X-Admin-Code'] = this.adminCode
+    if (this.authToken) headers.authorization = `Bearer ${this.authToken}`
+    return headers
+  }
+
+  async _resolvePreferredWorldUrl() {
+    const discoveryWorldUrl = normalizeWorldAdminBaseUrl(this.discoveryWorldUrl)
+    if (!discoveryWorldUrl) return this.worldUrl
+
+    const statusUrl = joinUrl(discoveryWorldUrl, '/status')
+    const timeoutMs = getWorldStatusDiscoveryTimeoutMs()
+    debugLog('direct-app-server', 'connect:discover_runtime_start', {
+      discoveryWorldUrl,
+      statusUrl,
+      timeoutMs,
+    })
+
+    let response
+    try {
+      response = await fetchWithTimeout(
+        statusUrl,
+        {
+          headers: this._buildAdminHeaders({
+            accept: 'application/json',
+          }),
+        },
+        {
+          timeoutMs,
+        }
+      )
+    } catch (err) {
+      debugLog('direct-app-server', 'connect:discover_runtime_error', {
+        discoveryWorldUrl,
+        statusUrl,
+        error: err?.message || String(err),
+      })
+      return discoveryWorldUrl
+    }
+
+    if (!response.ok) {
+      debugLog('direct-app-server', 'connect:discover_runtime_response_error', {
+        discoveryWorldUrl,
+        statusUrl,
+        status: response.status,
+      })
+      return discoveryWorldUrl
+    }
+
+    const payload = await response.json().catch(() => null)
+    const directWorldUrl = deriveHttpBaseUrlFromWsUrl(payload?.connection?.wsUrl)
+    debugLog('direct-app-server', 'connect:discover_runtime_complete', {
+      discoveryWorldUrl,
+      statusUrl,
+      directWorldUrl,
+      status: payload?.status || null,
+    })
+    return directWorldUrl || discoveryWorldUrl
+  }
+
+  _setActiveWorldUrl(nextWorldUrl, { reason = 'connect' } = {}) {
+    const normalizedNextWorldUrl = normalizeWorldAdminBaseUrl(nextWorldUrl)
+    if (!normalizedNextWorldUrl || normalizedNextWorldUrl === this.worldUrl) return false
+    debugLog('direct-app-server', 'connect:world_url_switch', {
+      from: this.worldUrl,
+      to: normalizedNextWorldUrl,
+      discoveryWorldUrl: this.discoveryWorldUrl,
+      reason,
+    })
+    this.worldUrl = normalizedNextWorldUrl
+    this.client.worldUrl = normalizedNextWorldUrl
+    this.loggedTarget = false
+    return true
+  }
+
   async connect({ refreshSyncState = true, syncCursorFromChangefeed = true } = {}) {
+    const preferredWorldUrl = await this._resolvePreferredWorldUrl()
+    this._setActiveWorldUrl(preferredWorldUrl, { reason: 'connect' })
     debugLog('direct-app-server', 'connect:start', {
       worldUrl: this.worldUrl,
+      discoveryWorldUrl: this.discoveryWorldUrl,
       worldId: this.worldId,
       refreshSyncState,
       syncCursorFromChangefeed,
@@ -2586,7 +2673,11 @@ export class DirectAppServer {
   _logTarget() {
     if (this.loggedTarget) return
     const worldId = this.snapshot?.worldId || 'unknown'
-    console.log(`Deploy target: ${this.worldUrl} (worldId: ${worldId})`)
+    const targetLabel =
+      this.discoveryWorldUrl && this.discoveryWorldUrl !== this.worldUrl
+        ? `${this.worldUrl} (resolved from ${this.discoveryWorldUrl})`
+        : this.worldUrl
+    console.log(`Deploy target: ${targetLabel} (worldId: ${worldId})`)
     this.loggedTarget = true
   }
 
