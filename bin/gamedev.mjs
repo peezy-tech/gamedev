@@ -7,6 +7,7 @@ import { spawn } from 'child_process'
 import { customAlphabet } from 'nanoid'
 
 import { ensureProjectAuth } from '../app-server/cliAuth.js'
+import { debugLog } from '../app-server/debug.js'
 import { runAppCommand, runScriptCommand, runSyncCommand } from '../app-server/commands.js'
 import { startCodexScriptAiServer } from '../app-server/codex.js'
 import { DirectAppServer } from '../app-server/direct.js'
@@ -980,6 +981,12 @@ async function syncCommand(args) {
 }
 
 async function connectAdminServer({ worldUrl, worldId, rootDir, requiredCapability = 'builder' }) {
+  debugLog('gamedev', 'connect_admin_server:start', {
+    worldUrl,
+    worldId,
+    rootDir,
+    requiredCapability,
+  })
   const auth = await ensureProjectAuth({
     rootDir,
     worldUrl,
@@ -995,6 +1002,11 @@ async function connectAdminServer({ worldUrl, worldId, rootDir, requiredCapabili
     rootDir,
   })
   await server.connect()
+  debugLog('gamedev', 'connect_admin_server:complete', {
+    worldUrl,
+    worldId,
+    requiredCapability,
+  })
   return server
 }
 
@@ -1043,6 +1055,11 @@ async function authCommand(args = []) {
   }
 
   try {
+    debugLog('gamedev', 'auth:start', {
+      worldUrl,
+      worldId,
+      target: target?.name || null,
+    })
     const result = await ensureProjectAuth({
       rootDir: projectDir,
       worldUrl,
@@ -1059,8 +1076,18 @@ async function authCommand(args = []) {
           ? 'builder'
           : 'authenticated'
     console.log(`✅ Authenticated ${userName} for ${worldId} (${capability})`)
+    debugLog('gamedev', 'auth:complete', {
+      worldUrl,
+      worldId,
+      capability,
+    })
     return 0
   } catch (err) {
+    debugLog('gamedev', 'auth:error', {
+      worldUrl,
+      worldId,
+      error: err?.message || String(err),
+    })
     console.error(`Error: Authentication failed: ${err?.message || err}`)
     return 1
   }
@@ -1107,6 +1134,12 @@ async function worldCommand(args) {
 
     let server
     try {
+      debugLog('gamedev', 'world_command:start', {
+        action,
+        worldUrl,
+        worldId,
+        target: target?.name || null,
+      })
       if (action === 'export') {
         server = await connectAdminServer({ worldUrl, worldId, rootDir: projectDir })
         const includeBuiltScripts = actionArgs.includes('--include-built-scripts')
@@ -1122,8 +1155,19 @@ async function worldCommand(args) {
         await server.importWorldFromDisk()
         console.log('✅ World import complete')
       }
+      debugLog('gamedev', 'world_command:complete', {
+        action,
+        worldUrl,
+        worldId,
+      })
       return 0
     } catch (error) {
+      debugLog('gamedev', 'world_command:error', {
+        action,
+        worldUrl,
+        worldId,
+        error: error?.message || String(error),
+      })
       console.error(`Error: World ${action} failed:`, error?.message || error)
       return 1
     } finally {
