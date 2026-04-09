@@ -48,6 +48,9 @@
   ],
   "scripts": {
     "dev:runtime": "node scripts/build.mjs --dev",
+    "runtime:bootstrap": "node scripts/bootstrap-runtime.mjs",
+    "runtime:bootstrap:dev": "node scripts/bootstrap-runtime.mjs --run dev",
+    "runtime:bootstrap:start": "node scripts/bootstrap-runtime.mjs --run start",
     "dev:app-server": "bash -c 'mkdir -p project; if [ ! -f project/.env ]; then if [ -f .env ]; then cp .env project/.env; elif [ -f .env.example ]; then cp .env.example project/.env; fi; fi; (cd project && if [ ! -f .lobby/auth.json ]; then node ../bin/gamedev.mjs auth; fi; node ../bin/gamedev.mjs app-server)'",
     "dev:codex": "bash -c 'mkdir -p project; if [ ! -f project/.env ]; then if [ -f .env ]; then cp .env project/.env; elif [ -f .env.example ]; then cp .env.example project/.env; fi; fi; (cd project && node ../bin/gamedev.mjs codex)'",
     "dev": "bash -c 'npm run dev:runtime & npm run dev:app-server & wait'",
