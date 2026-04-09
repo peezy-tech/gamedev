@@ -1292,13 +1292,15 @@ export async function admin(
   })
 
   fastify.get('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    // Builders need scoped locks for script-bearing app imports, while
+    // actual script deploy/snapshot operations remain deploy-gated.
+    if (!(await requireAdmin(req, reply))) return
     const scope = normalizeHeader(req.query?.scope)
     return getDeployLockStatus(scope)
   })
 
   fastify.post('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    if (!(await requireAdmin(req, reply))) return
     const rawScope = normalizeHeader(req.body?.scope)
     const status = getBlockingLockStatus(rawScope)
     if (status?.locked) {
@@ -1321,7 +1323,7 @@ export async function admin(
   })
 
   fastify.put('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    if (!(await requireAdmin(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
@@ -1346,7 +1348,7 @@ export async function admin(
   })
 
   fastify.delete('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    if (!(await requireAdmin(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
