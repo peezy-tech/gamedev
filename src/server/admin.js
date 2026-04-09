@@ -233,6 +233,11 @@ function parseUserRank(value) {
   return Number.isFinite(rank) ? rank : Ranks.VISITOR
 }
 
+function worldAllowsBuild() {
+  const rank = Number(world?.settings?.rank)
+  return Number.isFinite(rank) && rank >= Ranks.BUILDER
+}
+
 function mapLobbyRoleToRank(role) {
   if (role === 'admin') return Ranks.ADMIN
   if (role === 'builder') return Ranks.BUILDER
@@ -432,13 +437,25 @@ export async function admin(
 
   async function getCapabilitiesFromAuthToken(token) {
     if (allowsOpenAdminAccess(process.env)) {
-      return { builder: true, deploy: true }
+      return { builder: true, deploy: true, build: true }
     }
-    if (!token || !db) return { builder: false, deploy: false }
+    if (!token || !db) {
+      return {
+        builder: false,
+        deploy: false,
+        build: worldAllowsBuild(),
+      }
+    }
     const worldId = world?.network?.worldId || process.env.WORLD_ID
     const claims = await readJWT(token, { worldId })
     const userId = typeof claims?.userId === 'string' ? claims.userId.trim() : ''
-    if (!userId) return { builder: false, deploy: false }
+    if (!userId) {
+      return {
+        builder: false,
+        deploy: false,
+        build: worldAllowsBuild(),
+      }
+    }
 
     const user = await db('users').where('id', userId).first('rank')
     let rank = parseUserRank(user?.rank)
@@ -451,24 +468,35 @@ export async function admin(
     return {
       builder: rank >= Ranks.BUILDER,
       deploy: rank >= Ranks.ADMIN,
+      build: rank >= Ranks.BUILDER || worldAllowsBuild(),
     }
   }
 
   async function resolveRequestCapabilities(req) {
     const codeCapabilities = getCapabilitiesFromAdminCode(getAdminCodeFromRequest(req))
     if (codeCapabilities.builder && codeCapabilities.deploy) {
-      return codeCapabilities
+      return { ...codeCapabilities, build: true }
     }
     const tokenCapabilities = await getCapabilitiesFromAuthToken(getRuntimeAuthTokenFromRequest(req))
     return {
       builder: codeCapabilities.builder || tokenCapabilities.builder,
       deploy: codeCapabilities.deploy || tokenCapabilities.deploy,
+      build: codeCapabilities.builder || tokenCapabilities.build || worldAllowsBuild(),
     }
   }
 
   async function requireAdmin(req, reply) {
     const capabilities = await resolveRequestCapabilities(req)
     if (!capabilities.builder) {
+      reply.code(403).send({ error: 'admin_required' })
+      return false
+    }
+    return true
+  }
+
+  async function requireBuild(req, reply) {
+    const capabilities = await resolveRequestCapabilities(req)
+    if (!capabilities.build) {
       reply.code(403).send({ error: 'admin_required' })
       return false
     }
@@ -882,14 +910,16 @@ export async function admin(
           const codeCapabilities = getCapabilitiesFromAdminCode(data?.code)
           let builderOk = openAdminAccess || codeCapabilities.builder
           let deployOk = openAdminAccess || codeCapabilities.deploy
+          let buildOk = builderOk || worldAllowsBuild()
           if (!builderOk || !deployOk) {
             const payloadToken = typeof data?.authToken === 'string' ? data.authToken.trim() : ''
             const headerToken = getRuntimeAuthTokenFromRequest(req) || ''
             const tokenCapabilities = await getCapabilitiesFromAuthToken(payloadToken || headerToken)
             builderOk = builderOk || tokenCapabilities.builder
             deployOk = deployOk || tokenCapabilities.deploy
+            buildOk = buildOk || tokenCapabilities.build
           }
-          if (!builderOk && !deployOk) {
+          if (!buildOk && !deployOk) {
             sendPacket(ws, 'adminAuthError', { error: data?.code ? 'invalid_code' : 'unauthorized' })
             ws.close()
             return
@@ -906,7 +936,7 @@ export async function admin(
             subscriptions = { snapshot: wantsHeartbeat, players: wantsHeartbeat, runtime: false }
           }
           defaultNetworkId = data?.networkId || null
-          capabilities = { builder: builderOk, deploy: deployOk }
+          capabilities = { builder: builderOk, deploy: deployOk, build: buildOk }
           const hadSubscriber = subscribers.has(ws)
           subscribers.add(ws)
           if (!hadSubscriber) notifyConnectionCountChanged()
@@ -983,7 +1013,7 @@ export async function admin(
           }
 
           if (data.type === 'blueprint_add') {
-            if (!capabilities.builder) {
+            if (!capabilities.build) {
               sendPacket(ws, 'adminResult', { ok: false, error: 'builder_required', requestId })
               return
             }
@@ -1037,7 +1067,7 @@ export async function admin(
             const nonScriptKeys = Object.keys(change).filter(
               key => !['id', 'version', ...SCRIPT_BLUEPRINT_FIELDS].includes(key)
             )
-            if (nonScriptKeys.length > 0 && !capabilities.builder) {
+            if (nonScriptKeys.length > 0 && !capabilities.build) {
               sendPacket(ws, 'adminResult', { ok: false, error: 'builder_required', requestId })
               return
             }
@@ -1095,7 +1125,7 @@ export async function admin(
           }
 
           if (data.type === 'entity_add') {
-            if (!capabilities.builder) {
+            if (!capabilities.build) {
               sendPacket(ws, 'adminResult', { ok: false, error: 'builder_required', requestId })
               return
             }
@@ -1118,7 +1148,7 @@ export async function admin(
           }
 
           if (data.type === 'entity_modify') {
-            if (!capabilities.builder) {
+            if (!capabilities.build) {
               sendPacket(ws, 'adminResult', { ok: false, error: 'builder_required', requestId })
               return
             }
@@ -1141,7 +1171,7 @@ export async function admin(
           }
 
           if (data.type === 'entity_remove') {
-            if (!capabilities.builder) {
+            if (!capabilities.build) {
               sendPacket(ws, 'adminResult', { ok: false, error: 'builder_required', requestId })
               return
             }
@@ -1341,13 +1371,13 @@ export async function admin(
   fastify.get('/admin/deploy-lock', async (req, reply) => {
     // Builders need scoped locks for script-bearing app imports, while
     // actual script deploy/snapshot operations remain deploy-gated.
-    if (!(await requireAdmin(req, reply))) return
+    if (!(await requireBuild(req, reply))) return
     const scope = normalizeHeader(req.query?.scope)
     return getDeployLockStatus(scope)
   })
 
   fastify.post('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireAdmin(req, reply))) return
+    if (!(await requireBuild(req, reply))) return
     const rawScope = normalizeHeader(req.body?.scope)
     const status = getBlockingLockStatus(rawScope)
     if (status?.locked) {
@@ -1370,7 +1400,7 @@ export async function admin(
   })
 
   fastify.put('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireAdmin(req, reply))) return
+    if (!(await requireBuild(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
@@ -1395,7 +1425,7 @@ export async function admin(
   })
 
   fastify.delete('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireAdmin(req, reply))) return
+    if (!(await requireBuild(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
@@ -1560,7 +1590,7 @@ export async function admin(
   })
 
   fastify.get('/admin/upload-check', async (req, reply) => {
-    if (!(await requireAdmin(req, reply))) return
+    if (!(await requireBuild(req, reply))) return
     const exists = await assets.exists(req.query.filename)
     return { exists }
   })
@@ -1583,7 +1613,7 @@ export async function admin(
   })
 
   fastify.post('/admin/upload', async (req, reply) => {
-    if (!(await requireAdmin(req, reply))) return
+    if (!(await requireBuild(req, reply))) return
     const maxUploadSizeBytes = getMaxUploadSizeBytes()
     const maxUploadSizeMb = getMaxUploadSizeMb()
     let mp
