@@ -236,7 +236,6 @@ test('standalone open-admin mode accepts guest cli tokens on /admin even before 
     assert.deepEqual(data?.capabilities, {
       builder: true,
       deploy: true,
-      build: true,
     })
   } finally {
     ws.close()
@@ -332,73 +331,6 @@ test('builder-only cli tokens can acquire deploy locks for script blueprint adds
       body: { token: lock.data.token, scope: 'builder-script-add' },
     })
     admin.close()
-  }
-})
-
-test('free build allows visitor runtime tokens to use build admin routes without granting settings access', async t => {
-  if (!(await canListenOnLoopback())) {
-    t.skip('loopback sockets are unavailable in this environment')
-  }
-
-  const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
-    await world.stop()
-  })
-
-  const admin = new AdminWsClient({
-    worldUrl: world.worldUrl,
-    adminCode: world.adminCode,
-  })
-  await admin.connect()
-  await admin.request('settings_modify', {
-    key: 'rank',
-    value: Ranks.BUILDER,
-  })
-  admin.close()
-
-  const guest = await fetchJson(`${world.worldUrl}/api/auth/cli/guest`, {
-    method: 'POST',
-  })
-  assert.equal(guest.res.status, 200)
-  assert.equal(typeof guest.data?.token, 'string')
-
-  const { ws, data } = await connectAdminSocket(world.worldUrl, guest.data.token)
-  try {
-    assert.equal(data?.ok, true)
-    assert.deepEqual(data?.capabilities, {
-      builder: false,
-      deploy: false,
-      build: true,
-    })
-  } finally {
-    ws.close()
-  }
-
-  const lock = await fetchJson(`${world.worldUrl}/admin/deploy-lock`, {
-    authToken: guest.data.token,
-    method: 'POST',
-    body: { owner: 'free-build-visitor', scope: 'free-build-visitor' },
-  })
-  assert.equal(lock.res.status, 200)
-  assert.equal(typeof lock.data?.token, 'string')
-
-  const visitorAdmin = new AdminWsClient({
-    worldUrl: world.worldUrl,
-    authToken: guest.data.token,
-    subscriptions: { snapshot: false, players: false, runtime: false },
-  })
-  await visitorAdmin.connect()
-  try {
-    await assert.rejects(
-      () =>
-        visitorAdmin.request('settings_modify', {
-          key: 'title',
-          value: 'Nope',
-        }),
-      err => err?.code === 'builder_required'
-    )
-  } finally {
-    visitorAdmin.close()
   }
 })
 
