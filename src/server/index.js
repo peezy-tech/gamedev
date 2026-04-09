@@ -266,12 +266,13 @@ async function resolveLobbyRoleRank(userId, { worldId = resolveBoundWorldId() } 
 
 async function resolveAuthenticatedUserRank(userId, db, authConfig, { worldId = resolveBoundWorldId() } = {}) {
   if (!db || !userId) return Ranks.VISITOR
-  if (authConfig?.usesControlPlaneRank) {
-    return resolveLobbyRoleRank(userId, { worldId })
-  }
-
   const existingUser = await db('users').where('id', userId).first('rank')
-  return parseStoredUserRank(existingUser?.rank)
+  const storedRank = parseStoredUserRank(existingUser?.rank)
+  if (authConfig?.usesControlPlaneRank) {
+    const controlPlaneRank = await resolveLobbyRoleRank(userId, { worldId })
+    return Math.max(storedRank, controlPlaneRank)
+  }
+  return storedRank
 }
 
 function isPostgresDbEnv(env = process.env) {
