@@ -169,3 +169,32 @@ test('remote blueprint sync preserves non-index script entries for redeploy', as
     await assetServer.close()
   }
 })
+
+test('remote scene blueprint sync preserves $scene.json on first write', async () => {
+  const rootDir = await createTempDir('hyperfy-sync-scene-')
+  const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })
+
+  try {
+    await server._writeBlueprintToDisk({
+      blueprint: {
+        id: '$scene',
+        scene: true,
+        keep: true,
+        props: {},
+      },
+      force: true,
+      includeBuiltScripts: false,
+      includeScriptSources: false,
+    })
+
+    const sceneConfigPath = path.join(rootDir, 'apps', '$scene', '$scene.json')
+    assert.equal(await fileExists(sceneConfigPath), true)
+    assert.equal(await fileExists(path.join(rootDir, 'apps', '$scene', '-scene.json')), false)
+
+    const sceneConfig = JSON.parse(await fs.readFile(sceneConfigPath, 'utf8'))
+    assert.equal(sceneConfig.id, '$scene')
+    assert.equal(sceneConfig.scene, true)
+  } finally {
+    await stopAppServer(server)
+  }
+})

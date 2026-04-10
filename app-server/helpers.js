@@ -153,7 +153,7 @@ export function isHashedAssetFilename(filename) {
 
 export function sanitizeFileBaseName(name) {
   const trimmed = (name || '').toString().trim()
-  const base = trimmed.replace(/[^a-zA-Z0-9._ -]+/g, '-').replace(/\s+/g, ' ').trim()
+  const base = trimmed.replace(/[^$a-zA-Z0-9._ -]+/g, '-').replace(/\s+/g, ' ').trim()
   if (!base) return 'file'
   return base
 }
