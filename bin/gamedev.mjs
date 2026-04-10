@@ -8,6 +8,7 @@ import { customAlphabet } from 'nanoid'
 
 import { ensureProjectAuth } from '../app-server/cliAuth.js'
 import { runAppCommand, runScriptCommand, runSyncCommand } from '../app-server/commands.js'
+import { startCodexScriptAiServer } from '../app-server/codex.js'
 import { DirectAppServer } from '../app-server/direct.js'
 import { scaffoldBaseProject, scaffoldBuiltins, updateBuiltins, writeManifest } from '../app-server/scaffold.js'
 import { applyTargetEnv, parseTargetArgs, resolveTarget } from '../app-server/targets.js'
@@ -21,6 +22,9 @@ const ALPHABET = '1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
 const uuid = customAlphabet(ALPHABET, 10)
 
 const DEFAULT_WORLD_URL = 'http://localhost:3000'
+const DEFAULT_CODEX_HOST = '127.0.0.1'
+const DEFAULT_CODEX_PORT = 4625
+const DEFAULT_CODEX_MODEL = process.env.CODEX_MODEL || 'gpt-5.3-codex'
 const UPDATE_CHECK_TIMEOUT_MS = 1500
 const UPDATE_CHECK_ENV = 'GAMEDEV_DISABLE_UPDATE_CHECK'
 
@@ -630,6 +634,133 @@ async function appServerCommand(args = []) {
   return new Promise(() => {})
 }
 
+function printCodexHelp() {
+  console.log(`
+Gamedev Codex
+
+Usage:
+  gamedev codex [options]
+
+Options:
+  --target <name>           Use .lobby/targets.json entry for WORLD_URL/WORLD_ID
+  --host <host>             Local bind host (default: ${DEFAULT_CODEX_HOST})
+  --port <port>             Local bind port (default: ${DEFAULT_CODEX_PORT})
+  --model <id>              Codex model id (default: ${DEFAULT_CODEX_MODEL})
+  --codex-path <path>       Optional explicit codex CLI binary path
+  --help, -h                Show this help
+`)
+}
+
+function parseCodexArgs(args = []) {
+  const options = {
+    host: DEFAULT_CODEX_HOST,
+    port: DEFAULT_CODEX_PORT,
+    model: DEFAULT_CODEX_MODEL,
+    codexPath: null,
+    help: false,
+  }
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]
+    if (arg === '--help' || arg === '-h') {
+      options.help = true
+      continue
+    }
+    if (arg === '--host') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('Missing value for --host')
+      options.host = value
+      i += 1
+      continue
+    }
+    if (arg.startsWith('--host=')) {
+      options.host = arg.slice('--host='.length)
+      continue
+    }
+    if (arg === '--port') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('Missing value for --port')
+      options.port = value
+      i += 1
+      continue
+    }
+    if (arg.startsWith('--port=')) {
+      options.port = arg.slice('--port='.length)
+      continue
+    }
+    if (arg === '--model') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('Missing value for --model')
+      options.model = value
+      i += 1
+      continue
+    }
+    if (arg.startsWith('--model=')) {
+      options.model = arg.slice('--model='.length)
+      continue
+    }
+    if (arg === '--codex-path') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) throw new Error('Missing value for --codex-path')
+      options.codexPath = value
+      i += 1
+      continue
+    }
+    if (arg.startsWith('--codex-path=')) {
+      options.codexPath = arg.slice('--codex-path='.length)
+      continue
+    }
+    throw new Error(`Unknown option: ${arg}`)
+  }
+
+  return options
+}
+
+async function codexCommand(args = []) {
+  let target = null
+  let actionArgs = args
+  try {
+    const parsedTarget = parseTargetArgs(args)
+    actionArgs = parsedTarget.args
+    target = parsedTarget.target ? resolveTarget(projectDir, parsedTarget.target) : null
+  } catch (err) {
+    console.error(`Error: ${err?.message || err}`)
+    return 1
+  }
+
+  let options
+  try {
+    options = parseCodexArgs(actionArgs)
+  } catch (err) {
+    console.error(`Error: ${err?.message || err}`)
+    return 1
+  }
+
+  if (options.help) {
+    printCodexHelp()
+    return 0
+  }
+
+  const env = readDotEnv(envPath)
+  if (env) applyEnvToProcess(env)
+  if (target) {
+    applyTargetEnv(target)
+    process.env.WORLD_URL = target.worldUrl || process.env.WORLD_URL
+    process.env.WORLD_ID = target.worldId || process.env.WORLD_ID
+  }
+
+  await startCodexScriptAiServer({
+    rootDir: projectDir,
+    host: options.host || DEFAULT_CODEX_HOST,
+    port: options.port || DEFAULT_CODEX_PORT,
+    model: options.model || DEFAULT_CODEX_MODEL,
+    codexPath: options.codexPath || null,
+    log: console,
+  })
+
+  return 0
+}
+
 function printInitHelp() {
   console.log(`
 Gamedev Init
@@ -1020,6 +1151,7 @@ Commands:
   auth                      Open a browser and authorize this project for a world
   dev                       Start the world (local or remote) + app-server sync
   app-server                Start app-server sync only (no world server)
+  codex                     Start the local Codex script AI bridge for the in-game editor
   apps <command>            Manage apps (create, list, deploy, update, rollback, status)
   scripts <command>         Script migration helpers (migrate)
   sync <command>            Sync reconciliation helpers (status, conflicts, resolve)
@@ -1053,6 +1185,9 @@ async function main() {
       break
     case 'app-server':
       result = await appServerCommand(args)
+      break
+    case 'codex':
+      result = await codexCommand(args)
       break
     case 'apps':
       result = await appsCommand(args)

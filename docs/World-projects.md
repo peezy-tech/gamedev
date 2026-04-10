@@ -63,6 +63,7 @@ The scaffold includes `.claude/skills/hyperfy-app-scripting/SKILL.md` to guide a
 - Commit `.lobby/targets.example.json` as the shareable template.
 - Use `gamedev dev` for continuous sync (dev only).
 - Use `gamedev app-server` for sync only (no local world server).
+- Use `gamedev codex` to expose your local Codex installation to the in-game script chat.
 - Use `gamedev apps deploy <app>` for explicit staging/prod deploys.
 
 ## Existing Worlds

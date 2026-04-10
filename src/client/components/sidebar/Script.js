@@ -28,6 +28,7 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
   const aiPromptRef = useRef(null)
   const [aiAttachments, setAiAttachments] = useState([])
   const [aiDocsIndex, setAiDocsIndex] = useState(() => aiController.getDocsIndex?.() || [])
+  const [aiServiceStatus, setAiServiceStatus] = useState(() => aiController.getLocalCodexStatus?.() || null)
   const [aiThread, setAiThread] = useState(() =>
     aiController.getThreadForTarget?.({
       targetBlueprintId,
@@ -53,6 +54,8 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
     ? 'AI requests are not available on admin connections.'
     : !canBuild
       ? 'Builder access required.'
+      : aiServiceStatus && aiServiceStatus.ready === false
+        ? aiServiceStatus.message || 'Run "gamedev codex" in your world project to enable local Codex.'
       : null
   const aiCanUse = !!moduleRoot && !aiAccessIssue && !!aiController.requestEdit
   const aiCanSendEdit = aiCanUse && !aiLocked && !!aiPrompt.trim()
@@ -67,11 +70,13 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
     if (aiLocked) return 'Generating changes...'
     if (aiStatus?.type === 'success') return aiStatus.message || 'Last request applied'
     if (aiStatus?.type === 'error') return 'Last request failed'
+    if (aiServiceStatus?.ready && aiServiceStatus.model) return `Local Codex • ${aiServiceStatus.model}`
+    if (aiServiceStatus?.ready) return 'Local Codex ready'
     if (aiMode === 'fix') {
       return scriptError ? 'Fix the latest script error' : 'No script error to fix'
     }
     return ''
-  }, [aiLocked, aiStatus?.type, aiStatus?.message, aiMode, scriptError])
+  }, [aiLocked, aiStatus?.type, aiStatus?.message, aiMode, scriptError, aiServiceStatus?.ready, aiServiceStatus?.model])
   const aiAttachmentSet = useMemo(() => {
     const set = new Set()
     for (const item of aiAttachments) {
@@ -179,6 +184,13 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
     }
     return aiController.subscribeDocsIndex(setAiDocsIndex)
   }, [aiController, world.network?.apiUrl])
+  useEffect(() => {
+    if (!aiController.subscribeLocalCodexStatus) {
+      setAiServiceStatus(null)
+      return () => {}
+    }
+    return aiController.subscribeLocalCodexStatus(setAiServiceStatus)
+  }, [aiController])
   useEffect(() => {
     if (aiMode === 'fix' && !scriptError) {
       setAiMode('edit')
@@ -321,6 +333,7 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
       prompt: trimmed,
       app,
       attachments: aiAttachmentPayload,
+      editorHandle: handle,
     })
     if (!requestId) return
     aiPromptRef.current?.blur?.()
@@ -328,7 +341,7 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
     setAiPrompt('')
     setAiPending(true)
     setAiStatus({ type: 'pending', message: 'Generating changes...' })
-  }, [aiAccessIssue, aiLocked, aiPrompt, aiController, app, aiAttachmentPayload])
+  }, [aiAccessIssue, aiLocked, aiPrompt, aiController, app, aiAttachmentPayload, handle])
   const sendAiFix = useCallback(() => {
     if (aiAccessIssue) {
       setAiStatus({ type: 'error', message: aiAccessIssue })
@@ -349,14 +362,40 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
       setAiStatus({ type: 'error', message: 'No script error detected.' })
       return
     }
-    const requestId = aiController.requestFix({ app, attachments: aiAttachmentPayload })
+    const requestId = aiController.requestFix({
+      app,
+      attachments: aiAttachmentPayload,
+      editorHandle: handle,
+    })
     if (!requestId) return
     aiPromptRef.current?.blur?.()
     aiRequestRef.current = requestId
     setAiPrompt('')
     setAiPending(true)
     setAiStatus({ type: 'pending', message: 'Fixing script error...' })
-  }, [aiAccessIssue, aiLocked, scriptError, aiController, app, aiAttachmentPayload])
+  }, [aiAccessIssue, aiLocked, scriptError, aiController, app, aiAttachmentPayload, handle])
+  const applyAiProposal = useCallback(
+    async proposal => {
+      if (!moduleRoot || !aiController?.applyLocalProposal) {
+        return { ok: false, message: 'Local Codex apply flow is unavailable.' }
+      }
+      const appName = getBlueprintAppName(moduleRoot.id) || moduleRoot.id
+      return aiController.applyLocalProposal({
+        requestId: aiRequestRef.current || proposal?.id || null,
+        appName,
+        scriptRootId: moduleRoot.id,
+        targetBlueprintId,
+        summary: proposal?.summary || '',
+        files: Array.isArray(proposal?.files)
+          ? proposal.files.map(file => ({
+              path: file.path,
+              content: file.proposedText,
+            }))
+          : [],
+      })
+    },
+    [aiController, moduleRoot, targetBlueprintId]
+  )
   const sendAiRequest = useCallback(() => {
     if (aiMode === 'fix') {
       sendAiFix()
@@ -988,7 +1027,13 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
         showChrome={showCode}
         forceCollapsed={!showCode}
       >
-        <ScriptFilesEditor scriptRoot={moduleRoot} world={world} onHandle={setHandle} aiLocked={aiLocked} />
+        <ScriptFilesEditor
+          scriptRoot={moduleRoot}
+          world={world}
+          onHandle={setHandle}
+          aiLocked={aiLocked}
+          onApplyAiProposal={applyAiProposal}
+        />
       </ScriptCodePanel>
     </div>
   )

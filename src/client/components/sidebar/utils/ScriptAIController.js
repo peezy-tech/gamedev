@@ -1,7 +1,11 @@
 import { uuid } from '../../../../core/utils'
+import { storage } from '../../../../core/storage'
 import { isValidScriptPath } from '../../../../core/blueprintValidation'
 import { buildScriptGroups, getScriptGroupMain } from '../../../../core/extras/blueprintGroups'
 import { getBlueprintAppName } from '../../../../core/blueprintUtils'
+
+const DEFAULT_CODEX_API_URL = 'http://127.0.0.1:4625/api/script-ai'
+const LOCAL_CODEX_STATUS_TTL_MS = 5000
 
 export function hasScriptFiles(blueprint) {
   return blueprint?.scriptFiles && typeof blueprint.scriptFiles === 'object' && !Array.isArray(blueprint.scriptFiles)
@@ -50,6 +54,76 @@ function normalizeAttachments(input) {
   return output.length ? output : null
 }
 
+function normalizeBaseUrl(url) {
+  if (typeof url !== 'string') return ''
+  return url.trim().replace(/\/+$/, '')
+}
+
+function resolveCurrentWorldUrl() {
+  const href = typeof globalThis?.location?.href === 'string' ? globalThis.location.href : ''
+  if (!href) return ''
+  try {
+    const url = new URL(href)
+    let pathname = url.pathname.replace(/\/admin\/?$/, '') || '/'
+    if (pathname !== '/') pathname = pathname.replace(/\/$/, '')
+    return normalizeBaseUrl(pathname === '/' ? url.origin : `${url.origin}${pathname}`)
+  } catch {
+    return ''
+  }
+}
+
+function resolveLocalCodexApiUrl() {
+  const configured =
+    globalThis?.env?.PUBLIC_CODEX_API_URL ||
+    globalThis?.process?.env?.PUBLIC_CODEX_API_URL ||
+    DEFAULT_CODEX_API_URL
+  return normalizeBaseUrl(configured) || DEFAULT_CODEX_API_URL
+}
+
+function createLocalCodexUnavailableStatus(apiUrl, message) {
+  return {
+    ready: false,
+    apiUrl,
+    projectDir: null,
+    worldUrl: null,
+    worldId: null,
+    model: null,
+    message: message || 'Run "gamedev codex" in your world project to enable local Codex.',
+    checkedAt: Date.now(),
+  }
+}
+
+async function parseNdjsonStream(response, onMessage) {
+  if (!response.body) return
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      let payload
+      try {
+        payload = JSON.parse(trimmed)
+      } catch {
+        continue
+      }
+      await onMessage(payload)
+    }
+  }
+  const final = buffer.trim()
+  if (final) {
+    try {
+      await onMessage(JSON.parse(final))
+    } catch {}
+  }
+}
+
 export class ScriptAIController {
   constructor(world) {
     this.world = world
@@ -61,6 +135,9 @@ export class ScriptAIController {
     this.docsLoaded = false
     this.docsLoadingPromise = null
     this.docsSubscribers = new Set()
+    this.localCodexStatus = createLocalCodexUnavailableStatus(resolveLocalCodexApiUrl(), 'Checking local Codex...')
+    this.localCodexStatusPromise = null
+    this.localCodexStatusSubscribers = new Set()
   }
 
   destroy() {
@@ -69,26 +146,32 @@ export class ScriptAIController {
     this.threadSubscribersByTarget.clear()
     this.docsSubscribers.clear()
     this.docsLoadingPromise = null
+    this.localCodexStatusSubscribers.clear()
+    this.localCodexStatusPromise = null
   }
 
-  requestEdit = ({ prompt, app, attachments } = {}) => {
-    return this.request({ mode: 'edit', prompt, app, attachments })
+  requestEdit = ({ prompt, app, attachments, editorHandle } = {}) => {
+    return this.request({ mode: 'edit', prompt, app, attachments, editorHandle })
   }
 
-  requestFix = ({ error, app, attachments } = {}) => {
-    return this.request({ mode: 'fix', error, app, attachments })
+  requestFix = ({ error, app, attachments, editorHandle } = {}) => {
+    return this.request({ mode: 'fix', error, app, attachments, editorHandle })
   }
 
-  request = ({ mode = 'edit', prompt, error, app, scriptRootId, attachments } = {}) => {
+  request = ({ mode = 'edit', prompt, error, app, scriptRootId, attachments, editorHandle } = {}) => {
     if (this.world.isAdminClient) {
       this.world.emit('toast', 'AI script requests are not available on admin connections.')
       return null
     }
-    if (!this.world.network?.send) return null
     if (!this.world.builder?.canBuild?.()) {
       this.world.emit('toast', 'Builder access required.')
       return null
     }
+    if (editorHandle?.dirtyCount > 0) {
+      this.world.emit('toast', 'Save or discard editor changes before using local Codex.')
+      return null
+    }
+
     let targetApp = app || this.world.ui?.state?.app
     if (!targetApp) {
       targetApp = this.world.builder?.getEntityAtReticle?.() || null
@@ -108,6 +191,7 @@ export class ScriptAIController {
       this.world.emit('toast', 'No module script root found for this app.')
       return null
     }
+
     const targetBlueprintId = targetBlueprint?.id || scriptRoot.id
     if (!targetBlueprintId) {
       this.world.emit('toast', 'No script target found for this app.')
@@ -117,6 +201,7 @@ export class ScriptAIController {
       this.world.emit('toast', 'AI request already in progress for this app.')
       return null
     }
+
     const entryPath = scriptRoot.scriptEntry
     if (!entryPath || !isValidScriptPath(entryPath)) {
       this.world.emit('toast', 'Invalid script entry for AI request.')
@@ -126,6 +211,7 @@ export class ScriptAIController {
       this.world.emit('toast', 'Script entry missing from module files.')
       return null
     }
+
     let requestError = error
     if (mode === 'fix') {
       if (!requestError && targetApp?.scriptError) {
@@ -142,27 +228,38 @@ export class ScriptAIController {
         return null
       }
     }
+
     const requestId = uuid()
+    const normalizedAttachments = normalizeAttachments(attachments)
+    const appName = getBlueprintAppName(scriptRoot.id) || scriptRoot.id
+    const history = this.buildConversationHistory({
+      targetBlueprintId,
+      scriptRootId: scriptRoot.id,
+    })
     const payload = {
       requestId,
+      appName,
       scriptRootId: scriptRoot.id,
       targetBlueprintId,
       mode,
       prompt: prompt || null,
       error: requestError || null,
+      entryPath,
+      scriptFormat: scriptRoot.scriptFormat === 'legacy-body' ? 'legacy-body' : 'module',
+      history,
+      currentWorldUrl: resolveCurrentWorldUrl(),
+      authToken: storage?.get?.('authToken') || null,
     }
-    const normalizedAttachments = normalizeAttachments(attachments)
     if (normalizedAttachments) {
       payload.attachments = normalizedAttachments
     }
-    if (targetApp?.data?.id) {
-      payload.appId = targetApp.data.id
-    }
+
     this.inFlightByBlueprint.set(targetBlueprintId, {
       requestId,
       scriptRootId: scriptRoot.id,
       startedAt: Date.now(),
     })
+
     if (mode === 'edit' && prompt) {
       this.appendThreadEntry({
         targetBlueprintId,
@@ -180,15 +277,121 @@ export class ScriptAIController {
         text: 'Fix the current script error.',
       })
     }
+
     this.world.emit?.('script-ai-pending', {
       scriptRootId: scriptRoot.id,
       targetBlueprintId,
       requestId,
       pending: true,
     })
-    this.world.network.send('scriptAiRequest', payload)
     this.world.emit?.('script-ai-request', payload)
+
+    void this.requestLocalPreview(payload)
     return requestId
+  }
+
+  async applyLocalProposal({
+    requestId,
+    appName,
+    scriptRootId,
+    targetBlueprintId,
+    summary,
+    files,
+  } = {}) {
+    const status = await this.ensureLocalCodexStatus({ force: true })
+    if (!status?.ready) {
+      const message = status?.message || 'Local Codex is unavailable.'
+      this.world.emit('toast', message)
+      this.world.emit?.('script-ai-event', {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'error',
+        message,
+      })
+      return { ok: false, error: 'local_codex_unavailable', message }
+    }
+
+    this.world.emit?.('script-ai-event', {
+      requestId,
+      scriptRootId,
+      targetBlueprintId,
+      type: 'phase',
+      phase: 'applying',
+    })
+
+    try {
+      const response = await fetch(`${status.apiUrl}/apply`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          requestId,
+          appName,
+          scriptRootId,
+          targetBlueprintId,
+          summary,
+          files,
+          currentWorldUrl: resolveCurrentWorldUrl(),
+          authToken: storage?.get?.('authToken') || null,
+        }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.message || 'Failed to deploy local Codex changes.')
+      }
+
+      const message = data.message || 'AI changes applied.'
+      this.world.emit?.('script-ai-event', {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'apply_result',
+        ok: true,
+        fileCount: Array.isArray(files) ? files.length : 0,
+        message,
+      })
+      this.world.emit?.('script-ai-response', {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        error: null,
+        message,
+        summary: summary || '',
+        source: typeof data.source === 'string' ? data.source : '',
+        fileCount: Number.isFinite(data.fileCount) ? data.fileCount : Array.isArray(files) ? files.length : 0,
+        applied: true,
+        forked: false,
+      })
+      this.world.emit('toast', message)
+      return { ok: true, message }
+    } catch (err) {
+      const message = err?.message || 'Failed to apply local Codex changes.'
+      this.world.emit?.('script-ai-event', {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        type: 'apply_result',
+        ok: false,
+        fileCount: 0,
+        message,
+      })
+      this.world.emit?.('script-ai-response', {
+        requestId,
+        scriptRootId,
+        targetBlueprintId,
+        error: 'local_codex_apply_failed',
+        message,
+        summary: summary || '',
+        source: '',
+        fileCount: 0,
+        applied: false,
+        forked: false,
+      })
+      this.world.emit('toast', message)
+      return { ok: false, error: 'local_codex_apply_failed', message }
+    }
   }
 
   isBlueprintPending = blueprintId => {
@@ -208,6 +411,21 @@ export class ScriptAIController {
     const bp = typeof targetBlueprintId === 'string' && targetBlueprintId ? targetBlueprintId : ''
     const root = typeof scriptRootId === 'string' && scriptRootId ? scriptRootId : ''
     return `${bp}::${root}`
+  }
+
+  buildConversationHistory = ({ targetBlueprintId, scriptRootId } = {}) => {
+    const thread = this.getThreadForTarget({ targetBlueprintId, scriptRootId })
+    const history = []
+    for (const item of thread) {
+      if (item?.type !== 'user' && item?.type !== 'assistant') continue
+      const text = typeof item.text === 'string' ? item.text.trim() : ''
+      if (!text) continue
+      history.push({
+        role: item.type === 'user' ? 'user' : 'assistant',
+        content: text,
+      })
+    }
+    return history.slice(-12)
   }
 
   getThreadForTarget = ({ targetBlueprintId, scriptRootId } = {}) => {
@@ -230,15 +448,32 @@ export class ScriptAIController {
     }
   }
 
-  appendThreadEntry = ({ targetBlueprintId, scriptRootId, requestId, type, text, meta } = {}) => {
+  appendThreadEntry = ({ targetBlueprintId, scriptRootId, requestId, type, text, meta, coalesce } = {}) => {
     if (!type) return
     const key = this.getTargetKey({ targetBlueprintId, scriptRootId })
     const current = this.threadsByTarget.get(key) || []
+    const nextText = typeof text === 'string' ? text : ''
+
+    if (coalesce && current.length) {
+      const last = current[current.length - 1]
+      if (last?.type === type && last?.requestId === (requestId || null)) {
+        const merged = {
+          ...last,
+          text: `${last.text || ''}${nextText}`,
+          meta: meta && typeof meta === 'object' ? meta : last.meta || null,
+        }
+        const next = current.slice(0, -1).concat(merged)
+        this.threadsByTarget.set(key, next)
+        this.emitThread(key)
+        return
+      }
+    }
+
     const next = current.concat({
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       requestId: requestId || null,
       type,
-      text: typeof text === 'string' ? text : '',
+      text: nextText,
       meta: meta && typeof meta === 'object' ? meta : null,
       createdAt: Date.now(),
     })
@@ -309,6 +544,88 @@ export class ScriptAIController {
     }
   }
 
+  getLocalCodexStatus = () => this.localCodexStatus
+
+  subscribeLocalCodexStatus = callback => {
+    if (typeof callback !== 'function') return () => {}
+    this.localCodexStatusSubscribers.add(callback)
+    callback(this.localCodexStatus)
+    void this.ensureLocalCodexStatus()
+    return () => {
+      this.localCodexStatusSubscribers.delete(callback)
+    }
+  }
+
+  ensureLocalCodexStatus = async ({ force = false } = {}) => {
+    const apiUrl = resolveLocalCodexApiUrl()
+    const now = Date.now()
+    if (!force && this.localCodexStatusPromise) {
+      return this.localCodexStatusPromise
+    }
+    if (
+      !force &&
+      this.localCodexStatus?.checkedAt &&
+      now - this.localCodexStatus.checkedAt < LOCAL_CODEX_STATUS_TTL_MS &&
+      this.localCodexStatus.apiUrl === apiUrl
+    ) {
+      return this.localCodexStatus
+    }
+
+    const load = async () => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 1500)
+      try {
+        const response = await fetch(`${apiUrl}/status`, { signal: controller.signal })
+        if (!response.ok) {
+          throw new Error('local_codex_status_failed')
+        }
+        const data = await response.json()
+        const currentWorldUrl = resolveCurrentWorldUrl()
+        const projectWorldUrl = normalizeBaseUrl(data?.worldUrl || '')
+        let ready = data?.ready === true
+        let message =
+          typeof data?.message === 'string' && data.message
+            ? data.message
+            : ready
+              ? 'Local Codex is ready.'
+              : 'Run "gamedev codex" in your world project to enable local Codex.'
+        if (ready && currentWorldUrl && projectWorldUrl && normalizeBaseUrl(currentWorldUrl) !== projectWorldUrl) {
+          ready = false
+          message = `Local Codex targets ${projectWorldUrl}, but this world is ${currentWorldUrl}.`
+        }
+        this.localCodexStatus = {
+          ready,
+          apiUrl,
+          projectDir: typeof data?.projectDir === 'string' ? data.projectDir : null,
+          worldUrl: projectWorldUrl || null,
+          worldId: typeof data?.worldId === 'string' ? data.worldId : null,
+          model: typeof data?.model === 'string' ? data.model : null,
+          message,
+          checkedAt: Date.now(),
+        }
+      } catch (err) {
+        this.localCodexStatus = createLocalCodexUnavailableStatus(
+          apiUrl,
+          'Run "gamedev codex" in your world project to enable local Codex.'
+        )
+      } finally {
+        clearTimeout(timeout)
+        this.localCodexStatusPromise = null
+        this.emitLocalCodexStatus()
+      }
+      return this.localCodexStatus
+    }
+
+    this.localCodexStatusPromise = load()
+    return this.localCodexStatusPromise
+  }
+
+  emitLocalCodexStatus = () => {
+    for (const callback of this.localCodexStatusSubscribers) {
+      callback(this.localCodexStatus)
+    }
+  }
+
   ensureDocsIndex = async () => {
     const apiUrl = this.world.network?.apiUrl || null
     if (!apiUrl) {
@@ -335,7 +652,7 @@ export class ScriptAIController {
         const data = await response.json()
         const files = Array.isArray(data?.files) ? data.files.filter(Boolean) : []
         this.docsIndex = files
-      } catch (err) {
+      } catch {
         this.docsIndex = []
       } finally {
         this.docsLoaded = true
@@ -354,6 +671,74 @@ export class ScriptAIController {
     }
   }
 
+  requestLocalPreview = async payload => {
+    const status = await this.ensureLocalCodexStatus({ force: true })
+    if (!status?.ready) {
+      this.onEvent({
+        requestId: payload.requestId,
+        scriptRootId: payload.scriptRootId,
+        targetBlueprintId: payload.targetBlueprintId,
+        type: 'error',
+        message: status?.message || 'Local Codex is unavailable.',
+      })
+      this.onProposal({
+        requestId: payload.requestId,
+        scriptRootId: payload.scriptRootId,
+        targetBlueprintId: payload.targetBlueprintId,
+        error: 'local_codex_unavailable',
+        message: status?.message || 'Local Codex is unavailable.',
+        applied: false,
+      })
+      return
+    }
+
+    try {
+      const response = await fetch(`${status.apiUrl}/preview`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok || !response.body) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.message || 'Local Codex request failed.')
+      }
+
+      await parseNdjsonStream(response, item => {
+        if (!item || typeof item !== 'object') return
+        if (item.kind === 'event' && item.payload) {
+          this.world.emit?.('script-ai-event', item.payload)
+          return
+        }
+        if (item.kind === 'proposal' && item.payload) {
+          this.world.emit?.('script-ai-proposal', item.payload)
+          return
+        }
+        if (item.kind === 'response' && item.payload) {
+          this.onProposal(item.payload)
+        }
+      })
+    } catch (err) {
+      this.onEvent({
+        requestId: payload.requestId,
+        scriptRootId: payload.scriptRootId,
+        targetBlueprintId: payload.targetBlueprintId,
+        type: 'error',
+        message: err?.message || 'Local Codex request failed.',
+      })
+      this.onProposal({
+        requestId: payload.requestId,
+        scriptRootId: payload.scriptRootId,
+        targetBlueprintId: payload.targetBlueprintId,
+        error: 'local_codex_failed',
+        message: err?.message || 'Local Codex request failed.',
+        applied: false,
+      })
+    }
+  }
+
   onEvent = payload => {
     if (!payload) return
     const targetBlueprintId = typeof payload.targetBlueprintId === 'string' ? payload.targetBlueprintId : null
@@ -361,23 +746,25 @@ export class ScriptAIController {
     const requestId = typeof payload.requestId === 'string' ? payload.requestId : null
     const type = typeof payload.type === 'string' ? payload.type : ''
     if (!type) return
+
     if (type === 'session_start') {
       this.appendThreadEntry({
         targetBlueprintId,
         scriptRootId,
         requestId,
         type: 'system',
-        text: payload.mode === 'fix' ? 'Started AI fix request.' : 'Started AI edit request.',
+        text: payload.mode === 'fix' ? 'Started local Codex fix request.' : 'Started local Codex edit request.',
       })
       return
     }
+
     if (type === 'phase') {
       const phase = typeof payload.phase === 'string' ? payload.phase : ''
       const labels = {
-        collecting_context: 'Collecting context...',
+        collecting_context: 'Collecting local project context...',
         thinking: 'Thinking...',
-        generating_patch: 'Generating patch...',
-        applying: 'Applying changes...',
+        generating_patch: 'Preparing changes...',
+        applying: 'Deploying accepted changes...',
       }
       this.appendThreadEntry({
         targetBlueprintId,
@@ -389,6 +776,7 @@ export class ScriptAIController {
       })
       return
     }
+
     if (type === 'patch_preview') {
       const files = Array.isArray(payload.files) ? payload.files.filter(Boolean) : []
       const summary = typeof payload.summary === 'string' ? payload.summary.trim() : ''
@@ -403,6 +791,7 @@ export class ScriptAIController {
       })
       return
     }
+
     if (type === 'apply_result') {
       const message = typeof payload.message === 'string' ? payload.message : ''
       const count = Number.isFinite(payload.fileCount) ? payload.fileCount : 0
@@ -415,6 +804,32 @@ export class ScriptAIController {
       })
       return
     }
+
+    if (type === 'tool-call') {
+      const toolName = typeof payload.toolName === 'string' ? payload.toolName.trim() : ''
+      this.appendThreadEntry({
+        targetBlueprintId,
+        scriptRootId,
+        requestId,
+        type: 'system',
+        text: toolName ? `Running ${toolName}...` : 'Running local tool...',
+      })
+      return
+    }
+
+    if (type === 'tool-result') {
+      const detail = typeof payload.detail === 'string' ? payload.detail.trim() : ''
+      if (!detail) return
+      this.appendThreadEntry({
+        targetBlueprintId,
+        scriptRootId,
+        requestId,
+        type: 'system',
+        text: detail,
+      })
+      return
+    }
+
     if (type === 'assistant_message' || type === 'assistant_delta') {
       const text = typeof payload.text === 'string' ? payload.text : ''
       if (!text) return
@@ -424,9 +839,11 @@ export class ScriptAIController {
         requestId,
         type: 'assistant',
         text,
+        coalesce: type === 'assistant_delta',
       })
       return
     }
+
     if (type === 'error') {
       const message = typeof payload.message === 'string' ? payload.message : 'AI request failed.'
       this.appendThreadEntry({
@@ -464,6 +881,7 @@ export class ScriptAIController {
         }
       }
     }
+
     if (scriptRootId || clearedBlueprintId) {
       this.world.emit?.('script-ai-pending', {
         scriptRootId,
@@ -472,6 +890,7 @@ export class ScriptAIController {
         pending: false,
       })
     }
+
     const response = {
       requestId: payload.requestId || null,
       scriptRootId,
@@ -486,7 +905,7 @@ export class ScriptAIController {
           : Array.isArray(payload.files)
             ? payload.files.length
             : 0,
-      applied: payload.applied !== false,
+      applied: payload.applied === true,
       forked: payload.forked === true,
       appliedScriptRootId: typeof payload.appliedScriptRootId === 'string' ? payload.appliedScriptRootId : null,
     }
@@ -496,7 +915,7 @@ export class ScriptAIController {
       this.world.emit('toast', message)
       return
     }
-    const successMessage = payload.message || 'AI changes applied.'
+    const successMessage = payload.message || (payload.applied === true ? 'AI changes applied.' : 'AI changes ready.')
     this.world.emit('toast', successMessage)
   }
 }

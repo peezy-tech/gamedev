@@ -40,6 +40,7 @@ This repository powers the `gamedev` package and CLI used to scaffold, run, sync
 gamedev init
 gamedev dev
 gamedev app-server
+gamedev codex
 gamedev apps deploy <app>
 gamedev world export
 gamedev world import

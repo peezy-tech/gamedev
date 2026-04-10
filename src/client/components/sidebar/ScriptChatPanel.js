@@ -152,7 +152,7 @@ export function ScriptChatPanel({
             <div className='script-ai-status'>{aiStatus.message}</div>
           )}
           {handle?.dirtyCount && !aiLocked ? (
-            <div className='script-ai-status'>Unsaved edits will be reverted when an AI request starts.</div>
+            <div className='script-ai-status'>Save or discard browser edits before starting a local Codex request.</div>
           ) : null}
       </div>
     </div>

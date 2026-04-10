@@ -22,7 +22,7 @@ import {
 
 const aiDebugEnabled = (process?.env?.PUBLIC_DEBUG_AI_SCRIPT || globalThis?.env?.PUBLIC_DEBUG_AI_SCRIPT) === 'true'
 
-export function ScriptFilesEditor({ world, scriptRoot, onHandle, aiLocked = false }) {
+export function ScriptFilesEditor({ world, scriptRoot, onHandle, aiLocked = false, onApplyAiProposal = null }) {
   const mountRef = useRef(null)
   const editorRef = useRef(null)
   const monacoRef = useRef(null)
@@ -1980,6 +1980,23 @@ export function ScriptFilesEditor({ world, scriptRoot, onHandle, aiLocked = fals
   saveCurrentRef.current = saveCurrent
   saveAllRef.current = saveAll
 
+  const acceptAppliedAiProposal = useCallback(() => {
+    if (!aiProposal?.files?.length) return
+    for (const file of aiProposal.files) {
+      const state = fileStatesRef.current.get(file.path)
+      if (!state?.model) continue
+      state.originalText = state.model.getValue()
+      state.dirty = false
+      state.version = rootVersion
+      if (!Object.prototype.hasOwnProperty.call(scriptFiles || {}, file.path) && state.isNew) {
+        state.isNew = true
+      } else {
+        state.isNew = false
+      }
+    }
+    setDirtyTick(tick => tick + 1)
+  }, [aiProposal, rootVersion, scriptFiles])
+
   const commitAiProposal = useCallback(
     async (options = {}) => {
       if (!aiProposal?.files?.length) return
@@ -2005,6 +2022,27 @@ export function ScriptFilesEditor({ world, scriptRoot, onHandle, aiLocked = fals
         fileCount: aiPaths.size,
         paths: Array.from(aiPaths),
       })
+      if (typeof onApplyAiProposal === 'function') {
+        setSaving(true)
+        try {
+          const result = await onApplyAiProposal(aiProposal)
+          if (!result?.ok) {
+            emitAiTelemetry('commit_failed', { external: true, message: result?.message })
+            if (result?.message) {
+              setError(result.message)
+            }
+            return
+          }
+          acceptAppliedAiProposal()
+          clearAiProposal()
+          setError(null)
+          setConflict(null)
+          emitAiTelemetry('commit_success', { fileCount: aiPaths.size, external: true })
+          return
+        } finally {
+          setSaving(false)
+        }
+      }
       const ok = await saveAll({ paths: aiPaths })
       if (!ok) {
         emitAiTelemetry('commit_failed')
@@ -2014,7 +2052,7 @@ export function ScriptFilesEditor({ world, scriptRoot, onHandle, aiLocked = fals
       world.emit('toast', 'AI changes applied')
       emitAiTelemetry('commit_success', { fileCount: aiPaths.size })
     },
-    [aiProposal, saving, world, saveAll, clearAiProposal, emitAiTelemetry]
+    [aiProposal, saving, world, saveAll, clearAiProposal, emitAiTelemetry, onApplyAiProposal, acceptAppliedAiProposal]
   )
 
   const discardAiProposal = useCallback(async () => {
