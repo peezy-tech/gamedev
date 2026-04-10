@@ -133,7 +133,7 @@ export class WebView extends Node {
 
     const iframe = document.createElement('iframe')
     iframe.frameBorder = '0'
-    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; xr-spatial-tracking'
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
     iframe.allowFullscreen = true
     iframe.style.width = widthPx
     iframe.style.height = heightPx
@@ -201,7 +201,7 @@ export class WebView extends Node {
 
     const iframe = document.createElement('iframe')
     iframe.frameBorder = '0'
-    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; xr-spatial-tracking'
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
     iframe.allowFullscreen = true
     iframe.style.width = '100%'
     iframe.style.height = '100%'

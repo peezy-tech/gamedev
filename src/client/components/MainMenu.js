@@ -29,7 +29,6 @@ const shadowOptions = [
 export function MainMenu({ world, open, onClose }) {
   const player = world.entities.player
   const { isAdmin, isBuilder } = useRank(world, player)
-  const xrLabel = world.xr.preferredMode === 'immersive-ar' ? 'Enter AR' : 'Enter VR'
   const [name, setName] = useState(() => player.data.name)
   const [dpr, setDPR] = useState(world.prefs.dpr)
   const [shadows, setShadows] = useState(world.prefs.shadows)
@@ -233,7 +232,7 @@ export function MainMenu({ world, open, onClose }) {
               <div className='mainmenu-head-spacer' />
               <div className='mainmenu-actions'>
                 {world.xr.isSupported && (
-                  <div className='mainmenu-action' onClick={() => world.xr.start()} title={xrLabel} aria-label={xrLabel}>
+                  <div className='mainmenu-action' onClick={() => world.xr.start()}>
                     <VRIcon size='1.125rem' />
                   </div>
                 )}
