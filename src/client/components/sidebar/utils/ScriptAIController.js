@@ -80,7 +80,7 @@ function resolveLocalCodexApiUrl() {
   return normalizeBaseUrl(configured) || DEFAULT_CODEX_API_URL
 }
 
-function createLocalCodexUnavailableStatus(apiUrl, message) {
+function createLocalCodexUnavailableStatus(apiUrl, message, checkedAt = Date.now()) {
   return {
     ready: false,
     apiUrl,
@@ -89,7 +89,7 @@ function createLocalCodexUnavailableStatus(apiUrl, message) {
     worldId: null,
     model: null,
     message: message || 'Run "gamedev codex" in your world project to enable local Codex.',
-    checkedAt: Date.now(),
+    checkedAt,
   }
 }
 
@@ -135,7 +135,7 @@ export class ScriptAIController {
     this.docsLoaded = false
     this.docsLoadingPromise = null
     this.docsSubscribers = new Set()
-    this.localCodexStatus = createLocalCodexUnavailableStatus(resolveLocalCodexApiUrl(), 'Checking local Codex...')
+    this.localCodexStatus = createLocalCodexUnavailableStatus(resolveLocalCodexApiUrl(), 'Checking local Codex...', 0)
     this.localCodexStatusPromise = null
     this.localCodexStatusSubscribers = new Set()
   }

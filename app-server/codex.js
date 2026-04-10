@@ -140,6 +140,7 @@ function sendJson(res, statusCode, payload) {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type',
+    'access-control-allow-private-network': 'true',
   })
   res.end(body)
 }
@@ -149,6 +150,7 @@ function sendOptions(res) {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type',
+    'access-control-allow-private-network': 'true',
     'access-control-max-age': '86400',
   })
   res.end()
@@ -162,6 +164,7 @@ function beginNdjson(res) {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type',
+    'access-control-allow-private-network': 'true',
   })
 }
 
