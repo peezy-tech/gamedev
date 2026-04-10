@@ -759,7 +759,7 @@ async function codexCommand(args = []) {
     log: console,
   })
 
-  return new Promise(() => {})
+  return 0
 }
 
 function printInitHelp() {
