@@ -27,6 +27,7 @@ import {
   DEFAULT_SYNC_POLICY,
   sha256,
   sleep,
+  deriveHttpBaseUrlFromWsUrl,
   normalizeWorldAdminBaseUrl,
   toWsUrl,
   joinUrl,
@@ -91,11 +92,19 @@ import { isValidScriptPath } from '../src/core/blueprintValidation.js'
 import { isEqual } from 'lodash-es'
 import { uuid } from './utils.js'
 import { ensureProjectAuth } from './cliAuth.js'
+import { debugLog, fetchWithTimeout, readTimeoutMs, summarizeToken } from './debug.js'
+
+const DEFAULT_WORLD_STATUS_DISCOVERY_TIMEOUT_MS = 5_000
+
+function getWorldStatusDiscoveryTimeoutMs() {
+  return readTimeoutMs('WORLD_ADMIN_REQUEST_TIMEOUT_MS', DEFAULT_WORLD_STATUS_DISCOVERY_TIMEOUT_MS)
+}
 
 export class DirectAppServer {
   constructor({ worldUrl, adminCode, authToken, worldId = null, rootDir = process.cwd() }) {
     this.rootDir = rootDir
-    this.worldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+    this.discoveryWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
+    this.worldUrl = this.discoveryWorldUrl
     this.adminCode = adminCode || null
     this.authToken = authToken || null
     this.worldId = worldId || process.env.WORLD_ID || null
@@ -135,26 +144,138 @@ export class DirectAppServer {
     this.scriptFormatWarnings = new Set()
   }
 
+  _buildAdminHeaders(extra = {}) {
+    const headers = { ...extra }
+    if (this.adminCode) headers['X-Admin-Code'] = this.adminCode
+    if (this.authToken) headers.authorization = `Bearer ${this.authToken}`
+    return headers
+  }
+
+  async _resolvePreferredWorldUrl() {
+    const discoveryWorldUrl = normalizeWorldAdminBaseUrl(this.discoveryWorldUrl)
+    if (!discoveryWorldUrl) return this.worldUrl
+
+    const statusUrl = joinUrl(discoveryWorldUrl, '/status')
+    const timeoutMs = getWorldStatusDiscoveryTimeoutMs()
+    debugLog('direct-app-server', 'connect:discover_runtime_start', {
+      discoveryWorldUrl,
+      statusUrl,
+      timeoutMs,
+    })
+
+    let response
+    try {
+      response = await fetchWithTimeout(
+        statusUrl,
+        {
+          headers: this._buildAdminHeaders({
+            accept: 'application/json',
+          }),
+        },
+        {
+          timeoutMs,
+        }
+      )
+    } catch (err) {
+      debugLog('direct-app-server', 'connect:discover_runtime_error', {
+        discoveryWorldUrl,
+        statusUrl,
+        error: err?.message || String(err),
+      })
+      return discoveryWorldUrl
+    }
+
+    if (!response.ok) {
+      debugLog('direct-app-server', 'connect:discover_runtime_response_error', {
+        discoveryWorldUrl,
+        statusUrl,
+        status: response.status,
+      })
+      return discoveryWorldUrl
+    }
+
+    const payload = await response.json().catch(() => null)
+    const directWorldUrl = deriveHttpBaseUrlFromWsUrl(payload?.connection?.wsUrl)
+    debugLog('direct-app-server', 'connect:discover_runtime_complete', {
+      discoveryWorldUrl,
+      statusUrl,
+      directWorldUrl,
+      status: payload?.status || null,
+    })
+    return directWorldUrl || discoveryWorldUrl
+  }
+
+  _setActiveWorldUrl(nextWorldUrl, { reason = 'connect' } = {}) {
+    const normalizedNextWorldUrl = normalizeWorldAdminBaseUrl(nextWorldUrl)
+    if (!normalizedNextWorldUrl || normalizedNextWorldUrl === this.worldUrl) return false
+    debugLog('direct-app-server', 'connect:world_url_switch', {
+      from: this.worldUrl,
+      to: normalizedNextWorldUrl,
+      discoveryWorldUrl: this.discoveryWorldUrl,
+      reason,
+    })
+    this.worldUrl = normalizedNextWorldUrl
+    this.client.worldUrl = normalizedNextWorldUrl
+    this.loggedTarget = false
+    return true
+  }
+
   async connect({ refreshSyncState = true, syncCursorFromChangefeed = true } = {}) {
+    const preferredWorldUrl = await this._resolvePreferredWorldUrl()
+    this._setActiveWorldUrl(preferredWorldUrl, { reason: 'connect' })
+    debugLog('direct-app-server', 'connect:start', {
+      worldUrl: this.worldUrl,
+      discoveryWorldUrl: this.discoveryWorldUrl,
+      worldId: this.worldId,
+      refreshSyncState,
+      syncCursorFromChangefeed,
+    })
     await this.client.connect()
+    debugLog('direct-app-server', 'connect:ws_ready', {
+      worldUrl: this.worldUrl,
+    })
     const snapshot = await this.client.getSnapshot()
+    debugLog('direct-app-server', 'connect:snapshot_ready', {
+      worldUrl: this.worldUrl,
+      remoteWorldId: snapshot?.worldId || null,
+      blueprints: Array.isArray(snapshot?.blueprints) ? snapshot.blueprints.length : null,
+      entities: Array.isArray(snapshot?.entities) ? snapshot.entities.length : null,
+    })
     this.assetsUrl = snapshot.assetsUrl
     this._validateWorldId(snapshot.worldId)
     this._initSnapshot(snapshot, { refreshSyncState })
     if (syncCursorFromChangefeed) {
+      debugLog('direct-app-server', 'connect:changefeed_sync_start', {
+        worldUrl: this.worldUrl,
+      })
       try {
         await this._syncCursorFromChangefeed()
+        debugLog('direct-app-server', 'connect:changefeed_sync_ok', {
+          worldUrl: this.worldUrl,
+        })
       } catch (err) {
         const message = err?.message || ''
         if (!message.startsWith('changes_failed:')) {
+          debugLog('direct-app-server', 'connect:changefeed_sync_error', {
+            worldUrl: this.worldUrl,
+            error: message || String(err),
+          })
           throw err
         }
         if (!this.loggedChangefeedWarning) {
           console.warn(`⚠️  Changefeed unavailable (${message}); continuing without cursor sync.`)
           this.loggedChangefeedWarning = true
         }
+        debugLog('direct-app-server', 'connect:changefeed_sync_unavailable', {
+          worldUrl: this.worldUrl,
+          error: message,
+        })
       }
     }
+    debugLog('direct-app-server', 'connect:complete', {
+      worldUrl: this.worldUrl,
+      worldId: snapshot?.worldId || null,
+    })
     return snapshot
   }
 
@@ -2452,6 +2573,12 @@ export class DirectAppServer {
   }
 
   async exportWorldToDisk(snapshot = this.snapshot, { includeBuiltScripts = false, includeScriptSources = true } = {}) {
+    debugLog('direct-app-server', 'export:start', {
+      worldUrl: this.worldUrl,
+      includeBuiltScripts,
+      includeScriptSources,
+      hasCachedSnapshot: !!snapshot,
+    })
     const rawSnapshot = snapshot || (await this.client.getSnapshot())
     const nextSnapshot = this._normalizeSnapshotForExport(rawSnapshot)
     this.assetsUrl = nextSnapshot.assetsUrl
@@ -2485,9 +2612,17 @@ export class DirectAppServer {
         scriptGroups,
       })
     }
+    debugLog('direct-app-server', 'export:complete', {
+      worldUrl: this.worldUrl,
+      blueprints: blueprints.length,
+    })
   }
 
   async importWorldFromDisk() {
+    debugLog('direct-app-server', 'import:start', {
+      worldUrl: this.worldUrl,
+      worldId: this.worldId,
+    })
     const manifest = this.manifest.read()
     if (!manifest) {
       throw new Error('world.json missing. Run "gamedev world export" to generate it first.')
@@ -2496,8 +2631,35 @@ export class DirectAppServer {
     if (errors.length) {
       throw new Error(`Invalid world.json:\n- ${errors.join('\n- ')}`)
     }
+    debugLog('direct-app-server', 'import:manifest_ready', {
+      worldUrl: this.worldUrl,
+      worldId: this.worldId,
+      settingsKeys: Object.keys(manifest.settings || {}).length,
+      entityCount: Array.isArray(manifest.entities) ? manifest.entities.length : 0,
+      localBlueprintCount: this._indexLocalBlueprints().size,
+    })
+    debugLog('direct-app-server', 'import:deploy_blueprints_start', {
+      worldUrl: this.worldUrl,
+      worldId: this.worldId,
+    })
     await this._deployAllBlueprints()
+    debugLog('direct-app-server', 'import:deploy_blueprints_complete', {
+      worldUrl: this.worldUrl,
+      worldId: this.worldId,
+    })
+    debugLog('direct-app-server', 'import:apply_manifest_start', {
+      worldUrl: this.worldUrl,
+      worldId: this.worldId,
+    })
     await this._applyManifestToWorld(manifest)
+    debugLog('direct-app-server', 'import:apply_manifest_complete', {
+      worldUrl: this.worldUrl,
+      worldId: this.worldId,
+    })
+    debugLog('direct-app-server', 'import:complete', {
+      worldUrl: this.worldUrl,
+      worldId: this.worldId,
+    })
   }
 
   async deployApp(appName, options = {}) {
@@ -2511,7 +2673,11 @@ export class DirectAppServer {
   _logTarget() {
     if (this.loggedTarget) return
     const worldId = this.snapshot?.worldId || 'unknown'
-    console.log(`Deploy target: ${this.worldUrl} (worldId: ${worldId})`)
+    const targetLabel =
+      this.discoveryWorldUrl && this.discoveryWorldUrl !== this.worldUrl
+        ? `${this.worldUrl} (resolved from ${this.discoveryWorldUrl})`
+        : this.worldUrl
+    console.log(`Deploy target: ${targetLabel} (worldId: ${worldId})`)
     this.loggedTarget = true
   }
 
@@ -3320,13 +3486,59 @@ export class DirectAppServer {
 
   async _acquireDeployLock({ owner, scope } = {}) {
     const lockOwner = owner || this._getDeployLockOwner()
-    const result = await this.client.acquireDeployLock({ owner: lockOwner, scope })
-    return { token: result.token, scope }
+    debugLog('direct-app-server', 'deploy_lock:acquire_start', {
+      worldUrl: this.worldUrl,
+      owner: lockOwner,
+      scope: scope || 'global',
+    })
+    try {
+      const result = await this.client.acquireDeployLock({ owner: lockOwner, scope })
+      const lock = { token: result.token, scope: scope || 'global' }
+      debugLog('direct-app-server', 'deploy_lock:acquire_ok', {
+        worldUrl: this.worldUrl,
+        owner: lockOwner,
+        scope: lock.scope,
+        token: summarizeToken(lock.token),
+      })
+      return lock
+    } catch (err) {
+      debugLog('direct-app-server', 'deploy_lock:acquire_error', {
+        worldUrl: this.worldUrl,
+        owner: lockOwner,
+        scope: scope || 'global',
+        code: err?.code || null,
+        error: err?.message || String(err),
+        lock: err?.lock || null,
+      })
+      throw err
+    }
   }
 
   async _releaseDeployLock({ token, scope } = {}) {
     if (!token) return
-    await this.client.releaseDeployLock({ token, scope })
+    debugLog('direct-app-server', 'deploy_lock:release_start', {
+      worldUrl: this.worldUrl,
+      scope: scope || 'global',
+      token: summarizeToken(token),
+    })
+    try {
+      await this.client.releaseDeployLock({ token, scope })
+      debugLog('direct-app-server', 'deploy_lock:release_ok', {
+        worldUrl: this.worldUrl,
+        scope: scope || 'global',
+        token: summarizeToken(token),
+      })
+    } catch (err) {
+      debugLog('direct-app-server', 'deploy_lock:release_error', {
+        worldUrl: this.worldUrl,
+        scope: scope || 'global',
+        token: summarizeToken(token),
+        code: err?.code || null,
+        error: err?.message || String(err),
+        lock: err?.lock || null,
+      })
+      throw err
+    }
   }
 
   async _withDeployLock(fn, { owner, scope } = {}) {
@@ -3588,9 +3800,19 @@ export class DirectAppServer {
       if (!byApp.has(info.appName)) byApp.set(info.appName, [])
       byApp.get(info.appName).push(info)
     }
+    debugLog('direct-app-server', 'deploy_all:start', {
+      worldUrl: this.worldUrl,
+      appCount: byApp.size,
+      blueprintCount: index.size,
+    })
     for (const [appName, infos] of byApp.entries()) {
       await this._deployBlueprintsForApp(appName, infos, index)
     }
+    debugLog('direct-app-server', 'deploy_all:complete', {
+      worldUrl: this.worldUrl,
+      appCount: byApp.size,
+      blueprintCount: index.size,
+    })
   }
 
   async _deployBlueprintById(id) {
@@ -3623,6 +3845,18 @@ export class DirectAppServer {
     const note = typeof options.note === 'string' && options.note.trim() ? options.note.trim() : null
     const plan = await this._buildDeployPlan(appName, list, { index: blueprintIndex })
     const summary = this._summarizeDeployPlan(plan)
+    debugLog('direct-app-server', 'deploy_app:plan', {
+      worldUrl: this.worldUrl,
+      appName,
+      blueprintCount: list.length,
+      addCount: summary.adds.length,
+      updateCount: summary.updates.length,
+      unchangedCount: summary.unchanged.length,
+      scriptChanges: summary.scriptChanges,
+      configChanges: summary.configChanges,
+      preview,
+      dryRun: !!options.dryRun,
+    })
     if (preview) {
       this._printDeployPlan(appName, summary)
     }
@@ -3659,15 +3893,38 @@ export class DirectAppServer {
         `⚠️  Deploy for ${appName} spans multiple blueprint scopes (${formatNameList(scopes)}); using a global deploy lock.`
       )
     }
+    debugLog('direct-app-server', 'deploy_app:scope_selected', {
+      worldUrl: this.worldUrl,
+      appName,
+      deployScope,
+      snapshotScopes: Array.from(snapshotScopeSet.values()),
+      snapshotIds,
+      note: snapshotNote,
+    })
 
     await this._withDeployLock(
       async lock => {
+        debugLog('direct-app-server', 'deploy_app:lock_ready', {
+          worldUrl: this.worldUrl,
+          appName,
+          scope: lock.scope || deployScope,
+          token: summarizeToken(lock.token),
+        })
         await this._createDeploySnapshot(snapshotIds, { note: snapshotNote, lockToken: lock.token, scope: lock.scope })
         const scriptInfo = await this._safeUploadScriptForApp(appName, list[0].scriptPath, {
           allowMissing: true,
         })
         if (scriptInfo?.mode === 'module') {
           this._assignScriptRootsForApp(appName, list, scriptInfo, blueprintIndex)
+          debugLog('direct-app-server', 'deploy_app:script_roots', {
+            worldUrl: this.worldUrl,
+            appName,
+            fallbackRootId: scriptInfo.scriptRootId || null,
+            rootsByScope:
+              scriptInfo.scriptRootIdsByScope instanceof Map
+                ? Object.fromEntries(scriptInfo.scriptRootIdsByScope.entries())
+                : null,
+          })
         }
         for (const info of list) {
           await this._deployBlueprint(info, scriptInfo, { lockToken: lock.token })
@@ -3806,37 +4063,112 @@ export class DirectAppServer {
     }
 
     const resolved = await this._resolveLocalBlueprintToAssetUrls(payload, { current })
+    const requestScope = getBlueprintScopeValue(resolved)
+    debugLog('direct-app-server', 'deploy_blueprint:start', {
+      worldUrl: this.worldUrl,
+      appName: info.appName,
+      blueprintId: info.id,
+      currentVersion: current?.version ?? null,
+      currentScope: getBlueprintScopeValue(current),
+      requestScope,
+      scriptRef: normalizeSyncString(resolved?.scriptRef),
+      lockToken: summarizeToken(lockToken),
+    })
 
-    if (!current) {
-      resolved.version = 0
-      await this.client.request('blueprint_add', { blueprint: resolved, lockToken })
-    } else {
-      const resolvedScope = getBlueprintScopeValue(resolved)
-      const currentScope = getBlueprintScopeValue(current)
-      if (resolvedScope && currentScope && resolvedScope !== currentScope) {
-        await this._modifyBlueprintWithVersionRetry(
-          {
-            id: info.id,
-            scope: resolvedScope,
-          },
-          current,
-          { lockToken }
-        )
-        const scoped = await this.client.getBlueprint(info.id)
-        if (scoped?.id) {
-          current = scoped
+    try {
+      if (!current) {
+        resolved.version = 0
+        debugLog('direct-app-server', 'deploy_blueprint:add', {
+          worldUrl: this.worldUrl,
+          appName: info.appName,
+          blueprintId: info.id,
+          requestScope,
+          lockToken: summarizeToken(lockToken),
+        })
+        await this.client.request('blueprint_add', { blueprint: resolved, lockToken })
+      } else {
+        const resolvedScope = getBlueprintScopeValue(resolved)
+        const currentScope = getBlueprintScopeValue(current)
+        if (resolvedScope && currentScope && resolvedScope !== currentScope) {
+          debugLog('direct-app-server', 'deploy_blueprint:scope_change', {
+            worldUrl: this.worldUrl,
+            appName: info.appName,
+            blueprintId: info.id,
+            currentScope,
+            nextScope: resolvedScope,
+            lockToken: summarizeToken(lockToken),
+          })
+          await this._modifyBlueprintWithVersionRetry(
+            {
+              id: info.id,
+              scope: resolvedScope,
+            },
+            current,
+            { lockToken }
+          )
+          const scoped = await this.client.getBlueprint(info.id)
+          if (scoped?.id) {
+            current = scoped
+          }
+        }
+        const nextCompare = normalizeBlueprintForCompare(resolved)
+        const currentCompare = normalizeBlueprintForCompare(current)
+        if (isEqual(nextCompare, currentCompare)) {
+          debugLog('direct-app-server', 'deploy_blueprint:unchanged_after_scope_sync', {
+            worldUrl: this.worldUrl,
+            appName: info.appName,
+            blueprintId: info.id,
+            requestScope,
+          })
+          return
+        }
+        debugLog('direct-app-server', 'deploy_blueprint:modify', {
+          worldUrl: this.worldUrl,
+          appName: info.appName,
+          blueprintId: info.id,
+          currentVersion: current?.version ?? null,
+          requestScope,
+          lockToken: summarizeToken(lockToken),
+        })
+        await this._modifyBlueprintWithVersionRetry(resolved, current, { lockToken })
+      }
+
+      const updated = await this.client.getBlueprint(info.id)
+      if (updated?.id) {
+        this.snapshot.blueprints.set(updated.id, updated)
+        this._refreshSyncState()
+        debugLog('direct-app-server', 'deploy_blueprint:complete', {
+          worldUrl: this.worldUrl,
+          appName: info.appName,
+          blueprintId: info.id,
+          version: updated.version ?? null,
+          scope: getBlueprintScopeValue(updated),
+        })
+      }
+    } catch (err) {
+      let lockStatus = null
+      if (err?.code === 'deploy_lock_required' || err?.code === 'deploy_locked') {
+        try {
+          lockStatus = await this.client.getDeployLockStatus({ scope: requestScope })
+        } catch (lockErr) {
+          lockStatus = {
+            error: lockErr?.message || String(lockErr),
+          }
         }
       }
-      const nextCompare = normalizeBlueprintForCompare(resolved)
-      const currentCompare = normalizeBlueprintForCompare(current)
-      if (isEqual(nextCompare, currentCompare)) return
-      await this._modifyBlueprintWithVersionRetry(resolved, current, { lockToken })
-    }
-
-    const updated = await this.client.getBlueprint(info.id)
-    if (updated?.id) {
-      this.snapshot.blueprints.set(updated.id, updated)
-      this._refreshSyncState()
+      debugLog('direct-app-server', 'deploy_blueprint:error', {
+        worldUrl: this.worldUrl,
+        appName: info.appName,
+        blueprintId: info.id,
+        requestScope,
+        currentScope: getBlueprintScopeValue(current),
+        code: err?.code || null,
+        error: err?.message || String(err),
+        lock: err?.lock || null,
+        lockStatus,
+        lockToken: summarizeToken(lockToken),
+      })
+      throw err
     }
   }
 
@@ -3848,13 +4180,41 @@ export class DirectAppServer {
     }
     const attempt = async version => {
       payload.version = version
+      debugLog('direct-app-server', 'deploy_blueprint:modify_attempt', {
+        worldUrl: this.worldUrl,
+        blueprintId: id,
+        version,
+        scope: normalizeScopeValue(payload.scope) || getBlueprintScopeValue(currentBlueprint),
+        lockToken: summarizeToken(lockToken),
+      })
       await this.client.request('blueprint_modify', { change: payload, lockToken })
     }
     try {
       await attempt((currentBlueprint?.version || 0) + 1)
     } catch (err) {
-      if (err?.code !== 'version_mismatch') throw err
+      if (err?.code !== 'version_mismatch') {
+        debugLog('direct-app-server', 'deploy_blueprint:modify_failed', {
+          worldUrl: this.worldUrl,
+          blueprintId: id,
+          code: err?.code || null,
+          error: err?.message || String(err),
+          lock: err?.lock || null,
+          scope: normalizeScopeValue(payload.scope) || getBlueprintScopeValue(currentBlueprint),
+          lockToken: summarizeToken(lockToken),
+        })
+        throw err
+      }
+      debugLog('direct-app-server', 'deploy_blueprint:version_mismatch', {
+        worldUrl: this.worldUrl,
+        blueprintId: id,
+        currentVersion: currentBlueprint?.version ?? null,
+      })
       const latest = err.current || (await this.client.getBlueprint(id))
+      debugLog('direct-app-server', 'deploy_blueprint:version_retry', {
+        worldUrl: this.worldUrl,
+        blueprintId: id,
+        latestVersion: latest?.version ?? null,
+      })
       await attempt((latest?.version || 0) + 1)
     }
   }
@@ -3962,9 +4322,19 @@ export class DirectAppServer {
   async _applyManifestToWorld(manifest) {
     if (!this.snapshot) return
     this._logTarget()
+    const desiredEntities = Array.isArray(manifest.entities) ? manifest.entities.length : 0
+    const currentEntities = Array.from(this.snapshot.entities.values()).filter(entity => entity?.type === 'app').length
+    debugLog('direct-app-server', 'manifest_apply:start', {
+      worldUrl: this.worldUrl,
+      settingsKeys: Object.keys(manifest.settings || {}).length,
+      desiredEntities,
+      currentEntities,
+    })
 
+    let settingsChanged = 0
     for (const [key, value] of Object.entries(manifest.settings || {})) {
       if (!isEqual(this.snapshot.settings?.[key], value)) {
+        settingsChanged += 1
         await this.client.request('settings_modify', { key, value })
         this.snapshot.settings[key] = value
       }
@@ -3994,6 +4364,9 @@ export class DirectAppServer {
       if (entity?.type === 'app') current.set(entity.id, entity)
     }
 
+    let entitiesAdded = 0
+    let entitiesModified = 0
+    let entitiesRemoved = 0
     for (const [id, entity] of desired.entries()) {
       const existing = current.get(id)
       const desiredProps =
@@ -4017,6 +4390,7 @@ export class DirectAppServer {
         }
         await this.client.request('entity_add', { entity: data })
         this.snapshot.entities.set(id, { ...data })
+        entitiesAdded += 1
         continue
       }
 
@@ -4033,6 +4407,7 @@ export class DirectAppServer {
       if (Object.keys(change).length > 1) {
         await this.client.request('entity_modify', { change })
         this.snapshot.entities.set(id, { ...existing, ...change })
+        entitiesModified += 1
       }
     }
 
@@ -4040,10 +4415,19 @@ export class DirectAppServer {
       if (!desired.has(id)) {
         await this.client.request('entity_remove', { id })
         this.snapshot.entities.delete(id)
+        entitiesRemoved += 1
       }
     }
 
     this._refreshSyncState()
+    debugLog('direct-app-server', 'manifest_apply:complete', {
+      worldUrl: this.worldUrl,
+      settingsChanged,
+      spawnChanged,
+      entitiesAdded,
+      entitiesModified,
+      entitiesRemoved,
+    })
   }
 
   _attachRemoteHandlers() {

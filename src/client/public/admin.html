@@ -24,15 +24,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <link rel="preload" href="/SpaceMono-regular.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" type="text/css" href="/index.css?v={buildId}" />
+    <link rel="preload" href="{assetPrefix}SpaceMono-regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" type="text/css" href="{assetPrefix}index.css?v={buildId}" />
     <script>
       window.PARTICLES_PATH = '{particlesPath}'
     </script>
   </head>
   <body>
     <div id="root"></div>
-    <script src="/env.js?v={buildId}"></script>
+    <script src="{assetPrefix}env.js?v={buildId}"></script>
     <script src="{jsPath}" type="module"></script>
   </body>
 </html>

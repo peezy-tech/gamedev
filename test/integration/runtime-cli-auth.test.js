@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
+import path from 'node:path'
 import { test } from 'node:test'
 import WebSocket from 'ws'
+import Database from 'better-sqlite3'
 
 import { readPacket, writePacket } from '../../src/core/packets.js'
+import { Ranks } from '../../src/core/extras/ranks.js'
 import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
-import { fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
+import { AdminWsClient, fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
 
 async function canListenOnLoopback() {
   return new Promise(resolve => {
@@ -239,6 +242,98 @@ test('standalone open-admin mode accepts guest cli tokens on /admin even before 
   }
 })
 
+test('builder-only cli tokens can acquire deploy locks for script blueprint adds without gaining deploy rights', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+  }
+
+  const world = await startWorldServer({ adminCode: 'secret-code' })
+  t.after(async () => {
+    await world.stop()
+  })
+
+  const guest = await fetchJson(`${world.worldUrl}/api/auth/cli/guest`, {
+    method: 'POST',
+  })
+  assert.equal(guest.res.status, 200)
+  assert.equal(typeof guest.data?.token, 'string')
+  assert.equal(typeof guest.data?.user?.id, 'string')
+
+  const db = new Database(path.join(world.worldDir, 'db.sqlite'))
+  try {
+    db.prepare('UPDATE users SET rank = ? WHERE id = ?').run(Ranks.BUILDER, guest.data.user.id)
+  } finally {
+    db.close()
+  }
+
+  await waitFor(async () => {
+    const status = await fetchJson(`${world.worldUrl}/api/auth/cli/status`, {
+      authToken: guest.data.token,
+    })
+    if (status.res.status !== 200) return false
+    if (!status.data?.capabilities?.builder) return false
+    if (status.data?.capabilities?.deploy) return false
+    return status.data
+  })
+
+  const admin = new AdminWsClient({
+    worldUrl: world.worldUrl,
+    authToken: guest.data.token,
+    subscriptions: { snapshot: false, players: false, runtime: false },
+  })
+  await admin.connect()
+
+  const lock = await fetchJson(`${world.worldUrl}/admin/deploy-lock`, {
+    authToken: guest.data.token,
+    method: 'POST',
+    body: { owner: 'builder-script-add', scope: 'builder-script-add' },
+  })
+  assert.equal(lock.res.status, 200)
+  assert.equal(typeof lock.data?.token, 'string')
+
+  try {
+    const added = await admin.request('blueprint_add', {
+      blueprint: {
+        id: 'BuilderScriptAdd',
+        scope: 'builder-script-add',
+        version: 0,
+        name: 'Builder Script Add',
+        script: 'asset://entry.js',
+        scriptEntry: 'index.js',
+        scriptFiles: { 'index.js': 'asset://entry.js' },
+        scriptFormat: 'module',
+        props: {},
+      },
+      lockToken: lock.data.token,
+    })
+    assert.equal(added?.ok, true)
+
+    await assert.rejects(
+      () =>
+        admin.request('blueprint_modify', {
+          change: {
+            id: 'BuilderScriptAdd',
+            scope: 'builder-script-add',
+            version: 1,
+            script: 'asset://next.js',
+            scriptEntry: 'index.js',
+            scriptFiles: { 'index.js': 'asset://next.js' },
+            scriptFormat: 'module',
+          },
+          lockToken: lock.data.token,
+        }),
+      err => err?.code === 'admin_required'
+    )
+  } finally {
+    await fetchJson(`${world.worldUrl}/admin/deploy-lock`, {
+      authToken: guest.data.token,
+      method: 'DELETE',
+      body: { token: lock.data.token, scope: 'builder-script-add' },
+    })
+    admin.close()
+  }
+})
+
 test('cli auth session flow completes on the world server without a loopback callback', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')
@@ -373,7 +468,7 @@ test('bootstrapped worlds disable admin-code auth for admin endpoints and in-wor
   const server = await startStandbyRuntimeServer({
     env: {
       ADMIN_CODE: 'secret-code',
-      RUNTIME_BOOTSTRAP_MODE: 'push',
+      RUNTIME_BOOTSTRAP: '1',
     },
   })
   t.after(async () => {

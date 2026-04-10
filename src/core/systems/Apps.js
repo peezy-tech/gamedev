@@ -22,6 +22,157 @@ const internalEvents = [
   'health',
 ]
 
+async function copyTextToClipboard(value) {
+  const text = typeof value === 'string' ? value.trim() : String(value ?? '').trim()
+  if (!text) return false
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // fall through to legacy clipboard path
+    }
+  }
+
+  if (typeof document !== 'undefined' && typeof document.execCommand === 'function') {
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.top = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      const copied = document.execCommand('copy')
+      document.body.removeChild(textarea)
+      return copied
+    } catch {
+      return false
+    }
+  }
+
+  return false
+}
+
+function resolveClipboardImageUrl(world, value) {
+  if (typeof value === 'string' && value.trim()) {
+    const url = value.trim()
+    if (/^(data:|blob:|https?:\/\/|\/\/|\/)/i.test(url)) {
+      return url
+    }
+    return world.resolveURL(url)
+  }
+  if (value && typeof value === 'object' && typeof value.url === 'string' && value.url.trim()) {
+    const url = value.url.trim()
+    if (/^(data:|blob:|https?:\/\/|\/\/|\/)/i.test(url)) {
+      return url
+    }
+    return world.resolveURL(url)
+  }
+  return null
+}
+
+async function rasterizeClipboardImage(blob) {
+  if (!blob || !blob.type?.startsWith('image/')) return null
+  if (typeof document === 'undefined') return blob
+
+  let url = null
+  try {
+    url = URL.createObjectURL(blob)
+    const image = await new Promise((resolve, reject) => {
+      const nextImage = new Image()
+      nextImage.onload = () => resolve(nextImage)
+      nextImage.onerror = reject
+      nextImage.src = url
+    })
+
+    const width = Math.max(1, Math.round(image.naturalWidth || image.width || 0))
+    const height = Math.max(1, Math.round(image.naturalHeight || image.height || 0))
+    if (!width || !height) {
+      return blob
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) {
+      return blob
+    }
+    context.drawImage(image, 0, 0, width, height)
+
+    const pngBlob = await new Promise(resolve => {
+      canvas.toBlob(resolve, 'image/png')
+    })
+    return pngBlob || blob
+  } catch {
+    return blob
+  } finally {
+    if (url) {
+      URL.revokeObjectURL(url)
+    }
+  }
+}
+
+async function createClipboardImageItem(world, value) {
+  const url = resolveClipboardImageUrl(world, value)
+  if (!url || typeof fetch !== 'function' || typeof ClipboardItem === 'undefined') return null
+
+  try {
+    const response = await fetch(url)
+    if (!response.ok) return null
+    const blob = await response.blob()
+    const clipboardBlob = await rasterizeClipboardImage(blob)
+    const mimeType = clipboardBlob?.type || blob?.type || 'image/png'
+    if (!mimeType.startsWith('image/')) return null
+    return new ClipboardItem({
+      [mimeType]: clipboardBlob || blob,
+    })
+  } catch {
+    return null
+  }
+}
+
+async function copyImageToClipboard(world, value) {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.clipboard ||
+    typeof navigator.clipboard.write !== 'function'
+  ) {
+    return false
+  }
+
+  const item = await createClipboardImageItem(world, value)
+  if (!item) return false
+
+  try {
+    await navigator.clipboard.write([item])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function copyToClipboard(world, value, options = {}) {
+  const kind = String(options?.kind || options?.type || '').trim().toLowerCase()
+  const inferredImage =
+    !kind && (
+      (typeof value === 'string' && /^data:image\//i.test(value.trim())) ||
+      (
+        value &&
+        typeof value === 'object' &&
+        typeof value.url === 'string' &&
+        value.url.trim()
+      )
+    )
+
+  if (kind === 'image' || inferredImage) {
+    return copyImageToClipboard(world, value)
+  }
+  return copyTextToClipboard(value)
+}
+
 /**
  * Apps System
  *
@@ -202,6 +353,13 @@ export class Apps extends System {
         } else {
           console.warn('[world.open] URL redirection only works on client side')
         }
+      },
+      async copy(entity, value, options = {}) {
+        if (!world.network.isClient) {
+          console.warn('[world.copy] Clipboard access only works on client side')
+          return false
+        }
+        return copyToClipboard(world, value, options)
       },
       load(entity, type, url) {
         return new Promise(async (resolve, reject) => {

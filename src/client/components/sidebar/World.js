@@ -102,6 +102,7 @@ async function copyToClipboard(value) {
 export function World({ world, hidden }) {
   const player = world.entities.player
   const { isAdmin } = useRank(world, player)
+  const canConfigureFreeBuild = isAdmin && world.settings.hasAdminCode && !!world.admin?.adminCodeAuthSupported
   const worldPlayerLimitCap = getWorldPlayerLimitCap()
   const hasPlayerLimitCap = worldPlayerLimitCap > 0
   const [title, setTitle] = useState(world.settings.title)
@@ -375,7 +376,7 @@ export function World({ world, hidden }) {
             value={ao}
             onChange={value => world.settings.set('ao', value, true)}
           />
-          {isAdmin && world.settings.hasAdminCode && (
+          {canConfigureFreeBuild && (
             <FieldToggle
               label='Free Build'
               hint='Allow everyone to build (and destroy) things in the world.'

@@ -271,6 +271,10 @@ export class Hyperliquid extends System {
         assertWritableRuntime('closePosition')
         return this.closePosition(ticker, slippage, options)
       },
+      updateLeverage: (ticker, leverage, options) => {
+        assertWritableRuntime('updateLeverage')
+        return this.updateLeverage(ticker, leverage, options)
+      },
       hasAgentKey: () => {
         assertWritableRuntime('hasAgentKey')
         return this.hasAgentKey()
@@ -919,6 +923,39 @@ export class Hyperliquid extends System {
       slippage: this._parseHyperliquidNumber(resolvedSlippage, 1),
       orderOptions: this._normalizeTradeOrderOptions(orderOptions),
     }
+  }
+
+  _normalizeLeverageUpdateOptions(options = null) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      return {
+        type: 'cross',
+      }
+    }
+
+    let type = options.type
+    if (type === undefined && typeof options.isCross === 'boolean') {
+      type = options.isCross ? 'cross' : 'isolated'
+    }
+
+    if (type === undefined || type === null || type === '') {
+      return {
+        type: 'cross',
+      }
+    }
+
+    if (type !== 'cross' && type !== 'isolated') {
+      throw new Error('Hyperliquid leverage type must be "cross" or "isolated"')
+    }
+
+    return { type }
+  }
+
+  _normalizeLeverageValue(value) {
+    const parsed = this._normalizeOptionalInteger(value, 'leverage')
+    if (parsed === null || parsed < 1) {
+      throw new Error('Hyperliquid leverage must be an integer greater than or equal to 1')
+    }
+    return parsed
   }
 
   _formatMarketStreamKeyPart(value) {
@@ -1943,6 +1980,33 @@ export class Hyperliquid extends System {
       return this.sell(market.ticker, Math.abs(position.size), resolvedSlippage, orderOptions)
     }
     return this.buy(market.ticker, Math.abs(position.size), resolvedSlippage, orderOptions)
+  }
+
+  async updateLeverage(ticker, leverage, options = null) {
+    this._requireWallet()
+
+    if (typeof this.exchangeClient?.updateLeverage !== 'function') {
+      throw new Error('Hyperliquid leverage updates are unavailable')
+    }
+
+    const market = await this._resolveMarketDescriptor(ticker)
+    if (market?.marketType !== 'perp') {
+      throw new Error(`Leverage is only available for perpetual markets: ${market?.ticker || ticker}`)
+    }
+    if (!Number.isFinite(market?.assetId)) {
+      throw new Error(`No tradable asset id for ${market?.ticker || ticker}`)
+    }
+
+    const value = this._normalizeLeverageValue(leverage)
+    const { type } = this._normalizeLeverageUpdateOptions(options)
+
+    console.log(`[Hyperliquid] updateLeverage: ${market.ticker} ${value}x (${type})`)
+
+    return this.exchangeClient.updateLeverage({
+      asset: market.assetId,
+      isCross: type === 'cross',
+      leverage: value,
+    })
   }
 
   async withdraw(amount, destination) {

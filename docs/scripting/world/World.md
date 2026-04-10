@@ -124,6 +124,15 @@ Sets a query parameter in the browsers url
 
 Opens a link, defaults to new tab.
 
+### `.copy(value, options?)`
+
+Copies content to the system clipboard on the client.
+
+- Text: `await world.copy('0xabc...')`
+- Image: `await world.copy(props.image?.url, { kind: 'image' })`
+
+Returns `true` when the clipboard write succeeds, otherwise `false`.
+
 ### `.evm(chainId?)`
 
 Returns the EVM helper API.
@@ -539,6 +548,15 @@ Places an IOC sell order for a core perp, spot pair, or builder/HIP-3 perp.
 #### `closePosition(ticker, slippage = 1, { cloid? }?)`
 
 Closes the full open position or spot holding for a ticker.
+
+#### `updateLeverage(ticker, leverage, { type = 'cross' }?)`
+
+Updates leverage for a perpetual market on the connected wallet runtime.
+
+Notes:
+- `ticker` must resolve to a perpetual market, not spot.
+- `leverage` must be an integer greater than or equal to `1`.
+- `type` may be `'cross'` or `'isolated'`.
 
 #### `hasAgentKey()`
 

@@ -3,14 +3,14 @@ import fs from 'fs'
 
 import { readPacket, writePacket } from '../core/packets.js'
 import { Ranks } from '../core/extras/ranks'
-import { readJWT } from '../core/utils-server.js'
+import { buildRuntimeControlAuthorization, readJWT } from '../core/utils-server.js'
 import { cleaner } from './cleaner'
 import {
   ADMIN_CREDENTIAL_COMMAND,
   handleRuntimeCredentialCommand,
 } from './adminCredentials.js'
 import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
-import { allowsOpenAdminAccess, hasSupportedAdminCode } from './runtimeBootstrap.js'
+import { allowsOpenAdminAccess, hasSupportedAdminCode, resolveControlInternalUrl, usesHostedRuntimeBootstrap } from './runtimeBootstrap.js'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
@@ -233,6 +233,47 @@ function parseUserRank(value) {
   return Number.isFinite(rank) ? rank : Ranks.VISITOR
 }
 
+function mapLobbyRoleToRank(role) {
+  if (role === 'admin') return Ranks.ADMIN
+  if (role === 'builder') return Ranks.BUILDER
+  return Ranks.VISITOR
+}
+
+function resolveLobbyInternalUserUrl(userId) {
+  if (typeof userId !== 'string' || !userId.trim()) return null
+  return resolveControlInternalUrl(`/internal/users/${encodeURIComponent(userId.trim())}`, process.env)
+}
+
+async function resolveHostedRoleRank(userId, worldId) {
+  const endpoint = resolveLobbyInternalUserUrl(userId)
+  const authorization = buildRuntimeControlAuthorization({
+    worldId,
+    jwtSecret: process.env.JWT_SECRET,
+  })
+  if (!endpoint || !authorization) return null
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 4000)
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        authorization,
+      },
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const payload = await response.json().catch(() => null)
+    const role = typeof payload?.role === 'string' ? payload.role.trim() : ''
+    return mapLobbyRoleToRank(role)
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 function getPlayerCustomData(data) {
   const custom = data?.custom
   if (!custom || typeof custom !== 'object' || Array.isArray(custom)) return null
@@ -400,7 +441,13 @@ export async function admin(
     if (!userId) return { builder: false, deploy: false }
 
     const user = await db('users').where('id', userId).first('rank')
-    const rank = parseUserRank(user?.rank)
+    let rank = parseUserRank(user?.rank)
+    if (usesHostedRuntimeBootstrap(process.env)) {
+      const hostedRank = await resolveHostedRoleRank(userId, worldId)
+      if (Number.isFinite(hostedRank)) {
+        rank = Math.max(rank, hostedRank)
+      }
+    }
     return {
       builder: rank >= Ranks.BUILDER,
       deploy: rank >= Ranks.ADMIN,
@@ -1292,13 +1339,15 @@ export async function admin(
   })
 
   fastify.get('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    // Builders need scoped locks for script-bearing app imports, while
+    // actual script deploy/snapshot operations remain deploy-gated.
+    if (!(await requireAdmin(req, reply))) return
     const scope = normalizeHeader(req.query?.scope)
     return getDeployLockStatus(scope)
   })
 
   fastify.post('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    if (!(await requireAdmin(req, reply))) return
     const rawScope = normalizeHeader(req.body?.scope)
     const status = getBlockingLockStatus(rawScope)
     if (status?.locked) {
@@ -1321,7 +1370,7 @@ export async function admin(
   })
 
   fastify.put('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    if (!(await requireAdmin(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()
@@ -1346,7 +1395,7 @@ export async function admin(
   })
 
   fastify.delete('/admin/deploy-lock', async (req, reply) => {
-    if (!(await requireDeploy(req, reply))) return
+    if (!(await requireAdmin(req, reply))) return
     const token = req.body?.token
     const rawScope = normalizeHeader(req.body?.scope)
     const hasExplicitScope = typeof rawScope === 'string' && rawScope.trim()

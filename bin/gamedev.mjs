@@ -7,6 +7,7 @@ import { spawn } from 'child_process'
 import { customAlphabet } from 'nanoid'
 
 import { ensureProjectAuth } from '../app-server/cliAuth.js'
+import { debugLog } from '../app-server/debug.js'
 import { runAppCommand, runScriptCommand, runSyncCommand } from '../app-server/commands.js'
 import { DirectAppServer } from '../app-server/direct.js'
 import { scaffoldBaseProject, scaffoldBuiltins, updateBuiltins, writeManifest } from '../app-server/scaffold.js'
@@ -849,6 +850,12 @@ async function syncCommand(args) {
 }
 
 async function connectAdminServer({ worldUrl, worldId, rootDir, requiredCapability = 'builder' }) {
+  debugLog('gamedev', 'connect_admin_server:start', {
+    worldUrl,
+    worldId,
+    rootDir,
+    requiredCapability,
+  })
   const auth = await ensureProjectAuth({
     rootDir,
     worldUrl,
@@ -864,6 +871,11 @@ async function connectAdminServer({ worldUrl, worldId, rootDir, requiredCapabili
     rootDir,
   })
   await server.connect()
+  debugLog('gamedev', 'connect_admin_server:complete', {
+    worldUrl,
+    worldId,
+    requiredCapability,
+  })
   return server
 }
 
@@ -912,6 +924,11 @@ async function authCommand(args = []) {
   }
 
   try {
+    debugLog('gamedev', 'auth:start', {
+      worldUrl,
+      worldId,
+      target: target?.name || null,
+    })
     const result = await ensureProjectAuth({
       rootDir: projectDir,
       worldUrl,
@@ -928,8 +945,18 @@ async function authCommand(args = []) {
           ? 'builder'
           : 'authenticated'
     console.log(`✅ Authenticated ${userName} for ${worldId} (${capability})`)
+    debugLog('gamedev', 'auth:complete', {
+      worldUrl,
+      worldId,
+      capability,
+    })
     return 0
   } catch (err) {
+    debugLog('gamedev', 'auth:error', {
+      worldUrl,
+      worldId,
+      error: err?.message || String(err),
+    })
     console.error(`Error: Authentication failed: ${err?.message || err}`)
     return 1
   }
@@ -976,6 +1003,12 @@ async function worldCommand(args) {
 
     let server
     try {
+      debugLog('gamedev', 'world_command:start', {
+        action,
+        worldUrl,
+        worldId,
+        target: target?.name || null,
+      })
       if (action === 'export') {
         server = await connectAdminServer({ worldUrl, worldId, rootDir: projectDir })
         const includeBuiltScripts = actionArgs.includes('--include-built-scripts')
@@ -991,8 +1024,19 @@ async function worldCommand(args) {
         await server.importWorldFromDisk()
         console.log('✅ World import complete')
       }
+      debugLog('gamedev', 'world_command:complete', {
+        action,
+        worldUrl,
+        worldId,
+      })
       return 0
     } catch (error) {
+      debugLog('gamedev', 'world_command:error', {
+        action,
+        worldUrl,
+        worldId,
+        error: error?.message || String(error),
+      })
       console.error(`Error: World ${action} failed:`, error?.message || error)
       return 1
     } finally {
@@ -1025,6 +1069,7 @@ Commands:
   sync <command>            Sync reconciliation helpers (status, conflicts, resolve)
   world export              Export world.json + apps/assets from the world (module sources included; use --include-built-scripts for legacy apps)
   world import              Import local apps + world.json into the world
+  static                    Build a self-contained static client (no server needed, for GitHub Pages / CDN)
   help                      Show this help
 
 Options:
@@ -1065,6 +1110,13 @@ async function main() {
     case 'world':
       result = await worldCommand(args)
       break
+    case 'static': {
+      const { execFileSync } = await import('child_process')
+      const staticScript = path.join(packageRoot, 'scripts', 'build-static.mjs')
+      execFileSync(process.execPath, [staticScript], { stdio: 'inherit', cwd: projectDir })
+      result = 0
+      break
+    }
     case 'help':
     case '--help':
     case '-h':

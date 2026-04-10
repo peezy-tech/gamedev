@@ -1,6 +1,6 @@
 import { css } from '@firebolt-dev/css'
 import { useEffect, useState } from 'react'
-import { HammerIcon } from 'lucide-react'
+import { HammerIcon, WifiIcon, WifiOffIcon } from 'lucide-react'
 import { cls } from './cls'
 import { theme } from './theme'
 import { HintProvider } from './Hint'
@@ -8,6 +8,8 @@ import { exportApp } from '../../core/extras/appTools'
 import { assetPath, isTouch } from '../utils'
 import { downloadFile } from '../../core/extras/downloadFile'
 import { useRank } from './useRank'
+import { sanitizeWsUrl } from '../../core/utils'
+import { getPreferredServerUrl, resolveConnectionPolicy, navigateToServer } from '../../core/utils-client'
 import { MouseLeftIcon } from './MouseLeftIcon'
 import { MouseRightIcon } from './MouseRightIcon'
 import { MouseWheelIcon } from './MouseWheelIcon'
@@ -50,6 +52,44 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
   const selectPane = pane => {
     world.ui.togglePane(pane)
     if (!ui.active) setOpen(true)
+  }
+  const [showConn, setShowConn] = useState(false)
+  const [connectionPolicy] = useState(() => resolveConnectionPolicy())
+  const [isOffline, setIsOffline] = useState(() => !!world.network?.isOffline)
+  const [ping, setPing] = useState(null)
+  const [serverUrl, setServerUrl] = useState(() => getPreferredServerUrl())
+  useEffect(() => {
+    const onPing = ms => setPing(ms)
+    const onConnectionStatus = ({ status } = {}) => {
+      if (status === 'connected') {
+        setIsOffline(false)
+        return
+      }
+      if (status === 'offline') {
+        setIsOffline(true)
+        setPing(null)
+      }
+    }
+    const onDisconnect = () => {
+      setIsOffline(true)
+      setPing(null)
+    }
+    world.on('ping', onPing)
+    world.on('connectionStatus', onConnectionStatus)
+    world.on('disconnect', onDisconnect)
+    return () => {
+      world.off('ping', onPing)
+      world.off('connectionStatus', onConnectionStatus)
+      world.off('disconnect', onDisconnect)
+    }
+  }, [])
+  const handleConnect = () => {
+    const clean = sanitizeWsUrl(serverUrl)
+    if (!clean) return
+    navigateToServer(clean)
+  }
+  const handleDisconnect = () => {
+    world.network?.ws?.close()
   }
   return (
     <HintProvider>
@@ -189,7 +229,130 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
             )}
           </div>
           <WalletDisconnectBtn auth={walletAuth} onClick={onDisconnectWallet} />
+          <div
+            className='sidebar-conn-btn'
+            title='Connection'
+            onClick={() => setShowConn(v => !v)}
+            css={css`
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 2rem;
+              height: 2rem;
+              border-radius: 50%;
+              cursor: pointer;
+              flex-shrink: 0;
+              &:hover {
+                background: rgba(255, 255, 255, 0.08);
+              }
+            `}
+          >
+            {isOffline ? (
+              <WifiOffIcon size='1.125rem' color='#6b7280' />
+            ) : (
+              <WifiIcon size='1.125rem' color='#4ade80' />
+            )}
+          </div>
         </div>
+        {showConn && (
+          <div
+            className='conn-panel'
+            css={css`
+              position: absolute;
+              top: 3rem;
+              right: 0.75rem;
+              background: rgba(11, 10, 21, 0.95);
+              border: 1px solid rgba(255, 255, 255, 0.08);
+              border-radius: 0.75rem;
+              width: 18rem;
+              padding: 0.5rem 0;
+              pointer-events: auto;
+              z-index: 100;
+              .conn-field {
+                display: flex;
+                align-items: center;
+                height: 2.5rem;
+                padding: 0 1rem;
+                gap: 0.5rem;
+                .conn-field-label {
+                  width: 4.5rem;
+                  flex-shrink: 0;
+                  font-size: 0.875rem;
+                  color: rgba(255, 255, 255, 0.5);
+                }
+                input {
+                  flex: 1;
+                  font-size: 0.875rem;
+                  background: transparent;
+                  color: white;
+                  border: none;
+                  outline: none;
+                  text-align: right;
+                  &::placeholder { color: rgba(255,255,255,0.25); }
+                }
+                &:hover { background: rgba(255,255,255,0.03); }
+              }
+              .conn-status {
+                display: flex;
+                align-items: center;
+                height: 2.5rem;
+                padding: 0 1rem;
+                font-size: 0.875rem;
+                color: rgba(255,255,255,0.5);
+                gap: 0.5rem;
+                .conn-status-label { width: 4.5rem; flex-shrink: 0; }
+                .conn-status-value {
+                  flex: 1;
+                  text-align: right;
+                  color: ${isOffline ? 'rgba(255,255,255,0.3)' : '#4ade80'};
+                }
+              }
+              .conn-sep {
+                height: 1px;
+                background: rgba(255,255,255,0.06);
+                margin: 0.25rem 0;
+              }
+              .conn-action {
+                display: flex;
+                align-items: center;
+                height: 2.5rem;
+                padding: 0 1rem;
+                font-size: 0.875rem;
+                color: ${isOffline ? '#4ade80' : 'rgba(255,255,255,0.5)'};
+                cursor: pointer;
+                &:hover {
+                  background: rgba(255,255,255,0.03);
+                  color: ${isOffline ? '#6ee7a0' : 'rgba(255,255,255,0.8)'};
+                }
+              }
+            `}
+          >
+            {connectionPolicy.allowUrlOverride && (
+              <label className='conn-field'>
+                <span className='conn-field-label'>Server</span>
+                <input
+                  type='text'
+                  placeholder='wss://your-world.fly.dev/ws'
+                  value={serverUrl}
+                  onChange={e => setServerUrl(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.code === 'Enter') { e.preventDefault(); handleConnect() }
+                  }}
+                />
+              </label>
+            )}
+            <div className='conn-status'>
+              <span className='conn-status-label'>Status</span>
+              <span className='conn-status-value'>
+                {isOffline ? 'Offline' : `Online${ping != null ? ` · ${ping}ms` : ''}`}
+              </span>
+            </div>
+            <div className='conn-sep' />
+            <div className='conn-action' onClick={isOffline ? handleConnect : handleDisconnect}>
+              {isOffline ? 'Connect' : 'Disconnect'}
+            </div>
+          </div>
+        )}
         {isBuilder && (
           <div className={cls('sidebar-center', { open })}>
             <div className={cls('sidebar-nav', { open })}>

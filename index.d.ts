@@ -972,6 +972,10 @@ interface HyperliquidLeverage {
   value: number
 }
 
+interface HyperliquidLeverageUpdateOptions {
+  type?: 'cross' | 'isolated'
+}
+
 interface HyperliquidAccountPosition extends HyperliquidPosition {
   marginUsed: number
   maxLeverage: number
@@ -1013,6 +1017,7 @@ interface HyperliquidAPI extends HyperliquidWatchOnlyAPI {
   buy(ticker: string, amount: number, slippage?: number): Promise<any>
   sell(ticker: string, amount: number, slippage?: number): Promise<any>
   closePosition(ticker: string, slippage?: number): Promise<any>
+  updateLeverage(ticker: string, leverage: number, options?: HyperliquidLeverageUpdateOptions): Promise<any>
   hasAgentKey(): boolean
   setupAgentKey(name?: string): Promise<{ address: string }>
   deposit(amount: number): Promise<{
@@ -1057,6 +1062,7 @@ interface WorldAPI {
   getQueryParam(key: string): string | null
   setQueryParam(key: string, value?: string | null): void
   open(url: string, newTab?: boolean): void
+  copy(value: string | { url: string }, options?: { kind?: 'text' | 'image'; type?: 'text' | 'image' }): Promise<boolean>
 
   // Time
   getTime(): number

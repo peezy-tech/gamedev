@@ -15,6 +15,8 @@ import * as THREE from '../../core/extras/three'
 import { Ranks } from '../../core/extras/ranks'
 import { storage } from '../../core/storage'
 import { syncLobbyProfilePatch } from '../../core/profileSync'
+import { sanitizeWsUrl } from '../../core/utils'
+import { getPreferredServerUrl, resolveConnectionPolicy, navigateToServer } from '../../core/utils-client'
 
 const shadowOptions = [
   { label: 'None', value: 'none' },
@@ -27,6 +29,7 @@ const shadowOptions = [
 export function MainMenu({ world, open, onClose }) {
   const player = world.entities.player
   const { isAdmin, isBuilder } = useRank(world, player)
+  const xrLabel = world.xr.preferredMode === 'immersive-ar' ? 'Enter AR' : 'Enter VR'
   const [name, setName] = useState(() => player.data.name)
   const [dpr, setDPR] = useState(world.prefs.dpr)
   const [shadows, setShadows] = useState(world.prefs.shadows)
@@ -230,7 +233,7 @@ export function MainMenu({ world, open, onClose }) {
               <div className='mainmenu-head-spacer' />
               <div className='mainmenu-actions'>
                 {world.xr.isSupported && (
-                  <div className='mainmenu-action' onClick={() => world.xr.start()}>
+                  <div className='mainmenu-action' onClick={() => world.xr.start()} title={xrLabel} aria-label={xrLabel}>
                     <VRIcon size='1.125rem' />
                   </div>
                 )}
@@ -256,6 +259,7 @@ export function MainMenu({ world, open, onClose }) {
             {tab === 'settings' && (
               <>
                 <FieldText label='Name' hint='Change your name' value={name} onChange={changeName} />
+                <ConnectionSection world={world} onClose={onClose} />
                 <Group label='Interface' />
                 <FieldRange
                   label='Scale'
@@ -379,6 +383,87 @@ export function MainMenu({ world, open, onClose }) {
         </div>
       </div>
     </HintProvider>
+  )
+}
+
+function ConnectionSection({ world, onClose }) {
+  const connectionPolicy = useMemo(() => resolveConnectionPolicy(), [])
+  const showServerUrl = connectionPolicy.allowUrlOverride
+  const [isOffline, setIsOffline] = useState(() => !!world.network?.isOffline)
+  const [ping, setPing] = useState(null)
+  const [serverUrl, setServerUrl] = useState(() => getPreferredServerUrl())
+
+  useEffect(() => {
+    const onPing = ms => setPing(ms)
+    const onDisconnect = () => {
+      setIsOffline(true)
+      setPing(null)
+    }
+    const onConnectionStatus = ({ status } = {}) => {
+      if (status === 'connected') {
+        setIsOffline(false)
+        return
+      }
+      if (status === 'offline') {
+        setIsOffline(true)
+        setPing(null)
+      }
+    }
+    world.on('ping', onPing)
+    world.on('disconnect', onDisconnect)
+    world.on('connectionStatus', onConnectionStatus)
+    return () => {
+      world.off('ping', onPing)
+      world.off('disconnect', onDisconnect)
+      world.off('connectionStatus', onConnectionStatus)
+    }
+  }, [world])
+
+  const handleConnect = () => {
+    const clean = sanitizeWsUrl(serverUrl)
+    if (!clean) {
+      world.emit('toast', 'Enter a valid ws:// or wss:// URL')
+      return
+    }
+    onClose?.()
+    navigateToServer(clean)
+  }
+
+  const handleDisconnect = () => {
+    onClose?.()
+    world.network?.ws?.close()
+  }
+
+  return (
+    <>
+      <Group label='Connection' />
+      {showServerUrl && (
+        <FieldText
+          label='Server'
+          hint='Set the websocket URL to connect to another server'
+          placeholder='wss://your-world.example/ws'
+          value={serverUrl}
+          onChange={value => setServerUrl(value)}
+        />
+      )}
+      <FieldBtn
+        label='Status'
+        hint='Current connection state'
+        note={isOffline ? 'Offline' : `Online${ping != null ? ` (${ping}ms)` : ''}`}
+        onClick={() => {}}
+      />
+      <FieldBtn
+        label={isOffline ? 'Connect to Server' : 'Disconnect from Server'}
+        hint={
+          isOffline
+            ? showServerUrl
+              ? 'Reload using the server URL above'
+              : 'Reload using the configured server'
+            : 'Close the current websocket connection'
+        }
+        onClick={isOffline ? handleConnect : handleDisconnect}
+      />
+    </>
   )
 }
 

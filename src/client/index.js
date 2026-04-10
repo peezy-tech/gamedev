@@ -1,3 +1,5 @@
+/* global env */
+
 import 'ses'
 import '../core/lockdown'
 import { getAddress } from 'ethers'
@@ -8,6 +10,7 @@ import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana'
 import { arbitrum } from '@privy-io/chains'
 
 import { storage } from '../core/storage'
+import { resolveConnectionPolicy } from '../core/utils-client'
 import { Client } from './world-client'
 
 function buildWsUrl(baseUrl, token) {
@@ -44,6 +47,7 @@ function createAuthError(message, status, { skipAuth = false } = {}) {
 
 const DEFAULT_EVM_CHAIN = arbitrum
 const DEFAULT_EVM_CHAIN_ID = DEFAULT_EVM_CHAIN.id
+const LOCAL_WALLET_SELECTION_KEY = 'runtimeWalletSelection'
 
 function getEthereumWalletProvider() {
   if (typeof window === 'undefined') return null
@@ -99,6 +103,92 @@ function normalizeWalletChain(chain) {
 
 function normalizeWalletAddressForChain(chain, address) {
   return chain === 'solana' ? normalizeSolanaAddress(address) : normalizeSiweAddress(address)
+}
+
+function normalizeLocalWalletSelection(value) {
+  if (!value || typeof value !== 'object') return null
+  const chain = normalizeWalletChain(value.chain)
+  if (chain === 'solana') {
+    return {
+      chain,
+      network: value.network === 'devnet' ? 'devnet' : 'mainnet',
+    }
+  }
+  return {
+    chain: 'ethereum',
+  }
+}
+
+function readLocalWalletSelection() {
+  try {
+    return normalizeLocalWalletSelection(storage.get(LOCAL_WALLET_SELECTION_KEY))
+  } catch {
+    return null
+  }
+}
+
+function writeLocalWalletSelection(selection) {
+  const normalized = normalizeLocalWalletSelection(selection)
+  try {
+    if (normalized) {
+      storage.set(LOCAL_WALLET_SELECTION_KEY, normalized)
+    } else {
+      storage.remove(LOCAL_WALLET_SELECTION_KEY)
+    }
+  } catch {
+    // ignore storage access failures
+  }
+  return normalized
+}
+
+function clearLocalWalletSelection() {
+  try {
+    storage.remove(LOCAL_WALLET_SELECTION_KEY)
+  } catch {
+    // ignore storage access failures
+  }
+}
+
+async function buildWalletOnlySession({
+  selection,
+  getActiveWalletAddress,
+  getActiveWalletChainId,
+  getActiveWalletNetwork,
+} = {}) {
+  const normalizedSelection = normalizeLocalWalletSelection(selection)
+  if (!normalizedSelection) return null
+
+  const address = normalizeWalletAddressForChain(
+    normalizedSelection.chain,
+    await getActiveWalletAddress?.({ chain: normalizedSelection.chain }).catch(() => ''),
+  )
+  if (!address) return null
+
+  const wallet = {
+    type: normalizedSelection.chain,
+    address,
+  }
+
+  if (normalizedSelection.chain === 'ethereum') {
+    const chainId = await getActiveWalletChainId?.({ chain: 'ethereum' }).catch(() => null)
+    if (typeof chainId === 'number' && Number.isFinite(chainId) && chainId > 0) {
+      wallet.chain_id = chainId
+    }
+  } else {
+    const network = await getActiveWalletNetwork?.({ chain: 'solana' }).catch(() => null)
+    if (network === 'devnet' || network === 'mainnet') {
+      wallet.solana_network = network
+    }
+  }
+
+  return {
+    user: {
+      id: `wallet:${normalizedSelection.chain}:${address}`,
+      wallet_only: true,
+      wallet_address: normalizedSelection.chain === 'ethereum' ? address : '',
+      wallet,
+    },
+  }
 }
 
 function toUint8Array(value) {
@@ -542,9 +632,12 @@ async function getConnectionUrl(onStatus) {
 }
 
 function createInjectedRuntimeAuthBridge(authBaseUrl) {
-  return {
-    enabled: !!authBaseUrl,
+  const bridge = {
+    enabled: true,
     mode: 'injected',
+    allowsUnscopedWalletAccess() {
+      return !!authBaseUrl
+    },
     hasWalletProvider(chain) {
       const normalizedChain = chain === 'any' ? 'any' : normalizeWalletChain(chain)
       if (normalizedChain === 'any') {
@@ -559,14 +652,16 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
     normalizeSolanaAddress,
     normalizeWalletAddressForChain,
     async connectWalletSession({ chain = 'ethereum', network = 'mainnet', onStatus } = {}) {
-      if (!authBaseUrl) {
-        throw createAuthError('Wallet auth is unavailable', 404, { skipAuth: true })
-      }
       const normalizedChain = normalizeWalletChain(chain)
       if (normalizedChain === 'solana') {
         const provider = getSolanaWalletProvider()
         if (!provider) {
           throw createAuthError('No Solana wallet provider found', 401, { skipAuth: true })
+        }
+        if (!authBaseUrl) {
+          await requestSolanaWalletAddress(provider)
+          writeLocalWalletSelection({ chain: 'solana', network })
+          return bridge.getSessionUser()
         }
         await performSiwsLoginWithProvider(provider, authBaseUrl, { network }, onStatus)
       } else {
@@ -574,15 +669,30 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
         if (!provider) {
           throw createAuthError('No wallet provider found', 401, { skipAuth: true })
         }
+        if (!authBaseUrl) {
+          await requestWalletAddress(provider)
+          writeLocalWalletSelection({ chain: 'ethereum' })
+          return bridge.getSessionUser()
+        }
         await performSiweLoginWithProvider(provider, authBaseUrl, onStatus)
       }
       return fetchAuthMe(authBaseUrl).catch(() => null)
     },
     async ensureSession() {
-      return false
+      if (authBaseUrl) return false
+      const session = await bridge.getSessionUser().catch(() => null)
+      return !!session?.user?.wallet
     },
     async getSessionUser() {
-      if (!authBaseUrl) return null
+      if (!authBaseUrl) {
+        const selection = readLocalWalletSelection()
+        return buildWalletOnlySession({
+          selection,
+          getActiveWalletAddress: bridge.getActiveWalletAddress,
+          getActiveWalletChainId: bridge.getActiveWalletChainId,
+          getActiveWalletNetwork: bridge.getActiveWalletNetwork,
+        })
+      }
       return fetchAuthMe(authBaseUrl).catch(() => null)
     },
     async updateProfile(patch) {
@@ -592,12 +702,20 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
       return updateAuthProfile(authBaseUrl, patch)
     },
     async logoutAndClearSession() {
+      clearLocalWalletSelection()
       if (authBaseUrl) {
         await logoutAuthSession(authBaseUrl).catch(() => {})
       }
       clearRuntimeAuthState()
     },
     clearRuntimeAuthState,
+    async getActiveWalletChainId({ chain = 'ethereum' } = {}) {
+      const normalizedChain = normalizeWalletChain(chain)
+      if (normalizedChain !== 'ethereum') return null
+      const provider = getEthereumWalletProvider()
+      if (!provider || typeof provider.request !== 'function') return null
+      return getProviderChainId(provider)
+    },
     async getActiveWalletAddress({ chain = 'ethereum' } = {}) {
       const normalizedChain = normalizeWalletChain(chain)
       if (normalizedChain === 'solana') {
@@ -667,6 +785,7 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
       }
     },
   }
+  return bridge
 }
 
 const PRIVY_WALLET_WAIT_MS = 7000
@@ -917,6 +1036,7 @@ function PrivyRuntimeAuthSync({ state, children }) {
   return children
 }
 
+const connectionPolicy = resolveConnectionPolicy()
 const authBaseUrl = hasValue(env.PUBLIC_AUTH_URL) ? env.PUBLIC_AUTH_URL : null
 const privyAppId = hasValue(env.PUBLIC_PRIVY_APP_ID) ? env.PUBLIC_PRIVY_APP_ID : ''
 const privyBridgeState = privyAppId
@@ -941,6 +1061,10 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState(null)
 
   const wsUrl = useCallback(() => {
+    if (connectionPolicy.offline) return null
+    if (connectionPolicy.overrideWsUrl) {
+      return buildWsUrl(connectionPolicy.overrideWsUrl)
+    }
     return getConnectionUrl((status, message) => {
       setConnectionStatus({ status, message })
     })

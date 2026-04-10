@@ -4,11 +4,13 @@ import net from 'node:net'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
+import Database from 'better-sqlite3'
 
 import { readPacket } from '../../src/core/packets.js'
+import { Ranks } from '../../src/core/extras/ranks.js'
 import { buildRuntimeControlAuthorization } from '../../src/core/utils-server.js'
 import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
-import { createTempDir, startStandbyRuntimeServer, waitFor } from './helpers.js'
+import { createTempDir, getRepoRoot, startStandbyRuntimeServer, waitFor } from './helpers.js'
 
 function toWsUrl(httpUrl) {
   if (httpUrl.startsWith('https://')) return `wss://${httpUrl.slice('https://'.length)}`
@@ -26,7 +28,7 @@ async function canListenOnLoopback() {
   })
 }
 
-async function startControlPlaneStub({ issuer } = {}) {
+async function startControlPlaneStub({ issuer, role = 'builder' } = {}) {
   const requests = []
   const server = http.createServer((req, res) => {
     let body = ''
@@ -59,7 +61,7 @@ async function startControlPlaneStub({ issuer } = {}) {
 
       if (req.url === '/api/internal/users/user-1' && req.method === 'GET') {
         res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ role: 'builder' }))
+        res.end(JSON.stringify({ role }))
         return
       }
 
@@ -563,6 +565,181 @@ test('runtime uses bound control callbacks with world-scoped auth after bootstra
   assert.match(verifyRequest.body, /exchange-token/)
 })
 
+test('hosted admin capabilities rehydrate builder role from world-service when runtime db rank is stale', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const issuer = 'https://auth.example.com/api/identity'
+  const controlPlane = await startControlPlaneStub({ issuer })
+  t.after(async () => {
+    await controlPlane.stop()
+  })
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+
+  const bootstrapRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+      auth: {
+        publicAuthUrl: issuer,
+      },
+      controlInternalBaseUrl: controlPlane.baseUrl,
+    })),
+  })
+  assert.equal(bootstrapRes.status, 200)
+
+  const exchangeRes = await fetch(`${server.worldUrl}/api/auth/exchange`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ token: 'exchange-token' }),
+  })
+  const exchangePayload = await exchangeRes.json()
+  assert.equal(exchangeRes.status, 200)
+  assert.equal(exchangePayload.user.id, 'user-1')
+  assert.equal(typeof exchangePayload.token, 'string')
+
+  const dbPath = path.join(getRepoRoot(), '.runtime-worlds', 'standby-world', 'db.sqlite')
+  await waitFor(async () => {
+    try {
+      await fsPromises.access(dbPath)
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  const db = new Database(dbPath)
+  try {
+    db.prepare('UPDATE users SET rank = ? WHERE id = ?').run(Ranks.VISITOR, 'user-1')
+  } finally {
+    db.close()
+  }
+
+  const roleRequestsBefore = controlPlane.requests.filter(request => request.url === '/api/internal/users/user-1').length
+
+  const lockRes = await fetch(`${server.worldUrl}/admin/deploy-lock`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${exchangePayload.token}`,
+    },
+    body: JSON.stringify({ owner: 'hosted-builder', scope: 'hosted-builder' }),
+  })
+  const lockPayload = await lockRes.json()
+  assert.equal(lockRes.status, 200)
+  assert.equal(typeof lockPayload.token, 'string')
+
+  const roleRequestsAfter = controlPlane.requests.filter(request => request.url === '/api/internal/users/user-1').length
+  assert.equal(roleRequestsAfter, roleRequestsBefore + 1)
+})
+
+test('hosted auth exchange and admin keep local builder grants when world-service role is visitor', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const issuer = 'https://auth.example.com/api/identity'
+  const controlPlane = await startControlPlaneStub({ issuer, role: 'visitor' })
+  t.after(async () => {
+    await controlPlane.stop()
+  })
+
+  const server = await startStandbyRuntimeServer()
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const worldId = `world-${server.runtimeInstanceId}`
+  const authorization = buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret)
+
+  const bootstrapRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization,
+    },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+      auth: {
+        publicAuthUrl: issuer,
+      },
+      controlInternalBaseUrl: controlPlane.baseUrl,
+    })),
+  })
+  assert.equal(bootstrapRes.status, 200)
+
+  const firstExchangeRes = await fetch(`${server.worldUrl}/api/auth/exchange`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ token: 'exchange-token' }),
+  })
+  const firstExchangePayload = await firstExchangeRes.json()
+  assert.equal(firstExchangeRes.status, 200)
+  assert.equal(firstExchangePayload.user.id, 'user-1')
+
+  const dbPath = path.join(getRepoRoot(), '.runtime-worlds', 'standby-world', 'db.sqlite')
+  await waitFor(async () => {
+    try {
+      await fsPromises.access(dbPath)
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  const db = new Database(dbPath)
+  try {
+    db.prepare('UPDATE users SET rank = ? WHERE id = ?').run(Ranks.BUILDER, 'user-1')
+  } finally {
+    db.close()
+  }
+
+  const secondExchangeRes = await fetch(`${server.worldUrl}/api/auth/exchange`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ token: 'exchange-token' }),
+  })
+  const secondExchangePayload = await secondExchangeRes.json()
+  assert.equal(secondExchangeRes.status, 200)
+  assert.equal(typeof secondExchangePayload.token, 'string')
+
+  const lockRes = await fetch(`${server.worldUrl}/admin/deploy-lock`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${secondExchangePayload.token}`,
+    },
+    body: JSON.stringify({ owner: 'runtime-builder-grant', scope: 'runtime-builder-grant' }),
+  })
+  const lockPayload = await lockRes.json()
+  assert.equal(lockRes.status, 200)
+  assert.equal(typeof lockPayload.token, 'string')
+})
+
 test('runtime emits structured standby, bootstrap success, and rebind rejection logs', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')
@@ -575,7 +752,7 @@ test('runtime emits structured standby, bootstrap success, and rebind rejection 
   })
 
   const standbyEvent = await waitForRuntimeEvent(server, 'standby', entry => entry.state === 'standby')
-  assert.equal(standbyEvent.mode, 'push')
+  assert.equal(standbyEvent.mode, 'bootstrap')
   assert.equal(standbyEvent.runtimeInstanceId, server.runtimeInstanceId)
 
   const worldId = `world-${server.runtimeInstanceId}`
@@ -601,14 +778,14 @@ test('runtime emits structured standby, bootstrap success, and rebind rejection 
     'bootstrap_start',
     entry => entry.bootstrapId === binding.bootstrapId && entry.worldId === worldId && entry.state === 'bootstrapping'
   )
-  assert.equal(bootstrapStartEvent.source, 'push')
+  assert.equal(bootstrapStartEvent.source, 'bootstrap')
 
   const bootstrapSuccessEvent = await waitForRuntimeEvent(
     server,
     'bootstrap_success',
     entry => entry.bootstrapId === binding.bootstrapId && entry.worldId === worldId && entry.state === 'ready'
   )
-  assert.equal(bootstrapSuccessEvent.source, 'push')
+  assert.equal(bootstrapSuccessEvent.source, 'bootstrap')
 
   const rebindBootstrapId = `other-world:${server.runtimeInstanceId}`
   const rebindRes = await fetch(`${server.worldUrl}/internal/bootstrap`, {
@@ -686,7 +863,7 @@ test('runtime emits step-level bootstrap debug logs when enabled', async t => {
   const initStartEvent = await waitForRuntimeEvent(
     server,
     'bootstrap_runtime_initialize_start',
-    entry => entry.debug === true && entry.source === 'push'
+    entry => entry.debug === true && entry.source === 'bootstrap'
   )
   assert.equal(initStartEvent.stage, 'resolve_env')
 

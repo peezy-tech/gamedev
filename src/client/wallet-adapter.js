@@ -136,6 +136,41 @@ function normalizePrivyWallets(snapshot) {
   return wallets.filter(isEmbeddedPrivyEvmWallet)
 }
 
+function normalizeSessionWalletBinding(session) {
+  const wallet = session?.user?.wallet
+  if (wallet && typeof wallet === 'object') {
+    if (wallet.type === 'ethereum') {
+      const address = normalizeAddress(wallet.address)
+      if (address) {
+        return {
+          type: 'ethereum',
+          address,
+        }
+      }
+    }
+
+    if (wallet.type === 'solana' && typeof wallet.address === 'string' && wallet.address.trim()) {
+      return {
+        type: 'solana',
+        address: wallet.address.trim(),
+      }
+    }
+  }
+
+  const legacyAddress = normalizeAddress(session?.user?.wallet_address || '')
+  if (!legacyAddress) {
+    return {
+      type: '',
+      address: '',
+    }
+  }
+
+  return {
+    type: 'ethereum',
+    address: legacyAddress,
+  }
+}
+
 export class RuntimeWalletAdapter {
   constructor({
     authBridge = getRuntimeAuthBridge(),
@@ -153,7 +188,10 @@ export class RuntimeWalletAdapter {
       chainId: null,
     }
 
-    this.sessionWalletAddress = ''
+    this.sessionWallet = {
+      type: '',
+      address: '',
+    }
     this.sessionWalletFetchedAt = 0
     this.listeners = new Set()
 
@@ -237,19 +275,23 @@ export class RuntimeWalletAdapter {
     return this.snapshot.connected
   }
 
-  async _getSessionWalletAddress({ force = false } = {}) {
+  _allowsUnscopedWalletAccess() {
+    return this.authBridge?.allowsUnscopedWalletAccess?.() ?? true
+  }
+
+  async _getSessionWalletBinding({ force = false } = {}) {
     const now = Date.now()
     if (!force && now - this.sessionWalletFetchedAt < SESSION_CACHE_TTL_MS) {
-      return this.sessionWalletAddress
+      return this.sessionWallet
     }
 
     let session = null
     if (typeof this.authBridge?.getSessionUser === 'function') {
       session = await this.authBridge.getSessionUser().catch(() => null)
     }
-    this.sessionWalletAddress = normalizeAddress(session?.user?.wallet_address || '')
+    this.sessionWallet = normalizeSessionWalletBinding(session)
     this.sessionWalletFetchedAt = now
-    return this.sessionWalletAddress
+    return this.sessionWallet
   }
 
   _getPrivyWallets() {
@@ -298,7 +340,11 @@ export class RuntimeWalletAdapter {
   }
 
   async _resolveWalletContext({ request = false } = {}) {
-    const sessionAddress = await this._getSessionWalletAddress()
+    const sessionWallet = await this._getSessionWalletBinding()
+    if (sessionWallet?.type === 'solana') {
+      return null
+    }
+    const sessionAddress = sessionWallet?.type === 'ethereum' ? sessionWallet.address : ''
     const privyWallets = this._getPrivyWallets()
 
     if (sessionAddress) {
@@ -307,6 +353,10 @@ export class RuntimeWalletAdapter {
         const context = await this._createPrivyContext(wallet)
         if (context) return context
       }
+    }
+
+    if (!sessionAddress && !this._allowsUnscopedWalletAccess()) {
+      return null
     }
 
     for (const wallet of privyWallets) {

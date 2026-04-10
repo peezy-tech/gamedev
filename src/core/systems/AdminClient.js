@@ -62,11 +62,20 @@ export class AdminClient extends System {
     this.requireCode = false
     this.adminCodeAuthSupported = false
     this.runtimeCredentials = null
+    this.onRank = ({ playerId } = {}) => {
+      const localPlayerId = this.world.entities?.player?.data?.id || null
+      if (!this.adminUrl || !localPlayerId || playerId !== localPlayerId) return
+      this.error = null
+      this.runtimeCredentials = null
+      this.disconnect()
+      this.connect()
+    }
   }
 
   init({ adminUrl, requireAdminCode } = {}) {
     this.code = storage.get('adminCode')
     this.refreshAuthToken()
+    this.world.on?.('rank', this.onRank)
     if (adminUrl) {
       this.adminUrl = normalizeAdminUrl(adminUrl)
       this.requireCode = !!requireAdminCode
@@ -199,6 +208,11 @@ export class AdminClient extends System {
     this.error = 'connection_error'
     this.runtimeCredentials = null
     this.failPending(this.error)
+  }
+
+  destroy() {
+    this.world.off?.('rank', this.onRank)
+    this.disconnect()
   }
 
   flushQueue() {
