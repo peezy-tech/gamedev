@@ -327,6 +327,11 @@ export class Node {
     return mat.copy(this.matrixWorld)
   }
 
+  getScreenBounds(target) {
+    if (!this.ui || typeof this.ui.getScreenBoundsFor !== 'function') return null
+    return this.ui.getScreenBoundsFor(this, target)
+  }
+
   getStats(recursive, stats) {
     if (!stats) {
       stats = {
@@ -452,6 +457,9 @@ export class Node {
         },
         getWorldMatrix(mat) {
           return self.getWorldMatrix(mat)
+        },
+        getScreenBounds(target) {
+          return self.getScreenBounds(target)
         },
         add(pNode) {
           const node = getRef(pNode)

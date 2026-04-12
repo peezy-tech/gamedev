@@ -26,6 +26,10 @@ const v3 = new THREE.Vector3()
 const v4 = new THREE.Vector3()
 const v5 = new THREE.Vector3()
 const v6 = new THREE.Vector3()
+const v7 = new THREE.Vector3()
+const v8 = new THREE.Vector3()
+const v9 = new THREE.Vector3()
+const v10 = new THREE.Vector3()
 const q1 = new THREE.Quaternion()
 const q2 = new THREE.Quaternion()
 const e1 = new THREE.Euler(0, 0, 0, 'YXZ')
@@ -482,6 +486,82 @@ export class UI extends Node {
       return node
     }
     return findHitNode(this)
+  }
+
+  getScreenBoundsFor(node, target = {}) {
+    if (!isBrowser) return null
+    if (!node?.box || !this.ctx?.world) return null
+    const viewport = this.ctx.world.graphics?.viewport
+    const viewportRect = viewport?.getBoundingClientRect?.()
+    const viewportLeft = viewportRect?.left || 0
+    const viewportTop = viewportRect?.top || 0
+
+    if (this._space === 'screen') {
+      const canvasRect = this.canvas?.getBoundingClientRect?.()
+      if (!canvasRect) return null
+      const left = canvasRect.left - viewportLeft + node.box.left / this._res
+      const top = canvasRect.top - viewportTop + node.box.top / this._res
+      const width = node.box.width / this._res
+      const height = node.box.height / this._res
+      target.x = left
+      target.y = top
+      target.left = left
+      target.top = top
+      target.width = width
+      target.height = height
+      target.right = left + width
+      target.bottom = top + height
+      return target
+    }
+
+    const graphics = this.ctx.world.graphics
+    const camera = this.ctx.world.camera
+    const screenWidth = Math.max(1, graphics?.width || viewport?.offsetWidth || 1)
+    const screenHeight = Math.max(1, graphics?.height || viewport?.offsetHeight || 1)
+    const leftPx = node.box.left / this._res
+    const topPx = node.box.top / this._res
+    const rightPx = (node.box.left + node.box.width) / this._res
+    const bottomPx = (node.box.top + node.box.height) / this._res
+
+    const corners = [
+      [leftPx, topPx, v7],
+      [rightPx, topPx, v8],
+      [rightPx, bottomPx, v9],
+      [leftPx, bottomPx, v10],
+    ]
+
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+
+    for (let i = 0; i < corners.length; i++) {
+      const [x, y, point] = corners[i]
+      point.set(x + this.pivotOffset.x, -y + this.pivotOffset.y, 0)
+      point.multiplyScalar(this._size)
+      point.applyMatrix4(this.matrixWorld)
+      point.project(camera)
+      const screenX = (point.x * 0.5 + 0.5) * screenWidth
+      const screenY = (1 - (point.y * 0.5 + 0.5)) * screenHeight
+      if (screenX < minX) minX = screenX
+      if (screenY < minY) minY = screenY
+      if (screenX > maxX) maxX = screenX
+      if (screenY > maxY) maxY = screenY
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null
+    }
+
+    target.x = minX
+    target.y = minY
+    target.left = minX
+    target.top = minY
+    target.width = Math.max(0, maxX - minX)
+    target.height = Math.max(0, maxY - minY)
+    target.right = maxX
+    target.bottom = maxY
+    return target
   }
 
   createMaterial(lit, texture, transparent, doubleside) {

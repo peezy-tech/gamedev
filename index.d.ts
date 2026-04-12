@@ -78,6 +78,17 @@ interface Matrix4 {
 type Vector3Like = Vector3 | [number, number, number]
 type EulerLike = Euler | [number, number, number]
 
+interface ScreenBounds {
+  x: number
+  y: number
+  left: number
+  top: number
+  width: number
+  height: number
+  right: number
+  bottom: number
+}
+
 // -----------------------------
 // Base Node
 // -----------------------------
@@ -106,6 +117,7 @@ interface BaseNode {
   remove<T extends BaseNode>(child: T): this
   traverse(visitor: (node: BaseNode) => void): void
   get(id: string): BaseNode | null
+  getScreenBounds(target?: Partial<ScreenBounds>): ScreenBounds | null
 
   // Pointer events
   onPointerEnter?: (event: { type: string; stopPropagation(): void }) => void
