@@ -28,6 +28,7 @@ import {
   sha256,
   sleep,
   deriveHttpBaseUrlFromWsUrl,
+  isLocalWorldUrl,
   normalizeWorldAdminBaseUrl,
   toWsUrl,
   joinUrl,
@@ -5000,12 +5001,13 @@ export async function main() {
   const worldUrl = process.env.WORLD_URL
   const worldId = process.env.WORLD_ID || null
   const adminCode = process.env.ADMIN_CODE || null
+  const canUseOpenLocalAdmin = !adminCode && isLocalWorldUrl(worldUrl)
   if (!worldUrl) {
     console.error('Missing env WORLD_URL (e.g. http://localhost:3000)')
     process.exit(1)
   }
   let authToken = null
-  if (!adminCode) {
+  if (!adminCode && !canUseOpenLocalAdmin) {
     const auth = await ensureProjectAuth({
       rootDir: process.cwd(),
       worldUrl,

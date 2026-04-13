@@ -10,6 +10,7 @@ import { ensureProjectAuth } from './cliAuth.js'
 import { uuid } from './utils.js'
 import { resolveBlueprintId, isBlueprintDenylist } from './blueprintUtils.js'
 import { applyTargetEnv, parseTargetArgs, resolveTarget } from './targets.js'
+import { isLocalWorldUrl } from './helpers.js'
 import { buildLegacyBodyModuleSource } from '../core/legacyBody.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -266,8 +267,9 @@ export class HyperfyCLI {
     this._requireWorldUrl()
     this._requireWorldId()
     let authToken = null
+    const canUseOpenLocalAdmin = !this.adminCode && isLocalWorldUrl(this.worldUrl)
 
-    if (!this.adminCode) {
+    if (!this.adminCode && !canUseOpenLocalAdmin) {
       const auth = await ensureProjectAuth({
         rootDir: this.rootDir,
         worldUrl: this.worldUrl,

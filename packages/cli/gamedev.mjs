@@ -379,7 +379,7 @@ function ensureEnvForStart() {
 
 function resolveServerPaths({ needsWorldServer }) {
   const worldServerPath = path.join(packageRoot, 'build', 'index.js')
-  const appServerPath = path.join(packageRoot, 'app-server', 'server.js')
+  const appServerPath = path.join(packageRoot, 'packages', 'app-server', 'server.js')
   if (!fs.existsSync(appServerPath)) {
     console.error(`Error: Missing app-server at ${appServerPath}`)
     return null
@@ -442,6 +442,7 @@ async function startCommand(args = []) {
   }
 
   const localMode = isLocalWorld({ worldUrl: env.WORLD_URL, worldId: env.WORLD_ID })
+  const canUseOpenLocalAdmin = localMode && !String(env.ADMIN_CODE || '').trim()
 
   if (localMode) {
     const localIssues = validateLocalEnv(env, derived)
@@ -482,19 +483,21 @@ async function startCommand(args = []) {
     console.log('World: Remote world detected, skipping local world server.')
   }
 
-  try {
-    await ensureProjectAuth({
-      rootDir: projectDir,
-      worldUrl: env.WORLD_URL,
-      worldId: env.WORLD_ID,
-      requiredCapability: 'deploy',
-      interactive: process.stdin.isTTY,
-      log: console,
-    })
-  } catch (err) {
-    console.error(`Error: Authentication failed: ${err?.message || err}`)
-    if (worldChild && !worldChild.killed) worldChild.kill('SIGTERM')
-    return 1
+  if (!canUseOpenLocalAdmin) {
+    try {
+      await ensureProjectAuth({
+        rootDir: projectDir,
+        worldUrl: env.WORLD_URL,
+        worldId: env.WORLD_ID,
+        requiredCapability: 'deploy',
+        interactive: process.stdin.isTTY,
+        log: console,
+      })
+    } catch (err) {
+      console.error(`Error: Authentication failed: ${err?.message || err}`)
+      if (worldChild && !worldChild.killed) worldChild.kill('SIGTERM')
+      return 1
+    }
   }
 
   console.log('Sync: Starting app-server sync')
@@ -564,6 +567,7 @@ async function appServerCommand(args = []) {
   }
 
   const localMode = isLocalWorld({ worldUrl: env.WORLD_URL, worldId: env.WORLD_ID })
+  const canUseOpenLocalAdmin = localMode && !String(env.ADMIN_CODE || '').trim()
 
   const artifacts = resolveServerPaths({ needsWorldServer: false })
   if (!artifacts) return 1
@@ -580,18 +584,20 @@ async function appServerCommand(args = []) {
     console.log('World: Remote world detected, skipping local world server.')
   }
 
-  try {
-    await ensureProjectAuth({
-      rootDir: projectDir,
-      worldUrl: env.WORLD_URL,
-      worldId: env.WORLD_ID,
-      requiredCapability: 'deploy',
-      interactive: process.stdin.isTTY,
-      log: console,
-    })
-  } catch (err) {
-    console.error(`Error: Authentication failed: ${err?.message || err}`)
-    return 1
+  if (!canUseOpenLocalAdmin) {
+    try {
+      await ensureProjectAuth({
+        rootDir: projectDir,
+        worldUrl: env.WORLD_URL,
+        worldId: env.WORLD_ID,
+        requiredCapability: 'deploy',
+        interactive: process.stdin.isTTY,
+        log: console,
+      })
+    } catch (err) {
+      console.error(`Error: Authentication failed: ${err?.message || err}`)
+      return 1
+    }
   }
 
   const envBase = { ...process.env, ...env }

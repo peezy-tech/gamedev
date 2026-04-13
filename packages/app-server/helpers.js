@@ -94,6 +94,28 @@ export function normalizeWorldAdminBaseUrl(url) {
   }
 }
 
+export function isLocalHost(hostname) {
+  if (!hostname) return false
+  if (hostname === 'localhost' || hostname === '::1') return true
+  if (/^127\./.test(hostname)) return true
+  const parts = hostname.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(Number.isNaN)) return false
+  if (parts[0] === 10) return true
+  if (parts[0] === 192 && parts[1] === 168) return true
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true
+  return false
+}
+
+export function isLocalWorldUrl(worldUrl) {
+  const normalized = normalizeWorldAdminBaseUrl(worldUrl)
+  if (!normalized) return false
+  try {
+    return isLocalHost(new URL(normalized).hostname)
+  } catch {
+    return false
+  }
+}
+
 export function toWsUrl(httpUrl) {
   const url = normalizeBaseUrl(httpUrl)
   if (url.startsWith('ws://') || url.startsWith('wss://')) return url

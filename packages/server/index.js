@@ -48,8 +48,35 @@ import {
 import { buildRuntimeControlAuthorization, createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
 import { Ranks } from '../core/extras/ranks'
 
-const rootDir = path.join(__dirname, '../..')
-const publicDir = path.join(__dirname, 'public')
+function resolveRuntimeRootDir() {
+  const candidates = [
+    path.resolve(__dirname, '..'),
+    path.resolve(__dirname, '../..'),
+    process.cwd(),
+  ]
+  for (const candidate of candidates) {
+    if (!fs.existsSync(path.join(candidate, 'package.json'))) continue
+    if (fs.existsSync(path.join(candidate, 'packages')) || fs.existsSync(path.join(candidate, 'build'))) {
+      return candidate
+    }
+  }
+  return path.resolve(__dirname, '../..')
+}
+
+function resolveRuntimePublicDir(rootDir) {
+  const candidates = [
+    path.join(__dirname, 'public'),
+    path.join(rootDir, 'build', 'public'),
+    path.join(rootDir, 'packages', 'client', 'public'),
+  ]
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return path.join(__dirname, 'public')
+}
+
+const rootDir = resolveRuntimeRootDir()
+const publicDir = resolveRuntimePublicDir(rootDir)
 const adminHtmlPath = path.join(publicDir, 'admin.html')
 const MIME_TYPES = {
   '.aac': 'audio/aac',

@@ -12,6 +12,33 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(dirname, '../')
 const buildDir = path.join(rootDir, 'build')
 
+function isLocalHost(hostname) {
+  if (!hostname) return false
+  if (hostname === 'localhost' || hostname === '::1') return true
+  if (/^127\./.test(hostname)) return true
+  const parts = hostname.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(Number.isNaN)) return false
+  if (parts[0] === 10) return true
+  if (parts[0] === 192 && parts[1] === 168) return true
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true
+  return false
+}
+
+function resolveLocalDevWorldDir(env = process.env) {
+  if (!dev) return null
+  if (String(env.RUNTIME_BOOTSTRAP || '').trim()) return null
+  const worldId = String(env.WORLD_ID || '').trim()
+  const worldUrl = String(env.WORLD_URL || '').trim()
+  if (!worldId || !worldUrl) return null
+  try {
+    const parsed = new URL(worldUrl)
+    if (!isLocalHost(parsed.hostname)) return null
+  } catch {
+    return null
+  }
+  return path.join(rootDir, '.lobby', worldId)
+}
+
 // await fs.emptyDir(buildDir)
 await fs.emptyDir(path.join(buildDir, 'public'))
 
@@ -173,7 +200,15 @@ if (!clientOnly) {
             if (dev) {
               // (re)start server
               spawn?.kill('SIGTERM')
-              spawn = fork(path.join(rootDir, 'build/index.js'))
+              const childEnv = { ...process.env }
+              const localDevWorldDir = resolveLocalDevWorldDir(childEnv)
+              if (localDevWorldDir) {
+                childEnv.WORLD = localDevWorldDir
+              }
+              spawn = fork(path.join(rootDir, 'build/index.js'), [], {
+                cwd: rootDir,
+                env: childEnv,
+              })
             } else {
               process.exit(0)
             }
