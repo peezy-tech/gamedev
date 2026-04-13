@@ -59,17 +59,26 @@ Run `gamedev help` for the full command list.
 If you are working on the runtime/SDK itself (not just a world project):
 
 ```bash
-npm install
+pnpm install
 cp .env.example .env
-npm run dev
+pnpm run dev
 ```
+
+Workspace packages live under `packages/`:
+
+- `packages/client` browser runtime and assets
+- `packages/server` runtime server
+- `packages/cli` `gamedev` CLI
+- `packages/app-server` sync/deploy service
+- `packages/core` shared runtime code
+- `packages/node-client` headless client
 
 Useful commands:
 
 ```bash
-npm run build
-npm run test
-npm run lint
+pnpm run build
+pnpm run test
+pnpm run lint
 ```
 
 ## Contributing

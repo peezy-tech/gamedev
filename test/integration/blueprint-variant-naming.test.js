@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { ClientBuilder } from '../../src/core/systems/ClientBuilder.js'
-import { ServerAIScripts } from '../../src/core/systems/ServerAIScripts.js'
+import { ClientBuilder } from '../../packages/core/systems/ClientBuilder.js'
+import { ServerAIScripts } from '../../packages/core/systems/ServerAIScripts.js'
 
 function createBlueprintStore(blueprints) {
   const items = Array.isArray(blueprints) ? blueprints.map(bp => ({ ...bp })) : []

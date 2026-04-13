@@ -5,9 +5,9 @@ import { test } from 'node:test'
 import WebSocket from 'ws'
 import Database from 'better-sqlite3'
 
-import { readPacket, writePacket } from '../../src/core/packets.js'
-import { Ranks } from '../../src/core/extras/ranks.js'
-import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
+import { readPacket, writePacket } from '../../packages/core/packets.js'
+import { Ranks } from '../../packages/core/extras/ranks.js'
+import { buildRuntimeBootstrapAuthorization } from '../../packages/server/runtimeBootstrap.js'
 import { AdminWsClient, fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
 
 async function canListenOnLoopback() {
@@ -22,6 +22,7 @@ async function canListenOnLoopback() {
 
 async function connectWorldSocket(wsUrl) {
   const ws = new WebSocket(wsUrl)
+  ws.binaryType = 'arraybuffer'
   return await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup()
@@ -38,7 +39,7 @@ async function connectWorldSocket(wsUrl) {
 
     const onMessage = event => {
       const [method, data] = readPacket(event.data)
-      if (method !== 'snapshot') return
+      if (method !== 'onSnapshot') return
       cleanup()
       resolve({ ws, snapshot: data })
     }

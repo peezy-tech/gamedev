@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
-import { exportApp } from '../../src/core/extras/appTools.js'
+import { exportApp } from '../../packages/core/extras/appTools.js'
 import { createTempDir, getRepoRoot } from './helpers.js'
 
 if (!globalThis.File) {
@@ -81,7 +81,7 @@ test('extract-hyp rewrites single hashed script entry to index.js', async () => 
   const hypPath = path.join(projectDir, 'source.hyp')
   await fs.writeFile(hypPath, Buffer.from(await hypFile.arrayBuffer()))
 
-  const extractScript = path.join(repoRoot, 'app-server', 'templates', 'scripts', 'extract-hyp.mjs')
+  const extractScript = path.join(repoRoot, 'packages', 'app-server', 'templates', 'scripts', 'extract-hyp.mjs')
   await runNodeScript(extractScript, [hypPath, '--project', projectDir], repoRoot)
 
   const appDir = path.join(projectDir, 'apps', 'ExtractHashedEntry')

@@ -6,10 +6,10 @@ import path from 'node:path'
 import { test } from 'node:test'
 import Database from 'better-sqlite3'
 
-import { readPacket } from '../../src/core/packets.js'
-import { Ranks } from '../../src/core/extras/ranks.js'
-import { buildRuntimeControlAuthorization } from '../../src/core/utils-server.js'
-import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
+import { readPacket } from '../../packages/core/packets.js'
+import { Ranks } from '../../packages/core/extras/ranks.js'
+import { buildRuntimeControlAuthorization } from '../../packages/core/utils-server.js'
+import { buildRuntimeBootstrapAuthorization } from '../../packages/server/runtimeBootstrap.js'
 import { createTempDir, getRepoRoot, startStandbyRuntimeServer, waitFor } from './helpers.js'
 
 function toWsUrl(httpUrl) {
@@ -159,6 +159,7 @@ async function waitForRuntimeEvent(server, event, matcher = () => true) {
 
 async function connectWorldSocket(wsUrl) {
   const ws = new WebSocket(wsUrl)
+  ws.binaryType = 'arraybuffer'
   return await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup()
@@ -175,7 +176,7 @@ async function connectWorldSocket(wsUrl) {
 
     const onMessage = event => {
       const [method, data] = readPacket(event.data)
-      if (method !== 'snapshot') return
+      if (method !== 'onSnapshot') return
       cleanup()
       resolve({ ws, snapshot: data })
     }

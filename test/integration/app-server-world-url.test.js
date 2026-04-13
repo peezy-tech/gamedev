@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { WorldAdminClient } from '../../app-server/WorldAdminClient.js'
-import { joinUrl, normalizeWorldAdminBaseUrl, toWsUrl } from '../../app-server/helpers.js'
+import { WorldAdminClient } from '../../packages/app-server/WorldAdminClient.js'
+import { joinUrl, normalizeWorldAdminBaseUrl, toWsUrl } from '../../packages/app-server/helpers.js'
 
 test('normalizeWorldAdminBaseUrl strips trailing /admin suffixes', () => {
   assert.equal(

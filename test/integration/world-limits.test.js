@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { ServerNetwork } from '../../src/core/systems/ServerNetwork.js'
-import { getMaxUploadSizeBytes, getMaxUploadSizeMb, getWorldMaxPlayers } from '../../src/server/worldLimits.js'
+import { ServerNetwork } from '../../packages/server/ServerNetwork.js'
+import { getMaxUploadSizeBytes, getMaxUploadSizeMb, getWorldMaxPlayers } from '../../packages/server/worldLimits.js'
 
 function withEnv(overrides, run) {
   const previous = {}

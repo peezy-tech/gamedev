@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { RuntimeWalletAdapter } from '../../src/client/wallet-adapter.js'
+import { RuntimeWalletAdapter } from '../../packages/client/wallet-adapter.js'
 
 function makeProvider({
   accounts = [],

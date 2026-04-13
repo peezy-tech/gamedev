@@ -1,0 +1,6 @@
+{
+  "name": "@gamedev/core",
+  "private": true,
+  "version": "0.3.3",
+  "type": "module"
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { App } from '../../src/core/entities/App.js'
+import { App } from '../../packages/core/entities/App.js'
 
 test('app modify rebuilds when mover updates arrive before lerp buffers exist', () => {
   const ctx = {

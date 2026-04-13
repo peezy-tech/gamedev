@@ -20,7 +20,7 @@ const buildDirectory = path.join(rootDir, 'build')
 
 {
   const clientCtx = await esbuild.context({
-    entryPoints: ['src/client/world-client.js'],
+    entryPoints: ['packages/client/world-client.js'],
     outfile: 'build/world-client.js',
     platform: 'browser',
     format: 'esm',

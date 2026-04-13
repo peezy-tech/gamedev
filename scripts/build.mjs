@@ -19,11 +19,11 @@ await fs.emptyDir(path.join(buildDir, 'public'))
  * Build Client
  */
 
-const clientPublicDir = path.join(rootDir, 'src/client/public')
+const clientPublicDir = path.join(rootDir, 'packages/client/public')
 const clientBuildDir = path.join(rootDir, 'build/public')
-const clientHtmlSrc = path.join(rootDir, 'src/client/public/index.html')
+const clientHtmlSrc = path.join(rootDir, 'packages/client/public/index.html')
 const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
-const adminHtmlSrc = path.join(rootDir, 'src/client/public/admin.html')
+const adminHtmlSrc = path.join(rootDir, 'packages/client/public/admin.html')
 const adminHtmlDest = path.join(rootDir, 'build/public/admin.html')
 
 const resolveRelativeClientImportPath = value => {
@@ -38,7 +38,7 @@ const resolveAbsoluteClientImportPath = value => {
 
 {
   const clientCtx = await esbuild.context({
-    entryPoints: ['src/client/index.js', 'src/client/particles.js', 'src/client/admin.js'],
+    entryPoints: ['packages/client/index.js', 'packages/client/particles.js', 'packages/client/admin.js'],
     entryNames: '/[name]-[hash]',
     outdir: clientBuildDir,
     platform: 'browser',
@@ -68,7 +68,7 @@ const resolveAbsoluteClientImportPath = value => {
             // copy over public files
             await fs.copy(clientPublicDir, clientBuildDir)
             // copy physx wasm to public
-            const physxWasmSrc = path.join(rootDir, 'src/core/physx-js-webidl.wasm')
+            const physxWasmSrc = path.join(rootDir, 'packages/core/physx-js-webidl.wasm')
             const physxWasmDest = path.join(rootDir, 'build/public/physx-js-webidl.wasm')
             await fs.copy(physxWasmSrc, physxWasmDest)
             // find js output files
@@ -139,7 +139,7 @@ let spawn
 
 if (!clientOnly) {
   const serverCtx = await esbuild.context({
-    entryPoints: ['src/server/index.js'],
+    entryPoints: ['packages/server/index.js'],
     outfile: 'build/index.js',
     platform: 'node',
     format: 'esm',
@@ -158,15 +158,15 @@ if (!clientOnly) {
         setup(build) {
           build.onEnd(async result => {
             // copy over physx js
-            const physxIdlSrc = path.join(rootDir, 'src/core/physx-js-webidl.js')
+            const physxIdlSrc = path.join(rootDir, 'packages/core/physx-js-webidl.js')
             const physxIdlDest = path.join(rootDir, 'build/physx-js-webidl.js')
             await fs.copy(physxIdlSrc, physxIdlDest)
             // copy over physx wasm
-            const physxWasmSrc = path.join(rootDir, 'src/core/physx-js-webidl.wasm')
+            const physxWasmSrc = path.join(rootDir, 'packages/core/physx-js-webidl.wasm')
             const physxWasmDest = path.join(rootDir, 'build/physx-js-webidl.wasm')
             await fs.copy(physxWasmSrc, physxWasmDest)
             // copy built-in world assets to build folder to be publishable
-            const builtInAssetsSrc = path.join(rootDir, 'src/world/assets')
+            const builtInAssetsSrc = path.join(rootDir, 'packages/server/world/assets')
             const builtInAssetsDest = path.join(rootDir, 'build/world/assets')
             await fs.copy(builtInAssetsSrc, builtInAssetsDest)
             // start the server or stop here
@@ -196,7 +196,7 @@ if (!clientOnly) {
 
 if (!clientOnly) {
   const nodeClientCtx = await esbuild.context({
-    entryPoints: ['src/node-client/index.js'],
+    entryPoints: ['packages/node-client/index.js'],
     outfile: 'build/world-node-client.js',
     platform: 'node',
     format: 'esm',

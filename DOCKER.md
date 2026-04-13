@@ -6,7 +6,7 @@ The project can be run using Docker. Make sure you have Docker installed on your
 
 ```bash
 docker build -t hyperfydemo . && docker run -d -p 3000:3000 \
-  -v "$(pwd)/src:/app/src" \
+  -v "$(pwd)/packages:/app/packages" \
   -v "$(pwd)/world:/app/world" \
   -v "$(pwd)/.env:/app/.env" \
   -e DOMAIN=demo.hyperfy.host \
@@ -20,7 +20,7 @@ docker build -t hyperfydemo . && docker run -d -p 3000:3000 \
 
 This command:
 - Builds the Docker image tagged as 'hyperfydemo'
-- Mounts local src/, world/ directories and .env file into the container
+- Mounts local packages/, world/ directories and .env file into the container
 - Exposes port 3000
 - Sets up required environment variables
 - Runs the container in detached mode (-d)

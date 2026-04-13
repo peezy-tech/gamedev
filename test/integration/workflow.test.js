@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import fs from 'fs'
 import path from 'path'
 import { test } from 'node:test'
-import { DirectAppServer } from '../../app-server/direct.js'
-import { runAppCommand } from '../../app-server/commands.js'
+import { DirectAppServer } from '../../packages/app-server/direct.js'
+import { runAppCommand } from '../../packages/app-server/commands.js'
 import {
   AdminWsClient,
   createTempDir,

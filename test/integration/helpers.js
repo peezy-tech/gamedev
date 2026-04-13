@@ -8,7 +8,7 @@ import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import { fileURLToPath } from 'url'
 
-import { readPacket, writePacket } from '../../src/core/packets.js'
+import { readPacket, writePacket } from '../../packages/core/packets.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..', '..')
@@ -18,8 +18,7 @@ const buildOutputPath = path.join(repoRoot, 'build', 'index.js')
 const buildInputs = [
   path.join(repoRoot, 'scripts', 'build.mjs'),
   path.join(repoRoot, 'package.json'),
-  path.join(repoRoot, 'src'),
-  path.join(repoRoot, 'app-server'),
+  path.join(repoRoot, 'packages'),
 ]
 
 function normalizeBaseUrl(url) {

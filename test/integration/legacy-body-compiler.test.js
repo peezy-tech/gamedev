@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { compileLegacyBodyModuleSource } from '../../src/core/systems/Scripts.js'
+import { compileLegacyBodyModuleSource } from '../../packages/core/systems/Scripts.js'
 
 test('legacy-body compilation preserves imports and wraps body', () => {
   const code = ["import { add } from './math.js'", 'const total = add(1, 2)', 'world.total = total'].join('\n')

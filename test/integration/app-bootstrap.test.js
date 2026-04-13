@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { test } from 'node:test'
-import { DirectAppServer } from '../../app-server/direct.js'
+import { DirectAppServer } from '../../packages/app-server/direct.js'
 import { createTempDir } from './helpers.js'
 
 async function readJson(filePath) {

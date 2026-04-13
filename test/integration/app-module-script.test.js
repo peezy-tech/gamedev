@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { test } from 'node:test'
-import { World } from '../../src/core/World.js'
-import { ServerLoader } from '../../src/core/systems/ServerLoader.js'
+import { World } from '../../packages/core/World.js'
+import { ServerLoader } from '../../packages/core/systems/ServerLoader.js'
 import { createTempDir, getRepoRoot, waitFor } from './helpers.js'
 
 test('app executes module scripts via scriptRef', async () => {
@@ -12,7 +12,7 @@ test('app executes module scripts via scriptRef', async () => {
   const assetsDir = path.join(rootDir, 'assets')
   await fs.mkdir(path.join(assetsDir, 'helpers'), { recursive: true })
   await fs.copyFile(
-    path.join(getRepoRoot(), 'src/world/assets/empty.glb'),
+    path.join(getRepoRoot(), 'packages/server/world/assets/empty.glb'),
     path.join(assetsDir, 'model.glb')
   )
   await fs.writeFile(

@@ -3,7 +3,7 @@ import path from 'path'
 import { test } from 'node:test'
 import Knex from 'knex'
 
-import { Storage } from '../../src/server/Storage.js'
+import { Storage } from '../../packages/server/Storage.js'
 import { createTempDir } from './helpers.js'
 
 async function createStorageDB() {

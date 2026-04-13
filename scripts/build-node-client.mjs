@@ -25,7 +25,7 @@ let spawn
 
 {
   const nodeClientCtx = await esbuild.context({
-    entryPoints: ['src/node-client/index.js'],
+    entryPoints: ['packages/node-client/index.js'],
     outfile: 'build/world-node-client.js',
     platform: 'node',
     format: 'esm',
@@ -41,11 +41,11 @@ let spawn
         setup(build) {
           build.onEnd(async result => {
             // copy over physx js
-            const physxIdlSrc = path.join(rootDir, 'src/core/physx-js-webidl.js')
+            const physxIdlSrc = path.join(rootDir, 'packages/core/physx-js-webidl.js')
             const physxIdlDest = path.join(rootDir, 'build/physx-js-webidl.js')
             await fs.copy(physxIdlSrc, physxIdlDest)
             // copy over physx wasm
-            const physxWasmSrc = path.join(rootDir, 'src/core/physx-js-webidl.wasm')
+            const physxWasmSrc = path.join(rootDir, 'packages/core/physx-js-webidl.wasm')
             const physxWasmDest = path.join(rootDir, 'build/physx-js-webidl.wasm')
             await fs.copy(physxWasmSrc, physxWasmDest)
             // start the server or stop here

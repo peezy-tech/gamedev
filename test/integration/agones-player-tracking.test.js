@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import {
   createAgonesPlayerTracker,
   resolveEffectivePlayerCapacity,
-} from '../../src/server/agonesPlayerTracking.js'
+} from '../../packages/server/agonesPlayerTracking.js'
 
 function createLogger() {
   const messages = {
