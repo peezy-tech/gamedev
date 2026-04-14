@@ -15,7 +15,7 @@ import { ControlPriorities } from '../../core/extras/ControlPriorities'
 import { ChevronDoubleUpIcon, HandIcon } from './Icons'
 import { MainMenu } from './MainMenu'
 
-export function CoreUI({ world, connectionStatus }) {
+export function CoreUI({ world, connectionStatus, bootStatus = null }) {
   const ref = useRef()
   const [ready, setReady] = useState(false)
   const [player, setPlayer] = useState(() => world.entities.player)
@@ -104,7 +104,7 @@ export function CoreUI({ world, connectionStatus }) {
       {/* {ready && <Side world={world} player={player} menu={menu} />} */}
       {avatar && <AvatarPane key={avatar.hash} world={world} info={avatar} />}
       {/* {apps && <AppsPane world={world} close={() => world.ui.toggleApps()} />} */}
-      {!ready && <LoadingOverlay world={world} connectionStatus={connectionStatus} />}
+      {!ready && <LoadingOverlay world={world} connectionStatus={connectionStatus} bootStatus={bootStatus} />}
       {kicked && <KickedOverlay code={kicked} />}
       {ready && isTouch && <TouchBtns world={world} />}
       {ready && isTouch && <TouchStick world={world} />}
@@ -721,11 +721,11 @@ function Disconnected() {
   )
 }
 
-function LoadingOverlay({ world, connectionStatus }) {
+function LoadingOverlay({ world, connectionStatus, bootStatus }) {
   const [progress, setProgress] = useState(0)
   const [wsStatus, setWsStatus] = useState(null)
   const { title, desc, image } = world.settings
-  const activeStatus = wsStatus || connectionStatus
+  const activeStatus = bootStatus || wsStatus || connectionStatus
   const isWaiting =
     activeStatus?.status === 'waiting' ||
     activeStatus?.status === 'retrying' ||

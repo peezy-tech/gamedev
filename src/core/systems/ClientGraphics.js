@@ -1,4 +1,5 @@
 import * as THREE from '../extras/three'
+import { createWebGLRenderer } from '../extras/createWebGLRenderer'
 import { N8AOPostPass } from 'n8ao'
 import {
   EffectComposer,
@@ -25,7 +26,7 @@ const v1 = new THREE.Vector3()
 let renderer
 function getRenderer() {
   if (!renderer) {
-    renderer = new THREE.WebGLRenderer({
+    renderer = createWebGLRenderer({
       powerPreference: 'high-performance',
       antialias: true,
       alpha: true,
@@ -261,7 +262,9 @@ export class ClientGraphics extends System {
   }
 
   destroy() {
-    this.resizer.disconnect()
-    this.viewport.removeChild(this.renderer.domElement)
+    this.resizer?.disconnect()
+    if (this.renderer?.domElement?.parentNode === this.viewport) {
+      this.viewport.removeChild(this.renderer.domElement)
+    }
   }
 }
