@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { isString } from 'lodash'
 import { Emotes } from '../core/extras/playerEmotes'
-import { createWebGLRenderer } from '../core/extras/createWebGLRenderer'
 
 const MAX_UPLOAD_SIZE = 1000000000000 // TODO
 const MAX_UPLOAD_SIZE_LABEL = '1LOLS'
@@ -34,7 +33,7 @@ const materialSlots = [
 let renderer = null // re-use one renderer for this
 function getRenderer() {
   if (!renderer) {
-    renderer = createWebGLRenderer({
+    renderer = new THREE.WebGLRenderer({
       // canvas: undefined,
       antialias: true,
       powerPreference: 'high-performance',

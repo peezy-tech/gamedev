@@ -22,7 +22,6 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
   const [resolvedWsUrl, setResolvedWsUrl] = useState(undefined) // undefined = pending, null = offline
   const [apiBaseUrl, setApiBaseUrl] = useState(null)
   const [authBaseUrl, setAuthBaseUrl] = useState(null)
-  const [bootStatus, setBootStatus] = useState(null)
   const [entered] = useState(true)
   useEffect(() => {
     world.on('ui', setUI)
@@ -112,46 +111,27 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
   useEffect(() => {
     if (!entered) return
     if (resolvedWsUrl === undefined) return // still resolving
-    let cancelled = false
     const init = async () => {
-      try {
-        setBootStatus(null)
-        const viewport = viewportRef.current
-        const cssLayer = cssLayerRef.current
-        const ui = uiRef.current
-        const baseEnvironment = {
-          model: assetPath('/base-environment.glb'),
-          bg: null, // '/day2-2k.jpg',
-          hdr: assetPath('/Clear_08_4pm_LDR.hdr'),
-          rotationY: 0,
-          sunDirection: new THREE.Vector3(-1, -2, -2).normalize(),
-          sunIntensity: 1,
-          sunColor: 0xffffff,
-          fogNear: null,
-          fogFar: null,
-          fogColor: null,
-        }
-        const config = {
-          viewport,
-          cssLayer,
-          ui,
-          wsUrl: resolvedWsUrl,
-          baseEnvironment,
-          apiUrl: apiBaseUrl,
-          authUrl: authBaseUrl,
-        }
-        onSetup?.(world, config)
-        await world.init(config)
-      } catch (error) {
-        console.error('Failed to initialize world:', error, error?.diagnostics)
-        if (cancelled) return
-        setBootStatus(getBootStatus(error))
+      const viewport = viewportRef.current
+      const cssLayer = cssLayerRef.current
+      const ui = uiRef.current
+      const baseEnvironment = {
+        model: assetPath('/base-environment.glb'),
+        bg: null, // '/day2-2k.jpg',
+        hdr: assetPath('/Clear_08_4pm_LDR.hdr'),
+        rotationY: 0,
+        sunDirection: new THREE.Vector3(-1, -2, -2).normalize(),
+        sunIntensity: 1,
+        sunColor: 0xffffff,
+        fogNear: null,
+        fogFar: null,
+        fogColor: null,
       }
+      const config = { viewport, cssLayer, ui, wsUrl: resolvedWsUrl, baseEnvironment, apiUrl: apiBaseUrl, authUrl: authBaseUrl }
+      onSetup?.(world, config)
+      world.init(config)
     }
-    void init()
-    return () => {
-      cancelled = true
-    }
+    init()
   }, [entered, resolvedWsUrl, apiBaseUrl, authBaseUrl])
   return (
     <div
@@ -193,21 +173,8 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
         </div>
       </EditorLayout>
       <div className='App__ui' ref={uiRef}>
-        <CoreUI world={world} connectionStatus={connectionStatus} bootStatus={bootStatus} />
+        <CoreUI world={world} connectionStatus={connectionStatus} />
       </div>
     </div>
   )
-}
-
-function getBootStatus(error) {
-  if (error?.code === 'webgl_unavailable') {
-    return {
-      status: 'error',
-      message: error.userMessage,
-    }
-  }
-  return {
-    status: 'error',
-    message: 'Unable to start this world. Reload and try again.',
-  }
 }
