@@ -1,10 +1,12 @@
 import 'dotenv-flow/config'
 import fs from 'fs-extra'
 import path from 'path'
-import { fork, execSync } from 'child_process'
+import { spawn as spawnChild } from 'node:child_process'
 import * as esbuild from 'esbuild'
 import { fileURLToPath } from 'url'
 import { polyfillNode } from 'esbuild-plugin-polyfill-node'
+
+import { workspaceAliasPlugin } from './workspace-alias-plugin.mjs'
 
 const dev = process.argv.includes('--dev')
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -21,7 +23,7 @@ const buildDir = path.join(rootDir, 'build')
  *
  */
 
-let spawn
+let nodeClientChild
 
 {
   const nodeClientCtx = await esbuild.context({
@@ -36,6 +38,7 @@ let spawn
     packages: 'external',
     loader: {},
     plugins: [
+      workspaceAliasPlugin(rootDir),
       {
         name: 'server-finalize-plugin',
         setup(build) {
@@ -51,8 +54,11 @@ let spawn
             // start the server or stop here
             if (dev) {
               // (re)start server
-              spawn?.kill('SIGTERM')
-              spawn = fork(path.join(rootDir, 'build/world-node-client.js'))
+              nodeClientChild?.kill('SIGTERM')
+              nodeClientChild = spawnChild(process.execPath, [path.join(rootDir, 'build/world-node-client.js')], {
+                cwd: rootDir,
+                stdio: 'inherit',
+              })
             } else {
               process.exit(0)
             }

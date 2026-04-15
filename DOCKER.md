@@ -26,3 +26,5 @@ This command:
 - Runs the container in detached mode (-d)
 
 Note: Adjust the URLs and domain according to your specific setup.
+
+For local development outside Docker, use `bun install` and `bun dev`.

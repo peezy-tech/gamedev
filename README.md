@@ -9,16 +9,16 @@ Create a new world project with the `gamedev` CLI:
 ```bash
 mkdir my-lobby-world
 cd my-lobby-world
-npx gamedev init
-npm install
-npm run dev
+bunx gamedev init
+bun install
+bun dev
 ```
 
 Then open `http://localhost:3000`.
 
-What `npm run dev` does:
+What `bun dev` does:
 
-- Requires Node.js `22.11.0` (or newer in the same major line).
+- Requires Bun `1.2.14` (or newer in the same major line).
 - Starts a local world server when `WORLD_URL` points to localhost.
 - Runs app-server sync so local edits deploy to the world in seconds.
 - Auto-creates `.env` with local defaults if one does not exist yet.
@@ -59,9 +59,9 @@ Run `gamedev help` for the full command list.
 If you are working on the runtime/SDK itself (not just a world project):
 
 ```bash
-pnpm install
+bun install
 cp .env.example .env
-pnpm run dev
+bun dev
 ```
 
 Workspace packages live under `packages/`:
@@ -76,9 +76,9 @@ Workspace packages live under `packages/`:
 Useful commands:
 
 ```bash
-pnpm run build
-pnpm run test
-pnpm run lint
+bun run build
+bun run test
+bun run lint
 ```
 
 ## Contributing

@@ -12,11 +12,13 @@ import {
   derivePublicWsUrlFromApiUrl,
 } from '@gamedev/server/runtimeBootstrap.js'
 
+import { resolveRuntimeCommand } from './runtime-command.mjs'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(__dirname, '..')
 
 function usage() {
-  console.log(`Usage: node scripts/bootstrap-runtime.mjs [options]
+  console.log(`Usage: bun run scripts/bootstrap-runtime.mjs [options]
 
 Options:
   --env <name>          dotenv-flow env suffix to load (default: bootstrap, use "none" to skip)
@@ -276,8 +278,9 @@ function startRuntime(runMode, env) {
   if (!runMode) return null
 
   const args = runMode === 'dev' ? ['scripts/build.mjs', '--dev'] : ['build/index.js']
-  console.log(`[bootstrap] starting: node ${args.join(' ')}`)
-  const child = spawn(process.execPath, args, {
+  const command = runMode === 'start' ? resolveRuntimeCommand(env) : process.execPath
+  console.log(`[bootstrap] starting: ${path.basename(command)} ${args.join(' ')}`)
+  const child = spawn(command, args, {
     cwd: rootDir,
     env,
     stdio: 'inherit',

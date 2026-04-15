@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import readline from 'readline'
 import { main as directMain, DirectAppServer } from './direct.js'

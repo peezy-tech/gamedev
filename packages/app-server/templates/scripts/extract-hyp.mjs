@@ -3,10 +3,10 @@ import path from "node:path";
 
 const args = process.argv.slice(2);
 // Usage:
-//   node scripts/extract-hyp.mjs                -> process all .hyp in ./hyp
-//   node scripts/extract-hyp.mjs hyp/dir        -> process all .hyp in given dir
-//   node scripts/extract-hyp.mjs file.hyp       -> process a single file
-//   node scripts/extract-hyp.mjs <path> --project <projectDir>
+//   bun run scripts/extract-hyp.mjs                -> process all .hyp in ./hyp
+//   bun run scripts/extract-hyp.mjs hyp/dir        -> process all .hyp in given dir
+//   bun run scripts/extract-hyp.mjs file.hyp       -> process a single file
+//   bun run scripts/extract-hyp.mjs <path> --project <projectDir>
 
 let inputPath = args[0] || "hyp";
 let projectRoot = ".";

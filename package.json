@@ -2,7 +2,12 @@
   "name": "gamedev",
   "version": "0.3.3",
   "type": "module",
-  "packageManager": "pnpm@10.22.0",
+  "packageManager": "bun@1.2.14",
+  "workspaces": {
+    "packages": [
+      "packages/*"
+    ]
+  },
   "main": "index.node.js",
   "types": "index.d.ts",
   "files": [
@@ -46,31 +51,31 @@
     "real-time"
   ],
   "scripts": {
-    "dev:runtime": "node scripts/build.mjs --dev",
-    "runtime:bootstrap": "node scripts/bootstrap-runtime.mjs",
-    "runtime:bootstrap:dev": "node scripts/bootstrap-runtime.mjs --run dev",
-    "runtime:bootstrap:start": "node scripts/bootstrap-runtime.mjs --run start",
-    "dev:app-server": "bash -c 'mkdir -p project; if [ ! -f project/.env ]; then if [ -f .env ]; then cp .env project/.env; elif [ -f .env.example ]; then cp .env.example project/.env; fi; fi; (cd project && node ../packages/cli/gamedev.mjs app-server)'",
-    "dev": "bash -c 'pnpm run dev:runtime & pnpm run dev:app-server & wait'",
-    "build": "node scripts/build.mjs",
-    "start": "node build/index.js",
-    "prepublishOnly": "pnpm run build",
-    "world:backup": "node scripts/backup-world.mjs",
-    "static:build": "node scripts/build-static.mjs",
-    "viewer:dev": "node scripts/build-viewer.mjs --dev",
-    "viewer:build": "node scripts/build-viewer.mjs",
-    "client:dev": "node scripts/build-client.mjs --dev",
-    "client:build": "node scripts/build-client.mjs",
-    "client:build:platform": "node scripts/build.mjs --client-only",
-    "node-client:dev": "node scripts/build-node-client.mjs --dev",
-    "node-client:build": "node scripts/build-node-client.mjs",
+    "dev:runtime": "bun run scripts/build.mjs --dev",
+    "runtime:bootstrap": "bun run scripts/bootstrap-runtime.mjs",
+    "runtime:bootstrap:dev": "bun run scripts/bootstrap-runtime.mjs --run dev",
+    "runtime:bootstrap:start": "bun run scripts/bootstrap-runtime.mjs --run start",
+    "dev:app-server": "bun run scripts/dev-app-server.mjs",
+    "dev": "bun run scripts/dev.mjs",
+    "build": "bun run scripts/build.mjs",
+    "start": "bun run scripts/start-runtime.mjs",
+    "prepublishOnly": "bun run build",
+    "world:backup": "bun run scripts/backup-world.mjs",
+    "static:build": "bun run scripts/build-static.mjs",
+    "viewer:dev": "bun run scripts/build-viewer.mjs --dev",
+    "viewer:build": "bun run scripts/build-viewer.mjs",
+    "client:dev": "bun run scripts/build-client.mjs --dev",
+    "client:build": "bun run scripts/build-client.mjs",
+    "client:build:platform": "bun run scripts/build.mjs --client-only",
+    "node-client:dev": "bun run scripts/build-node-client.mjs --dev",
+    "node-client:build": "bun run scripts/build-node-client.mjs",
     "lint": "eslint . --ext .js,.jsx",
     "lint:fix": "eslint . --ext .js,.jsx --fix",
     "format": "prettier --write .",
-    "check": "pnpm run lint && pnpm run format",
-    "test": "node --test --loader ./scripts/node-esm-loader.mjs \"test/integration/**/*.test.js\"",
-    "test:integration": "node --test --loader ./scripts/node-esm-loader.mjs \"test/integration/**/*.test.js\"",
-    "smoke:matrix": "node scripts/smoke-mode-matrix.mjs"
+    "check": "bun run lint && bun run format",
+    "test": "bun test test/integration/**/*.test.js",
+    "test:integration": "bun test test/integration/**/*.test.js",
+    "smoke:matrix": "bun run scripts/smoke-mode-matrix.mjs"
   },
   "bin": {
     "gamedev": "packages/cli/gamedev.mjs"
@@ -148,20 +153,17 @@
     "prettier": "^3.4.2"
   },
   "engines": {
-    "npm": ">=10.0.0",
-    "node": "22.11.0"
+    "bun": ">=1.2.14"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@reown/appkit",
-      "better-sqlite3",
-      "bufferutil",
-      "esbuild",
-      "keccak",
-      "msgpackr-extract",
-      "utf-8-validate"
-    ]
-  },
+  "trustedDependencies": [
+    "@reown/appkit",
+    "better-sqlite3",
+    "bufferutil",
+    "esbuild",
+    "keccak",
+    "msgpackr-extract",
+    "utf-8-validate"
+  ],
   "overrides": {
     "three": "^0.173.0"
   },

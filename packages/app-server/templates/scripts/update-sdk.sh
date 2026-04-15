@@ -8,23 +8,23 @@ SYNC_DIRS=(docs scripts skills .cursor)
 SYNC_FILES=(
   .env.example
   .gitignore
-  .nvmrc
+  .bun-version
   AGENTS.md
   CLAUDE.md
-  package-lock.json
+  bun.lock
   package.json
   README.md
   tsconfig.json
 )
 
-SCRIPT_PATH="scripts/pull-sdk.sh"
+SCRIPT_PATH="scripts/update-sdk.sh"
 
 usage() {
   cat <<'EOF'
 Sync selected folders/files from lobby-ws/sdk while preserving local app/world content.
 
 Usage:
-  bash scripts/pull-sdk.sh [--branch <branch>] [--remote-url <url>]
+  bash scripts/update-sdk.sh [--branch <branch>] [--remote-url <url>]
 
 Options:
   --branch <branch>    Remote branch to use (default: main).
@@ -67,8 +67,8 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is required."
+if ! command -v bun >/dev/null 2>&1; then
+  echo "bun is required."
   exit 1
 fi
 
@@ -85,7 +85,7 @@ fi
 
 TMP_DIR="$(mktemp -d /tmp/sdk-sync-XXXXXX)"
 EXPORT_DIR="$TMP_DIR/export"
-SELF_BACKUP="$TMP_DIR/pull-sdk.sh"
+SELF_BACKUP="$TMP_DIR/update-sdk.sh"
 mkdir -p "$EXPORT_DIR"
 
 cleanup() {
@@ -142,6 +142,6 @@ if [[ -f "$SELF_BACKUP" ]]; then
 fi
 
 echo "Ensuring gamedev is latest..."
-npm install gamedev@latest
+bun add --dev gamedev@latest
 
 echo "Sync complete (no commit, no staging)."

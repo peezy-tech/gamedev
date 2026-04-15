@@ -1,10 +1,13 @@
 import 'dotenv-flow/config'
 import fs from 'fs-extra'
 import path from 'path'
-import { fork, execSync } from 'child_process'
+import { spawn as spawnChild } from 'node:child_process'
 import * as esbuild from 'esbuild'
 import { fileURLToPath } from 'url'
 import { polyfillNode } from 'esbuild-plugin-polyfill-node'
+
+import { resolveRuntimeCommand } from './runtime-command.mjs'
+import { workspaceAliasPlugin } from './workspace-alias-plugin.mjs'
 
 const dev = process.argv.includes('--dev')
 const clientOnly = process.argv.includes('--client-only')
@@ -162,7 +165,7 @@ const resolveAbsoluteClientImportPath = value => {
  * Build Server
  */
 
-let spawn
+let runtimeChild
 
 if (!clientOnly) {
   const serverCtx = await esbuild.context({
@@ -180,6 +183,7 @@ if (!clientOnly) {
       'process.env.SERVER': 'true',
     },
     plugins: [
+      workspaceAliasPlugin(rootDir),
       {
         name: 'server-finalize-plugin',
         setup(build) {
@@ -199,15 +203,17 @@ if (!clientOnly) {
             // start the server or stop here
             if (dev) {
               // (re)start server
-              spawn?.kill('SIGTERM')
+              runtimeChild?.kill('SIGTERM')
               const childEnv = { ...process.env }
               const localDevWorldDir = resolveLocalDevWorldDir(childEnv)
               if (localDevWorldDir) {
                 childEnv.WORLD = localDevWorldDir
               }
-              spawn = fork(path.join(rootDir, 'build/index.js'), [], {
+              const runtimeCommand = resolveRuntimeCommand(childEnv)
+              runtimeChild = spawnChild(runtimeCommand, [path.join(rootDir, 'build/index.js')], {
                 cwd: rootDir,
                 env: childEnv,
+                stdio: 'inherit',
               })
             } else {
               process.exit(0)
@@ -240,6 +246,7 @@ if (!clientOnly) {
     minify: false,
     sourcemap: true,
     packages: 'external',
+    plugins: [workspaceAliasPlugin(rootDir)],
     loader: {},
   })
   if (dev) {

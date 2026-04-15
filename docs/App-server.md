@@ -60,7 +60,7 @@ Define targets in `.lobby/targets.json` and pass `--target <name>` to the CLI or
 
 ```bash
 gamedev auth --target dev
-node packages/app-server/server.js --target dev
+bun run packages/app-server/server.js --target dev
 gamedev dev --target dev
 gamedev apps deploy myApp --target prod
 ```

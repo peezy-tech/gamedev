@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { randomBytes } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -6,9 +6,9 @@ import process from 'node:process'
 import readline from 'node:readline/promises'
 
 const usage = `Usage:
-  npm run world:entities -- add --template-id <entityId> --transforms <path> [--world <path>] [--replace] [--yes]
-  npm run world:entities -- delete --blueprint <name> [--world <path>] [--yes]
-  npm run world:entities -- delete --ids <path> [--world <path>] [--yes]
+  bun run world:entities -- add --template-id <entityId> --transforms <path> [--world <path>] [--replace] [--yes]
+  bun run world:entities -- delete --blueprint <name> [--world <path>] [--yes]
+  bun run world:entities -- delete --ids <path> [--world <path>] [--yes]
 
 Commands:
   add       Create entity clones from a template entity and a transform array.

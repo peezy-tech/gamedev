@@ -8,9 +8,9 @@ Apps live in `apps/` and each app folder contains blueprint JSON plus a script e
 
 Local-first (project files):
 
-- Run `npm run apps:new <AppName>` (creates `apps/<AppName>/` with `index.js` + blueprint)
-- Batch-edit `world.json` entities: `npm run world:entities -- add --template-id <id> --transforms <file>` / `npm run world:entities -- delete --blueprint <name>`
-- To duplicate one app many times (eg, make a forest from one `Tree`), generate many transforms and run `npm run world:entities -- add --template-id <TreeEntityId> --transforms tmp/forest.json --yes`, then delete `tmp/forest.json`
+- Run `bun run apps:new <AppName>` (creates `apps/<AppName>/` with `index.js` + blueprint)
+- Batch-edit `world.json` entities: `bun run world:entities -- add --template-id <id> --transforms <file>` / `bun run world:entities -- delete --blueprint <name>`
+- To duplicate one app many times (eg, make a forest from one `Tree`), generate many transforms and run `bun run world:entities -- add --template-id <TreeEntityId> --transforms tmp/forest.json --yes`, then delete `tmp/forest.json`
 - See `docs/world-entities-cli.md` for full flags (`--replace`, `--ids`, `--yes`, `--world`)
 - Transform file format for `--transforms` (JSON array):
   ```json
@@ -26,7 +26,7 @@ Local-first (project files):
   ]
   ```
 - Put assets in top-level `assets/` and reference them from blueprint JSON for app.config props
-- Run `npm run dev` for hot reload
+- Run `bun run dev` for hot reload
 
 Example local layout:
 

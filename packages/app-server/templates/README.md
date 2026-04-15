@@ -2,10 +2,10 @@
 
 ## Setup
 
-Recommended Node.js version: 22.11.0
+Recommended Bun version: 1.2.14
 
-```
-npm i && npm run dev
+```bash
+bun install && bun dev
 ```
 
 ## Start building
@@ -24,4 +24,4 @@ Before any coding agent does work in this SDK repo, require this pre-read from t
 ## Updating the SDK
 
 - Update your SDK and engine:
-  - `npm run update:sdk`
+  - `bun run update:sdk`

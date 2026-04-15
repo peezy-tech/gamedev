@@ -41,7 +41,7 @@ dist/
 .DS_Store
 `
 
-const DEFAULT_NVMRC = '22.11.0\n'
+const DEFAULT_BUN_VERSION = '1.2.14\n'
 
 const DEFAULT_TSCONFIG = {
   compilerOptions: {
@@ -87,6 +87,10 @@ function buildPackageJson({ packageName, sdkName, sdkVersion }) {
     version: '0.0.0',
     private: true,
     type: 'module',
+    packageManager: 'bun@1.2.14',
+    engines: {
+      bun: '>=1.2.14',
+    },
     scripts: {
       init: 'gamedev init',
       help: 'gamedev help',
@@ -95,11 +99,11 @@ function buildPackageJson({ packageName, sdkName, sdkVersion }) {
       build: 'gamedev apps build --all',
       'deploy:fly': 'bash scripts/fly-deploy.sh',
       'deploy:app': 'gamedev apps deploy',
-      update: 'npm i gamedev@latest && gamedev update',
+      update: 'bun add -d gamedev@latest && gamedev update',
       'update:sdk': 'bash scripts/update-sdk.sh',
       typecheck: 'tsc --noEmit',
-      'hyp:extract': 'node scripts/extract-hyp.mjs',
-      'world:entities': 'node scripts/world-entities.mjs',
+      'hyp:extract': 'bun run scripts/extract-hyp.mjs',
+      'world:entities': 'bun run scripts/world-entities.mjs',
     },
     devDependencies,
   }
@@ -310,7 +314,7 @@ export function scaffoldBaseProject({
     report,
   })
 
-  writeFileWithPolicy(path.join(rootDir, '.nvmrc'), DEFAULT_NVMRC, {
+  writeFileWithPolicy(path.join(rootDir, '.bun-version'), DEFAULT_BUN_VERSION, {
     force,
     writeFile,
     report,

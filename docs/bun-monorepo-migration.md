@@ -1,6 +1,6 @@
-# PNPM Monorepo Migration Checklist
+# Bun Monorepo Migration Checklist
 
-This file tracks the conversion of this repository from a single-package npm project into a `pnpm` workspace with separate packages for client, server, CLI, and shared internals while preserving the root `gamedev` package as the public compatibility layer.
+This file tracks the conversion of this repository from a single-package npm project into a Bun workspace with separate packages for client, server, CLI, and shared internals while preserving the root `gamedev` package as the public compatibility layer.
 
 ## Target Workspace Layout
 
@@ -17,7 +17,7 @@ packages/
 ## Checklist
 
 - [x] Create workspace root files and shared config
-- [x] Add `pnpm-workspace.yaml`
+- [x] Add Bun `workspaces` metadata to the root `package.json`
 - [x] Preserve the root `gamedev` package as the workspace compatibility layer
 - [x] Add root workspace scripts for build, dev, lint, test, and publish flows
 
@@ -54,11 +54,11 @@ packages/
 - [x] Update runtime bootstrap and helper scripts for the workspace
 
 - [x] Update integration tests for workspace paths
-- [x] Update Dockerfile for `pnpm` workspace installation/build
-- [x] Update GitHub Actions for `pnpm`
+- [x] Update Dockerfile for Bun workspace installation/build
+- [x] Update GitHub Actions for Bun
 - [x] Update docs and README for workspace development
 
-- [x] Generate `pnpm-lock.yaml`
+- [x] Generate `bun.lock`
 - [x] Run workspace install
 - [x] Run build
 - [x] Run integration tests
@@ -66,7 +66,7 @@ packages/
 
 ## Verification
 
-- [x] Clean reinstall verified with `fnm` / Node `22.11.0` from `.nvmrc`
-- [x] `pnpm install` no longer reports ignored native builds
+- [x] Clean reinstall verified with Bun `1.2.14` from `.bun-version`
+- [x] `bun install` no longer requires pnpm workspace metadata
 - [x] `better-sqlite3` loads correctly after clean reinstall
 - [x] Missing direct runtime/build dependencies were added to `package.json`

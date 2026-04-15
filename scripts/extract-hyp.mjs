@@ -3,7 +3,7 @@ import path from 'node:path'
 
 const args = process.argv.slice(2)
 if (args.length === 0) {
-  console.log('Usage: node scripts/extract-hyp.mjs <app.hyp> [--project <projectDir>]')
+  console.log('Usage: bun run scripts/extract-hyp.mjs <app.hyp> [--project <projectDir>]')
   process.exit(1)
 }
 

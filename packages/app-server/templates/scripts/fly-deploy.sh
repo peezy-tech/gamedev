@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Deploys the Hyperfy world engine (ghcr.io/lobby-ws/gamedev:main) to Fly.io
 # Usage:
-#   npm run deploy:fly
+#   bun run deploy:fly
 # or
 #   bash scripts/fly-deploy.sh -a <app-name> -r <region>
 
@@ -129,15 +129,12 @@ else
 fi
 
 # Determine gamedev version from package.json to tag the engine image
-GAMEDEV_VERSION=$(node - <<'NODE'
-const fs = require('fs');
-const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-const ver = (pkg.devDependencies && pkg.devDependencies.gamedev)
-  || (pkg.dependencies && pkg.dependencies.gamedev)
-  || '';
-const clean = String(ver).trim().replace(/^[~^]/, '');
-process.stdout.write(`v${clean}`);
-NODE
+GAMEDEV_VERSION=$(bun --eval '
+const pkg = JSON.parse(await Bun.file("package.json").text())
+const ver = pkg.devDependencies?.gamedev || pkg.dependencies?.gamedev || ""
+const clean = String(ver).trim().replace(/^[~^]/, "")
+process.stdout.write(`v${clean}`)
+'
 )
 if [[ -z "$GAMEDEV_VERSION" ]]; then
   echo "Could not determine gamedev version from package.json (dependencies/devDependencies)." >&2
@@ -151,31 +148,34 @@ flyctl deploy --app "$APP_NAME" --image "$ENGINE_IMAGE" --ha=false
 # Auto-add/update target in .lobby/targets.json
 echo "Updating .lobby/targets.json with target '$APP_NAME'..."
 export APP_NAME DOMAIN WORLD_ID ADMIN_CODE
-node - <<'NODE'
-const fs = require('fs');
-const path = require('path');
-const appName = process.env.APP_NAME;
-const domain = process.env.DOMAIN;
-const worldId = process.env.WORLD_ID;
-const adminCode = process.env.ADMIN_CODE;
-const dir = path.join('.lobby');
-const file = path.join(dir, 'targets.json');
-let data = {};
-try {
-  data = JSON.parse(fs.readFileSync(file, 'utf8')) || {};
-} catch (_) {}
+bun --eval '
+import path from "node:path"
+
+const appName = process.env.APP_NAME
+const domain = process.env.DOMAIN
+const worldId = process.env.WORLD_ID
+const adminCode = process.env.ADMIN_CODE
+const filePath = path.join(".lobby", "targets.json")
+let data = {}
+
+if (await Bun.file(filePath).exists()) {
+  try {
+    data = JSON.parse(await Bun.file(filePath).text()) || {}
+  } catch {}
+}
+
 data[appName] = {
   worldUrl: `https://${domain}`,
-  worldId: worldId,
-  adminCode: adminCode,
-  confirm: true
-};
-fs.mkdirSync(dir, { recursive: true });
-fs.writeFileSync(file, JSON.stringify(data, null, 2));
-console.log(`Wrote ${file} with target '${appName}'.`);
-NODE
+  worldId,
+  adminCode,
+  confirm: true,
+}
+
+await Bun.write(filePath, `${JSON.stringify(data, null, 2)}\n`)
+console.log(`Wrote ${filePath} with target "${appName}".`)
+'
 
 echo "\nVisit your newly deployed app at https://$APP_NAME.fly.dev/"
 echo "You may need to wait a minute or so before the website is live."
 echo "\nNext steps:"
-echo "- Deploy an app: npm run deploy:app -- <AppName> --target $APP_NAME"
+echo "- Deploy an app: bun run deploy:app -- <AppName> --target $APP_NAME"

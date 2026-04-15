@@ -7,7 +7,7 @@ This tool is generic by design: agents decide what to place and where, and provi
 ## Command
 
 ```bash
-npm run world:entities -- <command> [flags]
+bun run world:entities -- <command> [flags]
 ```
 
 ## Add entities from a template
@@ -15,7 +15,7 @@ npm run world:entities -- <command> [flags]
 Clone an existing entity instance by ID, but apply transform overrides from a JSON file.
 
 ```bash
-npm run world:entities -- add \
+bun run world:entities -- add \
   --template-id k3sbGG4iq4 \
   --transforms tmp/add-trees.json
 ```
@@ -23,7 +23,7 @@ npm run world:entities -- add \
 Replace mode (delete all current instances of the template blueprint first, then add):
 
 ```bash
-npm run world:entities -- add \
+bun run world:entities -- add \
   --template-id k3sbGG4iq4 \
   --transforms tmp/add-trees.json \
   --replace \
@@ -35,13 +35,13 @@ npm run world:entities -- add \
 Delete by blueprint:
 
 ```bash
-npm run world:entities -- delete --blueprint Tree --yes
+bun run world:entities -- delete --blueprint Tree --yes
 ```
 
 Delete by explicit ID list file:
 
 ```bash
-npm run world:entities -- delete --ids tmp/delete-ids.json --yes
+bun run world:entities -- delete --ids tmp/delete-ids.json --yes
 ```
 
 ## Flags
@@ -84,7 +84,7 @@ Example:
 ```bash
 # 1) Create temp transforms JSON under tmp/
 # 2) Run CLI
-npm run world:entities -- add --template-id k3sbGG4iq4 --transforms tmp/run-001.json --yes
+bun run world:entities -- add --template-id k3sbGG4iq4 --transforms tmp/run-001.json --yes
 # 3) Remove temp file
 rm tmp/run-001.json
 ```

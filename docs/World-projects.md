@@ -6,13 +6,13 @@ Hyperfy world projects are normal Node projects that contain only game code and 
 
 ```bash
 # Scaffold a new project
-npx gamedev init
+bunx gamedev init
 
 # Install dependencies
-npm install
+bun install
 
 # Start local world + continuous sync
-npm run dev
+bun dev
 ```
 
 The scaffolded `package.json` includes `gamedev` and `typescript` as devDependencies.
@@ -31,7 +31,7 @@ assets/                     Local assets referenced by blueprints
 shared/                     Shared script modules (import via @shared/ or shared/)
 world.json                  World layout + per-instance placement/props overrides
 tsconfig.json               TypeScript config (points at `gamedev` types)
-.nvmrc                      Node version for this project
+.bun-version                Bun version for this project
 .env                         Local world/app-server config (gitignored)
 .env.example                Shareable template for env vars
 .lobby/targets.json         Local-only deploy targets (gitignored)

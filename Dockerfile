@@ -1,19 +1,19 @@
 # Build stage
-FROM node:22.11.0-alpine AS builder
+FROM oven/bun:1.2.14-alpine AS builder
 WORKDIR /app
 
 # Install Python and build tools
 RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
 
-# Enable pnpm and copy workspace metadata first
-RUN corepack enable
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
+# Copy workspace metadata first
+COPY package.json bunfig.toml bun.lock .npmrc ./
+COPY .bun-version ./
 COPY packages ./packages
-RUN pnpm install --frozen-lockfile
+RUN bun install --frozen-lockfile
 
 # Copy all source files and build
 COPY . .
-RUN pnpm run build
+RUN bun run build
 
 # Production stage
 FROM node:22.11.0-alpine AS production

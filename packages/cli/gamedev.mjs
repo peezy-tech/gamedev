@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -12,6 +12,7 @@ import { runAppCommand, runScriptCommand, runSyncCommand } from '@gamedev/app-se
 import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { scaffoldBaseProject, scaffoldBuiltins, updateBuiltins, writeManifest } from '@gamedev/app-server/scaffold.js'
 import { applyTargetEnv, parseTargetArgs, resolveTarget } from '@gamedev/app-server/targets.js'
+import { resolveRuntimeCommand } from '../../scripts/runtime-command.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(__dirname, '../..')
@@ -169,8 +170,7 @@ async function checkForUpdates() {
   if (!latest) return
   if (compareSemver(pkg.version, latest) >= 0) return
 
-  const updateCommand = `npm install -D ${pkg.name}@latest`
-  const npxCommand = `npx ${pkg.name}@latest`
+  const updateCommand = `bun add -d ${pkg.name}@latest`
   console.warn(
     `Update available for ${pkg.name}: ${pkg.version} -> ${latest}\n` +
       `Run "${updateCommand}" to update your project.`
@@ -466,8 +466,15 @@ async function startCommand(args = []) {
   if (localMode) {
     const worldDir = getWorldDir(env.WORLD_ID)
     const worldEnv = { ...envBase, WORLD: worldDir }
+    let runtimeCommand
+    try {
+      runtimeCommand = resolveRuntimeCommand(worldEnv)
+    } catch (err) {
+      console.error(`Error: ${err?.message || err}`)
+      return 1
+    }
     console.log(`World: Starting local world server (${env.WORLD_URL})`)
-    worldChild = spawnProcess('world server', process.execPath, [artifacts.worldServerPath], {
+    worldChild = spawnProcess('world server', runtimeCommand, [artifacts.worldServerPath], {
       cwd: projectDir,
       env: worldEnv,
     })
