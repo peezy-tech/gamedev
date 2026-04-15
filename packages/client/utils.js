@@ -1,4 +1,4 @@
-import { isTouch } from '../core/isTouch.js'
+import { isTouch } from '@gamedev/core/isTouch.js'
 
 export function cls(...args) {
   let str = ''

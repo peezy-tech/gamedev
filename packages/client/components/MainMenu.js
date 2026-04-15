@@ -11,12 +11,12 @@ import { theme } from './theme'
 import { HintContext, HintProvider } from './Hint'
 import { MicIcon, MicOffIcon, VRIcon } from './Icons'
 import { sortBy } from 'lodash-es'
-import * as THREE from '../../core/extras/three'
-import { Ranks } from '../../core/extras/ranks'
-import { storage } from '../../core/storage'
-import { syncLobbyProfilePatch } from '../../core/profileSync'
-import { sanitizeWsUrl } from '../../core/utils'
-import { getPreferredServerUrl, resolveConnectionPolicy, navigateToServer } from '../../core/utils-client'
+import * as THREE from '@gamedev/core/extras/three.js'
+import { Ranks } from '@gamedev/core/extras/ranks.js'
+import { storage } from '@gamedev/core/storage.js'
+import { syncLobbyProfilePatch } from '@gamedev/core/profileSync.js'
+import { sanitizeWsUrl } from '@gamedev/core/utils.js'
+import { getPreferredServerUrl, resolveConnectionPolicy, navigateToServer } from '@gamedev/core/utils-client.js'
 
 const shadowOptions = [
   { label: 'None', value: 'none' },

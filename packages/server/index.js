@@ -1,5 +1,5 @@
 import 'ses'
-import '../core/lockdown'
+import '@gamedev/core/lockdown.js'
 import './bootstrap'
 
 import fs from 'fs-extra'
@@ -45,8 +45,8 @@ import {
   verifyRuntimeBootstrapAuthorization,
   usesHostedRuntimeBootstrap,
 } from './runtimeBootstrap.js'
-import { buildRuntimeControlAuthorization, createJWT, verifyIdentityExchangeTokenWithLobby } from '../core/utils-server'
-import { Ranks } from '../core/extras/ranks'
+import { buildRuntimeControlAuthorization, createJWT, verifyIdentityExchangeTokenWithLobby } from '@gamedev/core/utils-server.js'
+import { Ranks } from '@gamedev/core/extras/ranks.js'
 
 function resolveRuntimeRootDir() {
   const candidates = [

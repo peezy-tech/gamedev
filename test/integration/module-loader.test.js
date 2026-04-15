@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { test } from 'node:test'
-import { World } from '../../packages/core/World.js'
-import { ServerLoader } from '../../packages/core/systems/ServerLoader.js'
+import { World } from '@gamedev/core/World.js'
+import { ServerLoader } from '@gamedev/core/systems/ServerLoader.js'
 import { createTempDir } from './helpers.js'
 
 test('module scripts load and execute on server runtime', async () => {

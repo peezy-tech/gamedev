@@ -6,9 +6,9 @@ import { App } from '../sidebar/App'
 import { Nodes } from '../sidebar/Nodes'
 import { Meta } from '../sidebar/Meta'
 import { Console } from '../sidebar/Console'
-import { exportApp } from '../../../core/extras/appTools'
-import { downloadFile } from '../../../core/extras/downloadFile'
-import { storage } from '../../../core/storage'
+import { exportApp } from '@gamedev/core/extras/appTools.js'
+import { downloadFile } from '@gamedev/core/extras/downloadFile.js'
+import { storage } from '@gamedev/core/storage.js'
 
 const tabs = [
   { id: 'app', label: 'Object' },

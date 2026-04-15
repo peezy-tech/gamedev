@@ -4,7 +4,7 @@ import net from 'node:net'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { DirectAppServer } from '../../packages/app-server/direct.js'
+import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { AdminWsClient, fetchJson, startWorldServer, createTempDir } from './helpers.js'
 
 async function withWorldServer(fn) {

@@ -5,9 +5,9 @@ import { test } from 'node:test'
 import WebSocket from 'ws'
 import Database from 'better-sqlite3'
 
-import { readPacket, writePacket } from '../../packages/core/packets.js'
-import { Ranks } from '../../packages/core/extras/ranks.js'
-import { buildRuntimeBootstrapAuthorization } from '../../packages/server/runtimeBootstrap.js'
+import { readPacket, writePacket } from '@gamedev/core/packets.js'
+import { Ranks } from '@gamedev/core/extras/ranks.js'
+import { buildRuntimeBootstrapAuthorization } from '@gamedev/server/runtimeBootstrap.js'
 import { AdminWsClient, fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
 
 async function canListenOnLoopback() {

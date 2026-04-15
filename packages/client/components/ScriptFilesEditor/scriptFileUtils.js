@@ -1,5 +1,5 @@
 import { parse as acornParse } from 'acorn'
-import { isValidScriptPath } from '../../../core/blueprintValidation'
+import { isValidScriptPath } from '@gamedev/core/blueprintValidation.js'
 
 const languageByExt = {
   js: 'javascript',

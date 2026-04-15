@@ -1,6 +1,6 @@
 import fs from 'fs-extra'
 import path from 'path'
-import { hashFile } from '../core/utils-server'
+import { hashFile } from '@gamedev/core/utils-server.js'
 
 export class AssetsLocal {
   constructor() {

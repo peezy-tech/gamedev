@@ -1,6 +1,6 @@
 import { cloneDeep, debounce } from 'lodash-es'
 import { useEffect } from 'react'
-import { storage } from '../../core/storage'
+import { storage } from '@gamedev/core/storage.js'
 
 const STORAGE_KEY = 'panes'
 

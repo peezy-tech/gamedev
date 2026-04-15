@@ -1,5 +1,5 @@
 import 'ses'
-import '../core/lockdown'
+import '@gamedev/core/lockdown.js'
 import { createRoot } from 'react-dom/client'
 
 import { AdminClient } from './admin-client'

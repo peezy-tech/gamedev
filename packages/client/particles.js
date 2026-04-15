@@ -1,7 +1,7 @@
 const emitters = {}
 
-import { DEG2RAD } from '../core/extras/general'
-import { Vector3, Quaternion, Matrix4, Color } from '../core/extras/three'
+import { DEG2RAD } from '@gamedev/core/extras/general.js'
+import { Vector3, Quaternion, Matrix4, Color } from '@gamedev/core/extras/three.js'
 
 const v1 = new Vector3()
 const v2 = new Vector3()

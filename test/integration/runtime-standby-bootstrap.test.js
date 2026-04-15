@@ -6,10 +6,10 @@ import path from 'node:path'
 import { test } from 'node:test'
 import Database from 'better-sqlite3'
 
-import { readPacket } from '../../packages/core/packets.js'
-import { Ranks } from '../../packages/core/extras/ranks.js'
-import { buildRuntimeControlAuthorization } from '../../packages/core/utils-server.js'
-import { buildRuntimeBootstrapAuthorization } from '../../packages/server/runtimeBootstrap.js'
+import { readPacket } from '@gamedev/core/packets.js'
+import { Ranks } from '@gamedev/core/extras/ranks.js'
+import { buildRuntimeControlAuthorization } from '@gamedev/core/utils-server.js'
+import { buildRuntimeBootstrapAuthorization } from '@gamedev/server/runtimeBootstrap.js'
 import { createTempDir, getRepoRoot, startStandbyRuntimeServer, waitFor } from './helpers.js'
 
 function toWsUrl(httpUrl) {

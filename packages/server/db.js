@@ -1,9 +1,9 @@
 import Knex from 'knex'
 import moment from 'moment'
 import path from 'path'
-import { uuid } from '../core/utils'
+import { uuid } from '@gamedev/core/utils.js'
 import { defaults } from 'lodash-es'
-import { Ranks } from '../core/extras/ranks'
+import { Ranks } from '@gamedev/core/extras/ranks.js'
 import { getWorldMaxPlayers } from './worldLimits.js'
 
 let db

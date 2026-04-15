@@ -1,9 +1,9 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadMonaco } from './monaco'
-import { hashFile } from '../../core/utils-client'
-import { isValidScriptPath } from '../../core/blueprintValidation'
-import { buildScriptGroups } from '../../core/extras/blueprintGroups'
+import { hashFile } from '@gamedev/core/utils-client.js'
+import { isValidScriptPath } from '@gamedev/core/blueprintValidation.js'
+import { buildScriptGroups } from '@gamedev/core/extras/blueprintGroups.js'
 import { ScriptFilesAiOverlay } from './ScriptFilesEditor/ScriptFilesAiOverlay'
 import { ScriptFilesTree } from './ScriptFilesEditor/ScriptFilesTree'
 import {

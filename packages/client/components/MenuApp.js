@@ -15,11 +15,11 @@ import {
   MenuLine,
   MenuSection,
 } from './Menu'
-import { hashFile } from '../../core/utils-client'
+import { hashFile } from '@gamedev/core/utils-client.js'
 import { isArray, isBoolean, isEqual, merge } from 'lodash-es'
 import { css } from '@firebolt-dev/css'
 import { RotateCcwIcon } from 'lucide-react'
-import { buildScriptGroups, getScriptGroupMain } from '../../core/extras/blueprintGroups'
+import { buildScriptGroups, getScriptGroupMain } from '@gamedev/core/extras/blueprintGroups.js'
 
 export function MenuApp({ world, app, blur }) {
   const [pages, setPages] = useState(() => ['index'])

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { resolveAuthRuntimeConfig } from '../../packages/server/authModes.js'
+import { resolveAuthRuntimeConfig } from '@gamedev/server/authModes.js'
 
 test('standalone runtimes use local identity and local rank', () => {
   assert.deepEqual(resolveAuthRuntimeConfig({}), {

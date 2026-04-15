@@ -10,7 +10,7 @@ import {
   buildRuntimeBootstrapId,
   derivePublicAdminUrl,
   derivePublicWsUrlFromApiUrl,
-} from '../packages/server/runtimeBootstrap.js'
+} from '@gamedev/server/runtimeBootstrap.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(__dirname, '..')

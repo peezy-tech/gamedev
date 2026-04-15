@@ -11,7 +11,7 @@ import { uuid } from './utils.js'
 import { resolveBlueprintId, isBlueprintDenylist } from './blueprintUtils.js'
 import { applyTargetEnv, parseTargetArgs, resolveTarget } from './targets.js'
 import { isLocalWorldUrl } from './helpers.js'
-import { buildLegacyBodyModuleSource } from '../core/legacyBody.js'
+import { buildLegacyBodyModuleSource } from '@gamedev/core/legacyBody.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(__dirname, '..', '..')

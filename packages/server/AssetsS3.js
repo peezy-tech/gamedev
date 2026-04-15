@@ -7,7 +7,7 @@ import {
 } from '@aws-sdk/client-s3'
 import fs from 'fs-extra'
 import path from 'path'
-import { hashFile } from '../core/utils-server'
+import { hashFile } from '@gamedev/core/utils-server.js'
 import { usesHostedRuntimeBootstrap } from './runtimeBootstrap.js'
 
 const contentTypes = {

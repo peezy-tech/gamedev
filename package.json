@@ -76,6 +76,8 @@
     "gamedev": "packages/cli/gamedev.mjs"
   },
   "dependencies": {
+    "@gamedev/core": "workspace:*",
+    "@gamedev/server": "workspace:*",
     "@ai-sdk/anthropic": "^3.0.23",
     "@ai-sdk/openai": "^3.0.18",
     "@aws-sdk/client-s3": "^3.859.0",
@@ -134,6 +136,8 @@
     "yoga-layout": "^3.2.1"
   },
   "devDependencies": {
+    "@gamedev/app-server": "workspace:*",
+    "@gamedev/client": "workspace:*",
     "@babel/eslint-parser": "^7.23.10",
     "@babel/preset-react": "^7.23.10",
     "esbuild": "^0.24.0",

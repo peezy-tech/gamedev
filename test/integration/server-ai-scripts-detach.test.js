@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { ServerAIScripts } from '../../packages/core/systems/ServerAIScripts.js'
+import { ServerAIScripts } from '@gamedev/core/systems/ServerAIScripts.js'
 
 function createBlueprintStore(blueprints) {
   const items = Array.isArray(blueprints) ? blueprints.map(bp => ({ ...bp })) : []

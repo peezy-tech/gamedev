@@ -1,4 +1,4 @@
-import { uuid } from '../core/utils'
+import { uuid } from '@gamedev/core/utils.js'
 
 const MANAGED_BY_VALUES = new Set(['local', 'runtime', 'shared'])
 

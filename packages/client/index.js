@@ -1,7 +1,7 @@
 /* global env */
 
 import 'ses'
-import '../core/lockdown'
+import '@gamedev/core/lockdown.js'
 import { getAddress } from 'ethers'
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -9,8 +9,8 @@ import { PrivyProvider, usePrivy, useWallets } from '@privy-io/react-auth'
 import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana'
 import { arbitrum } from '@privy-io/chains'
 
-import { storage } from '../core/storage'
-import { resolveConnectionPolicy } from '../core/utils-client'
+import { storage } from '@gamedev/core/storage.js'
+import { resolveConnectionPolicy } from '@gamedev/core/utils-client.js'
 import { Client } from './world-client'
 
 function buildWsUrl(baseUrl, token) {

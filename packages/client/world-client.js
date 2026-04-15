@@ -1,16 +1,16 @@
 // import 'ses'
-// import '../core/lockdown'
+// import '@gamedev/core/lockdown.js'
 import * as THREE from 'three'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@firebolt-dev/css'
 
-import { createClientWorld } from '../core/createClientWorld'
+import { createClientWorld } from '@gamedev/core/createClientWorld.js'
 import { CoreUI } from './components/CoreUI'
 import { assetPath } from './utils'
 import { EditorLayout } from './components/editor/EditorLayout'
 import { createRuntimeWalletAdapter } from './wallet-adapter'
 
-export { System } from '../core/systems/System'
+export { System } from '@gamedev/core/systems/System.js'
 
 export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
   const viewportRef = useRef()

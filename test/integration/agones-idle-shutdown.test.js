@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from '../../packages/server/agonesIdleShutdown.js'
+import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from '@gamedev/server/agonesIdleShutdown.js'
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))

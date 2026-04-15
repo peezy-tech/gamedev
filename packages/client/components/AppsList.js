@@ -14,7 +14,7 @@ import {
 
 import { cls } from './cls'
 import { orderBy } from 'lodash-es'
-import { formatBytes } from '../../core/extras/formatBytes'
+import { formatBytes } from '@gamedev/core/extras/formatBytes.js'
 
 const defaultStats = {
   geometries: 0,

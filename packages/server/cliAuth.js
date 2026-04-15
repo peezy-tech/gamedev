@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 
-import { createJWT, readJWT } from '../core/utils-server.js'
-import { Ranks } from '../core/extras/ranks'
-import { uuid } from '../core/utils'
+import { createJWT, readJWT } from '@gamedev/core/utils-server.js'
+import { Ranks } from '@gamedev/core/extras/ranks.js'
+import { uuid } from '@gamedev/core/utils.js'
 import { allowsOpenAdminAccess, hasSupportedAdminCode } from './runtimeBootstrap.js'
 
 const CLI_AUTH_SESSION_TTL_MS = 10 * 60 * 1000

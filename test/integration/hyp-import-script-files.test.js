@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { File } from 'node:buffer'
 import { test } from 'node:test'
-import { exportApp, importApp } from '../../packages/core/extras/appTools.js'
-import { ClientBuilder } from '../../packages/core/systems/ClientBuilder.js'
+import { exportApp, importApp } from '@gamedev/core/extras/appTools.js'
+import { ClientBuilder } from '@gamedev/core/systems/ClientBuilder.js'
 
 if (!globalThis.File) {
   globalThis.File = File

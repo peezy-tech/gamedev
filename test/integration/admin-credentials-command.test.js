@@ -4,7 +4,7 @@ import {
   ADMIN_CREDENTIAL_COMMAND,
   buildRuntimeCredentialResponse,
   handleRuntimeCredentialCommand,
-} from '../../packages/server/adminCredentials.js'
+} from '@gamedev/server/adminCredentials.js'
 
 test('command contract uses runtime_credentials_get name', () => {
   assert.equal(ADMIN_CREDENTIAL_COMMAND, 'runtime_credentials_get')

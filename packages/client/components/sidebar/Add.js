@@ -4,7 +4,7 @@ import { CirclePlusIcon, SearchIcon, SquareCheckBigIcon, SquareIcon, Trash2Icon 
 import { cls } from '../cls'
 import { theme } from '../theme'
 import { sortBy } from 'lodash-es'
-import { uuid } from '../../../core/utils'
+import { uuid } from '@gamedev/core/utils.js'
 import { BUILTIN_APP_TEMPLATES } from '../../builtinApps'
 import { Pane } from './Pane'
 

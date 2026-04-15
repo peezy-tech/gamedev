@@ -14,7 +14,7 @@ import {
   resolveRuntimeWorldDir,
   usesHostedRuntimeBootstrap,
   verifyRuntimeBootstrapAuthorization,
-} from '../../packages/server/runtimeBootstrap.js'
+} from '@gamedev/server/runtimeBootstrap.js'
 
 test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding', () => {
   const env = {

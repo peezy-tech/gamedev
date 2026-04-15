@@ -4,8 +4,8 @@ import net from 'node:net'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { runSyncCommand } from '../../packages/app-server/commands.js'
-import { DirectAppServer } from '../../packages/app-server/direct.js'
+import { runSyncCommand } from '@gamedev/app-server/commands.js'
+import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import {
   AdminWsClient,
   createTempDir,

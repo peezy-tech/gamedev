@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { resolveWebSocketConnection } from '../../packages/server/websocketConnection.js'
+import { resolveWebSocketConnection } from '@gamedev/server/websocketConnection.js'
 
 test('resolveWebSocketConnection returns raw websocket connections unchanged', () => {
   const connection = {

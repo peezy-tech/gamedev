@@ -2,11 +2,11 @@ import * as THREE from 'three'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@firebolt-dev/css'
 
-import { createAdminWorld } from '../core/createAdminWorld'
+import { createAdminWorld } from '@gamedev/core/createAdminWorld.js'
 import { CoreUI } from './components/CoreUI'
 import { assetPath } from './utils'
 
-export { System } from '../core/systems/System'
+export { System } from '@gamedev/core/systems/System.js'
 
 function resolveAdminUrl() {
   if (globalThis.env?.PUBLIC_ADMIN_URL) return globalThis.env.PUBLIC_ADMIN_URL

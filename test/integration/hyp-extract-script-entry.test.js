@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
-import { exportApp } from '../../packages/core/extras/appTools.js'
+import { exportApp } from '@gamedev/core/extras/appTools.js'
 import { createTempDir, getRepoRoot } from './helpers.js'
 
 if (!globalThis.File) {
