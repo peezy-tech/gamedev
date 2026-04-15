@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 
 import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { AdminWsClient, fetchJson, startWorldServer, createTempDir } from './helpers.js'
@@ -322,9 +322,9 @@ test('direct app-server resolves script roots per scope in mixed-scope apps', as
   const plan = await server._buildDeployPlan('MixedScope', infos, { index })
   const desiredById = new Map(plan.changes.map(item => [item.info.id, item.desired]))
 
-  assert.equal(desiredById.get('MixedScope').scriptRef, null)
+  assert.equal(Object.hasOwn(desiredById.get('MixedScope'), 'scriptRef'), false)
   assert.equal(desiredById.get('MixedScope__variant').scriptRef, 'MixedScope')
-  assert.equal(desiredById.get('MixedScope__round').scriptRef, null)
+  assert.equal(Object.hasOwn(desiredById.get('MixedScope__round'), 'scriptRef'), false)
 })
 
 test('direct app-server aligns scope before script modify when current scope differs', async () => {

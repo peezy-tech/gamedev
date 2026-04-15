@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import net from 'node:net'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 
 import { getRepoRoot, startStandbyRuntimeServer } from './helpers.js'
 

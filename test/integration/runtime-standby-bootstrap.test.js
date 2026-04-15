@@ -3,14 +3,13 @@ import http from 'node:http'
 import net from 'node:net'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
-import { test } from 'node:test'
-import Database from 'better-sqlite3'
+import { test } from './compat-test.js'
 
 import { readPacket } from '@gamedev/core/packets.js'
 import { Ranks } from '@gamedev/core/extras/ranks.js'
 import { buildRuntimeControlAuthorization } from '@gamedev/core/utils-server.js'
 import { buildRuntimeBootstrapAuthorization } from '@gamedev/server/runtimeBootstrap.js'
-import { createTempDir, getRepoRoot, startStandbyRuntimeServer, waitFor } from './helpers.js'
+import { createTempDir, getRepoRoot, runSqliteStatement, startStandbyRuntimeServer, waitFor } from './helpers.js'
 
 function toWsUrl(httpUrl) {
   if (httpUrl.startsWith('https://')) return `wss://${httpUrl.slice('https://'.length)}`
@@ -626,12 +625,7 @@ test('hosted admin capabilities rehydrate builder role from world-service when r
     }
   })
 
-  const db = new Database(dbPath)
-  try {
-    db.prepare('UPDATE users SET rank = ? WHERE id = ?').run(Ranks.VISITOR, 'user-1')
-  } finally {
-    db.close()
-  }
+  await runSqliteStatement(dbPath, 'UPDATE users SET rank = ? WHERE id = ?', [Ranks.VISITOR, 'user-1'])
 
   const roleRequestsBefore = controlPlane.requests.filter(request => request.url === '/api/internal/users/user-1').length
 
@@ -710,12 +704,7 @@ test('hosted auth exchange and admin keep local builder grants when world-servic
     }
   })
 
-  const db = new Database(dbPath)
-  try {
-    db.prepare('UPDATE users SET rank = ? WHERE id = ?').run(Ranks.BUILDER, 'user-1')
-  } finally {
-    db.close()
-  }
+  await runSqliteStatement(dbPath, 'UPDATE users SET rank = ? WHERE id = ?', [Ranks.BUILDER, 'user-1'])
 
   const secondExchangeRes = await fetch(`${server.worldUrl}/api/auth/exchange`, {
     method: 'POST',

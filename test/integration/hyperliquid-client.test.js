@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 import { getAddress } from 'viem'
 
 import { EVM } from '@gamedev/core/systems/EVMClient.js'

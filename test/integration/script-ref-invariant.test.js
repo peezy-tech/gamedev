@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 
 import { AdminWsClient, fetchJson, startWorldServer } from './helpers.js'
 

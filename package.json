@@ -73,8 +73,8 @@
     "lint:fix": "eslint . --ext .js,.jsx --fix",
     "format": "prettier --write .",
     "check": "bun run lint && bun run format",
-    "test": "bun test test/integration/**/*.test.js",
-    "test:integration": "bun test test/integration/**/*.test.js",
+    "test": "bun test --max-concurrency 1 --timeout 60000 $(find test/integration -type f -name '*.test.js' | sort)",
+    "test:integration": "bun test --max-concurrency 1 --timeout 60000 $(find test/integration -type f -name '*.test.js' | sort)",
     "smoke:matrix": "bun run scripts/smoke-mode-matrix.mjs"
   },
   "bin": {

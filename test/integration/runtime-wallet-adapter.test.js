@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 
 import { RuntimeWalletAdapter } from '@gamedev/client/wallet-adapter.js'
 

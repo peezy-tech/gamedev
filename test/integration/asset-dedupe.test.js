@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'fs/promises'
 import http from 'node:http'
 import path from 'path'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { createTempDir, stopAppServer } from './helpers.js'
 

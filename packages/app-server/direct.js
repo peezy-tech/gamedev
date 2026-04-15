@@ -2890,6 +2890,16 @@ export class DirectAppServer {
 
   _getSnapshotScriptEntry(appName) {
     if (!this.snapshot?.blueprints) return null
+    const scriptRoot = this._getSnapshotScriptRootBlueprintForApp(appName)
+    const rawEntry = normalizeSyncString(scriptRoot?.scriptEntry)
+    if (!rawEntry) return null
+    const normalized = normalizeScriptRelPath(rawEntry)
+    if (!isValidScriptPath(normalized)) return null
+    return normalized
+  }
+
+  _getSnapshotScriptRootBlueprintForApp(appName) {
+    if (!this.snapshot?.blueprints) return null
     const candidateIds = new Set()
 
     if (this.localBlueprintPathIndex?.size) {
@@ -2912,11 +2922,7 @@ export class DirectAppServer {
       const blueprint = this.snapshot.blueprints.get(id)
       if (!blueprint) continue
       const scriptRoot = this._resolveRemoteScriptRootBlueprint(blueprint) || blueprint
-      const rawEntry = normalizeSyncString(scriptRoot?.scriptEntry)
-      if (!rawEntry) continue
-      const normalized = normalizeScriptRelPath(rawEntry)
-      if (!isValidScriptPath(normalized)) continue
-      return normalized
+      if (scriptRoot) return scriptRoot
     }
     return null
   }
@@ -3052,6 +3058,9 @@ export class DirectAppServer {
       // New app directories can already contain files before nested watchers attach.
       this._scheduleDeployApp(filename)
     })
+    watcher.on?.('error', () => {
+      this._closeWatcher('appsDir')
+    })
     this.watchers.set('appsDir', watcher)
   }
 
@@ -3120,6 +3129,9 @@ export class DirectAppServer {
         this._scheduleDeployApp(appName)
       }
     })
+    watcher.on?.('error', () => {
+      this._closeWatcher(dirPath)
+    })
     this.watchers.set(dirPath, watcher)
   }
 
@@ -3135,6 +3147,9 @@ export class DirectAppServer {
         if (!fs.statSync(abs).isDirectory()) return
         this._closeWatcher('sharedRoot')
         this._watchSharedDir()
+      })
+      watcher.on?.('error', () => {
+        this._closeWatcher('sharedRoot')
       })
       this.watchers.set('sharedRoot', watcher)
       return
@@ -3187,6 +3202,9 @@ export class DirectAppServer {
       if (!rel) return
       const sharedRelPath = `${SHARED_IMPORT_PREFIX}${rel}`
       this._scheduleDeployAppsForSharedPath(sharedRelPath)
+    })
+    watcher.on?.('error', () => {
+      this._closeWatcher(dirPath)
     })
     this.watchers.set(dirPath, watcher)
   }
@@ -3351,6 +3369,9 @@ export class DirectAppServer {
       if (!fs.existsSync(this.worldFile)) return
       this._onWorldFileChanged()
     })
+    watcher.on?.('error', () => {
+      this._closeWatcher('worldFile')
+    })
     this.watchers.set('worldFile', watcher)
   }
 
@@ -3364,6 +3385,9 @@ export class DirectAppServer {
       const abs = path.join(this.assetsDir, filename)
       if (this.pendingWrites.has(abs)) return
       this._onAssetChanged(rel)
+    })
+    watcher.on?.('error', () => {
+      this._closeWatcher('assetsDir')
     })
     this.watchers.set('assetsDir', watcher)
   }
@@ -3611,7 +3635,6 @@ export class DirectAppServer {
       payload.scriptEntry = scriptInfo.scriptEntry
       payload.scriptFiles = scriptInfo.scriptFiles
       payload.scriptFormat = scriptInfo.scriptFormat
-      payload.scriptRef = null
       return payload
     }
     payload.scriptRef = rootId
@@ -3967,6 +3990,14 @@ export class DirectAppServer {
 
     const scriptEntry = normalizeScriptRelPath(path.relative(appPath, entryPath))
     const scriptFiles = {}
+    const currentScriptRoot = !upload ? this._getSnapshotScriptRootBlueprintForApp(appName) : null
+    const currentScriptFiles =
+      currentScriptRoot?.scriptFiles &&
+      typeof currentScriptRoot.scriptFiles === 'object' &&
+      !Array.isArray(currentScriptRoot.scriptFiles)
+        ? currentScriptRoot.scriptFiles
+        : null
+    const existingScriptContentByUrl = new Map()
     let entryText = null
     let entryHash = null
     let entryUrl = null
@@ -3984,7 +4015,35 @@ export class DirectAppServer {
           mimeType: 'text/javascript',
         })
       }
-      const assetUrl = `asset://${filename}`
+      let assetUrl = `asset://${filename}`
+      if (!upload) {
+        const existingUrl = normalizeSyncString(currentScriptFiles?.[relPath])
+        if (existingUrl?.startsWith('asset://')) {
+          const existingFilename = extractAssetFilename(existingUrl)
+          const existingExt = path.extname(existingFilename || '').toLowerCase()
+          const normalizedExt = ext.toLowerCase()
+          if (!existingExt || existingExt === normalizedExt) {
+            if (existingFilename && isHashedAssetFilename(existingFilename)) {
+              const expectedHash = existingFilename.slice(0, -existingExt.length).toLowerCase()
+              if (expectedHash === hash) {
+                assetUrl = existingUrl
+              }
+            } else if (existingFilename) {
+              let existingText = existingScriptContentByUrl.get(existingUrl)
+              if (existingText === undefined) {
+                existingText = await this._downloadScript(existingUrl)
+                existingScriptContentByUrl.set(existingUrl, existingText)
+              }
+              if (typeof existingText === 'string') {
+                const existingHash = sha256(Buffer.from(existingText, 'utf8'))
+                if (existingHash === hash) {
+                  assetUrl = existingUrl
+                }
+              }
+            }
+          }
+        }
+      }
       scriptFiles[relPath] = assetUrl
       if (relPath === scriptEntry) {
         entryText = buffer.toString('utf8')

@@ -9,6 +9,7 @@ import { EventEmitter } from 'events'
 import { fileURLToPath } from 'url'
 
 import { readPacket, writePacket } from '@gamedev/core/packets.js'
+import { resolveRuntimeCommand } from '../../scripts/runtime-command.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..', '..')
@@ -39,6 +40,27 @@ export function getRepoRoot() {
 
 export async function createTempDir(prefix = 'hyperfy-test-') {
   return fsPromises.mkdtemp(path.join(os.tmpdir(), prefix))
+}
+
+export async function runSqliteStatement(filename, sql, params = []) {
+  if (process.versions?.bun) {
+    const { Database } = await import('bun:sqlite')
+    const db = new Database(filename)
+    try {
+      db.query(sql).run(...params)
+    } finally {
+      db.close()
+    }
+    return
+  }
+
+  const { default: Database } = await import('better-sqlite3')
+  const db = new Database(filename)
+  try {
+    db.prepare(sql).run(...params)
+  } finally {
+    db.close()
+  }
 }
 
 export async function getAvailablePort() {
@@ -209,7 +231,8 @@ async function getPathLatestMtime(entryPath) {
 
 async function launchRuntimeProcess({ env, readyUrl, timeoutMs = 20000, failureLabel = 'runtime server' } = {}) {
   const serverPath = path.join(repoRoot, 'build', 'index.js')
-  const child = spawn(process.execPath, [serverPath], {
+  const runtimeCommand = resolveRuntimeCommand(env)
+  const child = spawn(runtimeCommand, [serverPath], {
     cwd: repoRoot,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],

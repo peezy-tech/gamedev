@@ -73,13 +73,19 @@ class NodeStorage {
   }
 }
 
+const hasLocalStorage =
+  typeof localStorage !== 'undefined' &&
+  localStorage &&
+  typeof localStorage.getItem === 'function' &&
+  typeof localStorage.setItem === 'function' &&
+  typeof localStorage.removeItem === 'function'
 const isBrowser = typeof window !== 'undefined'
 const isNode = typeof process !== 'undefined' && process.versions && process.versions.node
 
 let storage
 
-if (isBrowser) {
-  storage = new LocalStorage() // todo: some browser environments (eg safari incognito) have no local storage so we need a MemoryStorage fallback
+if (isBrowser && hasLocalStorage) {
+  storage = new LocalStorage()
 } else if (isNode) {
   storage = new NodeStorage()
 } else {

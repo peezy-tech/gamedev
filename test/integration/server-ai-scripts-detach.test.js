@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 import { ServerAIScripts } from '@gamedev/core/systems/ServerAIScripts.js'
 
 function createBlueprintStore(blueprints) {

@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import path from 'node:path'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 import WebSocket from 'ws'
-import Database from 'better-sqlite3'
 
 import { readPacket, writePacket } from '@gamedev/core/packets.js'
 import { Ranks } from '@gamedev/core/extras/ranks.js'
 import { buildRuntimeBootstrapAuthorization } from '@gamedev/server/runtimeBootstrap.js'
-import { AdminWsClient, fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
+import { AdminWsClient, fetchJson, runSqliteStatement, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
 
 async function canListenOnLoopback() {
   return new Promise(resolve => {
@@ -260,12 +259,10 @@ test('builder-only cli tokens can acquire deploy locks for script blueprint adds
   assert.equal(typeof guest.data?.token, 'string')
   assert.equal(typeof guest.data?.user?.id, 'string')
 
-  const db = new Database(path.join(world.worldDir, 'db.sqlite'))
-  try {
-    db.prepare('UPDATE users SET rank = ? WHERE id = ?').run(Ranks.BUILDER, guest.data.user.id)
-  } finally {
-    db.close()
-  }
+  await runSqliteStatement(path.join(world.worldDir, 'db.sqlite'), 'UPDATE users SET rank = ? WHERE id = ?', [
+    Ranks.BUILDER,
+    guest.data.user.id,
+  ])
 
   await waitFor(async () => {
     const status = await fetchJson(`${world.worldUrl}/api/auth/cli/status`, {

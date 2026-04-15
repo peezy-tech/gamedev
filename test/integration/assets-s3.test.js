@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import fsPromises from 'node:fs/promises'
-import { test } from 'node:test'
+import { test } from './compat-test.js'
 
 import { AssetsS3 } from '@gamedev/server/AssetsS3.js'
 import { createTempDir } from './helpers.js'
