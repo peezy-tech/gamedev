@@ -2,8 +2,8 @@ import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDownIcon, LoaderIcon, LogOutIcon, UserIcon, XIcon } from 'lucide-react'
 import { useActiveWallet, useLinkAccount, useLogin, usePrivy, useWallets } from '@privy-io/react-auth'
-import { editorTheme as theme } from './editor/editorTheme'
-import { cls } from './cls'
+import { editorTheme as theme } from './editor/editorTheme.js'
+import { cls } from './cls.js'
 
 const WORLD_SLUG_REGEX = /^[a-z0-9-]+$/
 

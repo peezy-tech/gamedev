@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@firebolt-dev/css'
 
 import { createAdminWorld } from '@gamedev/core/createAdminWorld.js'
-import { CoreUI } from './components/CoreUI'
-import { assetPath } from './utils'
+import { CoreUI } from './components/CoreUI.js'
+import { assetPath } from './utils.js'
 
 export { System } from '@gamedev/core/systems/System.js'
 

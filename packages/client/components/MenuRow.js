@@ -1,8 +1,8 @@
 import { css } from '@firebolt-dev/css'
 import { GlobeIcon, HammerIcon, LoaderIcon, UserIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { editorTheme as theme } from './editor/editorTheme'
-import { MicIcon, MicOffIcon } from './Icons'
+import { editorTheme as theme } from './editor/editorTheme.js'
+import { MicIcon, MicOffIcon } from './Icons.js'
 
 const onboardingSteps = [
   { selector: '.editor-logo', text: 'Settings' },

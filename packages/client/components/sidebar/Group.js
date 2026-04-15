@@ -1,5 +1,5 @@
 import { css } from '@firebolt-dev/css'
-import { theme } from '../theme'
+import { theme } from '../theme.js'
 
 export function Group({ label }) {
   return (

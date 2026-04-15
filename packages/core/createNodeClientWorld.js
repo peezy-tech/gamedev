@@ -1,13 +1,13 @@
-import { World } from './World'
+import { World } from './World.js'
 
-import { NodeClient } from './systems/NodeClient'
-import { ClientControls } from './systems/ClientControls'
-import { ClientNetwork } from './systems/ClientNetwork'
-import { ServerLoader } from './systems/ServerLoader'
-import { NodeEnvironment } from './systems/NodeEnvironment'
-// import { ClientActions } from './systems/ClientActions'
-// import { LODs } from './systems/LODs'
-// import { Nametags } from './systems/Nametags'
+import { NodeClient } from './systems/NodeClient.js'
+import { ClientControls } from './systems/ClientControls.js'
+import { ClientNetwork } from './systems/ClientNetwork.js'
+import { ServerLoader } from './systems/ServerLoader.js'
+import { NodeEnvironment } from './systems/NodeEnvironment.js'
+// import { ClientActions } from './systems/ClientActions.js'
+// import { LODs } from './systems/LODs.js'
+// import { Nametags } from './systems/Nametags.js'
 
 export function createNodeClientWorld() {
   const world = new World()

@@ -1,10 +1,10 @@
 import { css } from '@firebolt-dev/css'
 import { useEffect, useRef, useState } from 'react'
 import { RocketIcon, SearchIcon } from 'lucide-react'
-import { cls } from '../cls'
-import { theme } from '../theme'
-import { AppsList } from '../AppsList'
-import { Pane } from './Pane'
+import { cls } from '../cls.js'
+import { theme } from '../theme.js'
+import { AppsList } from '../AppsList.js'
+import { Pane } from './Pane.js'
 
 const appsState = {
   query: '',

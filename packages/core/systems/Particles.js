@@ -1,8 +1,8 @@
-import { System } from './System'
-import * as THREE from '../extras/three'
-import CustomShaderMaterial from '../libs/three-custom-shader-material'
-import { DEG2RAD } from '../extras/general'
-import { uuid } from '../utils'
+import { System } from './System.js'
+import * as THREE from '../extras/three.js'
+import CustomShaderMaterial from '../libs/three-custom-shader-material/index.js'
+import { DEG2RAD } from '../extras/general.js'
+import { uuid } from '../utils.js'
 
 const v1 = new THREE.Vector3()
 const v2 = new THREE.Vector3()

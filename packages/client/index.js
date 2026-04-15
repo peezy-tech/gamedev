@@ -11,7 +11,7 @@ import { arbitrum } from '@privy-io/chains'
 
 import { storage } from '@gamedev/core/storage.js'
 import { resolveConnectionPolicy } from '@gamedev/core/utils-client.js'
-import { Client } from './world-client'
+import { Client } from './world-client.js'
 
 function buildWsUrl(baseUrl, token) {
   try {

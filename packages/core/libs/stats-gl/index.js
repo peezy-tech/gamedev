@@ -1,4 +1,4 @@
-import Panel from './panel'
+import Panel from './panel.js'
 
 /**
  * This is a modified version of stats-gl

@@ -1,10 +1,10 @@
 import moment from 'moment'
-import { emoteUrls } from '../extras/playerEmotes'
-import { readPacket, writePacket } from '../packets'
-import { storage } from '../storage'
-import { uuid, sanitizeWsUrl } from '../utils'
-import { hashFile, navigateToServer } from '../utils-client'
-import { System } from './System'
+import { emoteUrls } from '../extras/playerEmotes.js'
+import { readPacket, writePacket } from '../packets.js'
+import { storage } from '../storage.js'
+import { uuid, sanitizeWsUrl } from '../utils.js'
+import { hashFile, navigateToServer } from '../utils-client.js'
+import { System } from './System.js'
 
 function hasModuleScript(blueprint) {
   if (!blueprint) return false

@@ -1,4 +1,4 @@
-import * as THREE from './three'
+import * as THREE from './three.js'
 
 export function extendThreePhysX() {
   if (!PHYSX) throw new Error('PHYSX not initialised')

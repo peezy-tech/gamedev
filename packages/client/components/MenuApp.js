@@ -14,7 +14,7 @@ import {
   MenuItemToggle,
   MenuLine,
   MenuSection,
-} from './Menu'
+} from './Menu.js'
 import { hashFile } from '@gamedev/core/utils-client.js'
 import { isArray, isBoolean, isEqual, merge } from 'lodash-es'
 import { css } from '@firebolt-dev/css'

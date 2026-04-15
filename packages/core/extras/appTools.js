@@ -1,6 +1,6 @@
 import { cloneDeep } from 'lodash-es'
-import { hashFile } from '../utils-client'
-import { buildLegacyBodyModuleSource } from '../legacyBody'
+import { hashFile } from '../utils-client.js'
+import { buildLegacyBodyModuleSource } from '../legacyBody.js'
 
 const imageExts = new Set(['png', 'jpg', 'jpeg', 'webp'])
 const typeByExt = {

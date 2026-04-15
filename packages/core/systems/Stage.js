@@ -1,8 +1,8 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { isNumber } from 'lodash-es'
 
-import { System } from './System'
-import { LooseOctree } from '../extras/LooseOctree'
+import { System } from './System.js'
+import { LooseOctree } from '../extras/LooseOctree.js'
 
 const vec2 = new THREE.Vector2()
 

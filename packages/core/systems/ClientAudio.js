@@ -1,6 +1,6 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 
-import { System } from './System'
+import { System } from './System.js'
 
 const up = new THREE.Vector3(0, 1, 0)
 const v1 = new THREE.Vector3()

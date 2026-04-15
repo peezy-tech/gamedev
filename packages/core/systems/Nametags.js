@@ -1,8 +1,8 @@
-import { fillRoundRect } from '../extras/roundRect'
-import * as THREE from '../extras/three'
-import CustomShaderMaterial from '../libs/three-custom-shader-material'
-import { uuid } from '../utils'
-import { System } from './System'
+import { fillRoundRect } from '../extras/roundRect.js'
+import * as THREE from '../extras/three.js'
+import CustomShaderMaterial from '../libs/three-custom-shader-material/index.js'
+import { uuid } from '../utils.js'
+import { System } from './System.js'
 
 /**
  * Nametags System

@@ -1,6 +1,6 @@
 import 'ses'
 import '@gamedev/core/lockdown.js'
-import './bootstrap'
+import './bootstrap.js'
 
 import fs from 'fs-extra'
 import path from 'path'
@@ -11,7 +11,7 @@ import compress from '@fastify/compress'
 import statics from '@fastify/static'
 import multipart from '@fastify/multipart'
 
-import { admin } from './admin'
+import { admin } from './admin.js'
 import {
   buildCliAuthPage,
   createCliAuthSessionStore,
@@ -25,7 +25,7 @@ import { createAgonesPlayerTracker } from './agonesPlayerTracking.js'
 import { createAgonesSdkHttp } from './agonesSdkHttp.js'
 import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from './agonesIdleShutdown.js'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
-import { resolveAuthRuntimeConfig } from './authModes'
+import { resolveAuthRuntimeConfig } from './authModes.js'
 import { completeRuntimeStartup } from './runtimeStartup.js'
 import {
   applyHostedRuntimeBootstrapPayload,

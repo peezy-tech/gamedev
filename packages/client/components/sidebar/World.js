@@ -1,10 +1,10 @@
 import { css } from '@firebolt-dev/css'
 import { useEffect, useState } from 'react'
-import { FieldFile, FieldNumber, FieldSwitch, FieldText, FieldToggle } from '../Fields'
-import { useRank } from '../useRank'
+import { FieldFile, FieldNumber, FieldSwitch, FieldText, FieldToggle } from '../Fields.js'
+import { useRank } from '../useRank.js'
 import { Ranks } from '@gamedev/core/extras/ranks.js'
-import { theme } from '../theme'
-import { Pane } from './Pane'
+import { theme } from '../theme.js'
+import { Pane } from './Pane.js'
 
 const voiceChatOptions = [
   { label: 'Disabled', value: 'disabled' },

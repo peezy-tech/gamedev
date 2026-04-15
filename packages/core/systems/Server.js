@@ -1,4 +1,4 @@
-import { System } from './System'
+import { System } from './System.js'
 
 const TICK_RATE = 1 / 30
 

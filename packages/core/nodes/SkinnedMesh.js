@@ -1,7 +1,7 @@
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
 
-import { Node } from './Node'
-import * as THREE from '../extras/three'
+import { Node } from './Node.js'
+import * as THREE from '../extras/three.js'
 import { isBoolean } from 'lodash-es'
 
 const defaults = {

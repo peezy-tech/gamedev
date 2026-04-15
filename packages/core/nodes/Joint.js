@@ -1,10 +1,10 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { isBoolean, isNumber } from 'lodash-es'
 
-import { Node } from './Node'
-import { Layers } from '../extras/Layers'
-import { bindRotations } from '../extras/bindRotations'
-import { DEG2RAD, RAD2DEG } from '../extras/general'
+import { Node } from './Node.js'
+import { Layers } from '../extras/Layers.js'
+import { bindRotations } from '../extras/bindRotations.js'
+import { DEG2RAD, RAD2DEG } from '../extras/general.js'
 
 const _q1 = new THREE.Quaternion()
 const _q2 = new THREE.Quaternion()

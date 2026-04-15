@@ -1,7 +1,7 @@
 import { isBoolean, isNumber } from 'lodash-es'
 
-import { System } from './System'
-import { storage } from '../storage'
+import { System } from './System.js'
+import { storage } from '../storage.js'
 import { isTouch } from '../isTouch.js'
 
 /**

@@ -1,4 +1,4 @@
-import { System } from './System'
+import { System } from './System.js'
 
 const BATCH_SIZE = 1000
 

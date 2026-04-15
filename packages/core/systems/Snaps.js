@@ -1,5 +1,5 @@
-import { System } from './System'
-import { SnapOctree } from '../extras/SnapOctree'
+import { System } from './System.js'
+import { SnapOctree } from '../extras/SnapOctree.js'
 
 /**
  * Snaps System

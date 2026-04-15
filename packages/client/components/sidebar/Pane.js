@@ -1,5 +1,5 @@
 import { css } from '@firebolt-dev/css'
-import { cls } from '../cls'
+import { cls } from '../cls.js'
 
 export function Pane({ width = '20rem', hidden, children }) {
   return (

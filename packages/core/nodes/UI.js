@@ -1,9 +1,9 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { every, isArray, isBoolean, isNumber, isString } from 'lodash-es'
 import Yoga from 'yoga-layout'
 
-import { Node } from './Node'
-import { fillRoundRect } from '../extras/roundRect'
+import { Node } from './Node.js'
+import { fillRoundRect } from '../extras/roundRect.js'
 import {
   AlignContent,
   AlignItems,
@@ -15,10 +15,10 @@ import {
   isFlexWrap,
   isJustifyContent,
   JustifyContent,
-} from '../extras/yoga'
-import CustomShaderMaterial from '../libs/three-custom-shader-material'
-import { borderRoundRect } from '../extras/borderRoundRect'
-import { clamp } from '../utils'
+} from '../extras/yoga.js'
+import CustomShaderMaterial from '../libs/three-custom-shader-material/index.js'
+import { borderRoundRect } from '../extras/borderRoundRect.js'
+import { clamp } from '../utils.js'
 
 const v1 = new THREE.Vector3()
 const v2 = new THREE.Vector3()

@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 
-import { System } from './System'
-import { ControlPriorities } from '../extras/ControlPriorities'
+import { System } from './System.js'
+import { ControlPriorities } from '../extras/ControlPriorities.js'
 import { isTouch } from '../isTouch.js'
-import { clamp } from '../utils'
+import { clamp } from '../utils.js'
 
 const BATCH_SIZE = 500
 const FORWARD = new THREE.Vector3(0, 0, 1)

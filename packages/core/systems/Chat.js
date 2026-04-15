@@ -1,7 +1,7 @@
 import moment from 'moment'
-import { uuid } from '../utils'
-import { syncLobbyProfilePatch } from '../profileSync'
-import { System } from './System'
+import { uuid } from '../utils.js'
+import { syncLobbyProfilePatch } from '../profileSync.js'
+import { System } from './System.js'
 
 /**
  * Chat System

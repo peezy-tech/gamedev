@@ -9,7 +9,7 @@ import {
   UsersIcon,
   XIcon,
 } from 'lucide-react'
-import { editorTheme as theme } from './editor/editorTheme'
+import { editorTheme as theme } from './editor/editorTheme.js'
 
 function resolveWorldServiceApiBase() {
   const configuredAuthUrl = typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''

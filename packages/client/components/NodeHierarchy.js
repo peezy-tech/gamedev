@@ -10,7 +10,7 @@ import {
   PersonStandingIcon,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { cls } from './cls'
+import { cls } from './cls.js'
 
 export function NodeHierarchy({ app }) {
   const [selectedNode, setSelectedNode] = useState(null)

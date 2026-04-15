@@ -1,7 +1,7 @@
-import { getRef } from '../nodes/Node'
-import { clamp, uuid } from '../utils'
-import { syncLobbyProfilePatch } from '../profileSync'
-import * as THREE from './three'
+import { getRef } from '../nodes/Node.js'
+import { clamp, uuid } from '../utils.js'
+import { syncLobbyProfilePatch } from '../profileSync.js'
+import * as THREE from './three.js'
 
 const HEALTH_MAX = 100
 

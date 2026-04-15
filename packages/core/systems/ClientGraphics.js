@@ -1,4 +1,4 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { N8AOPostPass } from 'n8ao'
 import {
   EffectComposer,
@@ -18,7 +18,7 @@ import {
   DepthEffect,
 } from 'postprocessing'
 
-import { System } from './System'
+import { System } from './System.js'
 
 const v1 = new THREE.Vector3()
 

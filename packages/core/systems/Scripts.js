@@ -1,17 +1,17 @@
-import { System } from './System'
+import { System } from './System.js'
 import { parse as acornParse } from 'acorn'
 
-import * as THREE from '../extras/three'
-import { DEG2RAD, RAD2DEG } from '../extras/general'
-import { clamp, num, uuid } from '../utils'
-import { LerpVector3 } from '../extras/LerpVector3'
-import { LerpQuaternion } from '../extras/LerpQuaternion'
-import { Curve } from '../extras/Curve'
-import { prng } from '../extras/prng'
-import { BufferedLerpVector3 } from '../extras/BufferedLerpVector3'
-import { BufferedLerpQuaternion } from '../extras/BufferedLerpQuaternion'
-import { isValidScriptPath } from '../blueprintValidation'
-import { buildLegacyBodyModuleSource } from '../legacyBody'
+import * as THREE from '../extras/three.js'
+import { DEG2RAD, RAD2DEG } from '../extras/general.js'
+import { clamp, num, uuid } from '../utils.js'
+import { LerpVector3 } from '../extras/LerpVector3.js'
+import { LerpQuaternion } from '../extras/LerpQuaternion.js'
+import { Curve } from '../extras/Curve.js'
+import { prng } from '../extras/prng.js'
+import { BufferedLerpVector3 } from '../extras/BufferedLerpVector3.js'
+import { BufferedLerpQuaternion } from '../extras/BufferedLerpQuaternion.js'
+import { isValidScriptPath } from '../blueprintValidation.js'
+import { buildLegacyBodyModuleSource } from '../legacyBody.js'
 import {
   buildModuleSpecifier,
   parseModuleSpecifier,
@@ -19,7 +19,7 @@ import {
   isRelativeImport,
   normalizeSharedRelPath,
   getSharedRelPathAlternate,
-} from '../moduleSpecifiers'
+} from '../moduleSpecifiers.js'
 
 /**
  * Script System

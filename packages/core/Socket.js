@@ -1,4 +1,4 @@
-import { readPacket, writePacket } from './packets'
+import { readPacket, writePacket } from './packets.js'
 
 export class Socket {
   constructor({ id, ws, network, player }) {

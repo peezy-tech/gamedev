@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { BookTextIcon, CodeIcon, LoaderPinwheelIcon, SparkleIcon } from 'lucide-react'
-import { cls } from '../cls'
+import { cls } from '../cls.js'
 
 export function ScriptChatPanel({
   moduleRoot,

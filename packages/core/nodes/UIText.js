@@ -1,9 +1,9 @@
 import Yoga from 'yoga-layout'
 import { every, isArray, isBoolean, isNumber, isString } from 'lodash-es'
 
-import { Node } from './Node'
-import { Display, isDisplay } from '../extras/yoga'
-import { fillRoundRect } from '../extras/roundRect'
+import { Node } from './Node.js'
+import { Display, isDisplay } from '../extras/yoga.js'
+import { fillRoundRect } from '../extras/roundRect.js'
 
 const textAligns = ['left', 'center', 'right']
 

@@ -1,8 +1,8 @@
-import * as THREE from '../extras/three'
-import { extendThreePhysX } from '../extras/extendThreePhysX'
-import { System } from './System'
-import { Layers } from '../extras/Layers'
-import { loadPhysX } from '../loadPhysX'
+import * as THREE from '../extras/three.js'
+import { extendThreePhysX } from '../extras/extendThreePhysX.js'
+import { System } from './System.js'
+import { Layers } from '../extras/Layers.js'
+import { loadPhysX } from '../loadPhysX.js'
 
 const _raycastHit = {
   actor: null,

@@ -1,8 +1,8 @@
 import { css } from '@firebolt-dev/css'
 import { useEffect, useState } from 'react'
-import { FieldFile, FieldText, FieldTextarea } from '../Fields'
-import { Pane } from './Pane'
-import { theme } from '../theme'
+import { FieldFile, FieldText, FieldTextarea } from '../Fields.js'
+import { Pane } from './Pane.js'
+import { theme } from '../theme.js'
 
 export function Meta({ world, hidden }) {
   const app = world.ui.state.app

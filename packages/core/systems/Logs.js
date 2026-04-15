@@ -1,4 +1,4 @@
-import { System } from './System'
+import { System } from './System.js'
 
 const MAX_ENTRIES = 500
 

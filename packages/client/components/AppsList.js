@@ -12,7 +12,7 @@ import {
   TriangleIcon,
 } from 'lucide-react'
 
-import { cls } from './cls'
+import { cls } from './cls.js'
 import { orderBy } from 'lodash-es'
 import { formatBytes } from '@gamedev/core/extras/formatBytes.js'
 

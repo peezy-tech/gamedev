@@ -1,8 +1,8 @@
 import { css } from '@firebolt-dev/css'
 import { useState } from 'react'
 import { ChevronRightIcon } from 'lucide-react'
-import { cls } from '../cls'
-import { editorTheme as theme } from './editorTheme'
+import { cls } from '../cls.js'
+import { editorTheme as theme } from './editorTheme.js'
 
 export function CollapsibleSection({ label, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen)

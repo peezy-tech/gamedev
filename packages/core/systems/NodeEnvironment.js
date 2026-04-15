@@ -1,6 +1,6 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 
-import { System } from './System'
+import { System } from './System.js'
 
 import { isNumber, isString } from 'lodash-es'
 

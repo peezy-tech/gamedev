@@ -1,5 +1,5 @@
 import { isBoolean, isString } from 'lodash-es'
-import { Node } from './Node'
+import { Node } from './Node.js'
 import * as THREE from 'three'
 
 const defaults = {

@@ -1,6 +1,6 @@
 import { isNumber, isString, isPlainObject } from 'lodash-es'
-import { Node } from './Node'
-import * as THREE from '../extras/three'
+import { Node } from './Node.js'
+import * as THREE from '../extras/three.js'
 
 const MAX_SHADER_LENGTH = 8192
 

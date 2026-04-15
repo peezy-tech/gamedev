@@ -1,13 +1,13 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { cls } from '../cls'
-import { theme } from '../theme'
-import { ScriptFilesEditor } from '../ScriptFilesEditor'
-import { ScriptAIController, hasScriptFiles, resolveScriptRootBlueprint } from './utils/ScriptAIController'
+import { cls } from '../cls.js'
+import { theme } from '../theme.js'
+import { ScriptFilesEditor } from '../ScriptFilesEditor.js'
+import { ScriptAIController, hasScriptFiles, resolveScriptRootBlueprint } from './utils/ScriptAIController.js'
 import { getBlueprintAppName } from '@gamedev/core/blueprintUtils.js'
-import { formatScriptError, fuzzyMatchList, getMentionState } from './utils/script'
-import { ScriptChatPanel } from './ScriptChatPanel'
-import { ScriptCodePanel } from './ScriptCodePanel'
+import { formatScriptError, fuzzyMatchList, getMentionState } from './utils/script.js'
+import { ScriptChatPanel } from './ScriptChatPanel.js'
+import { ScriptCodePanel } from './ScriptCodePanel.js'
 
 // `hasScriptFiles`/`resolveScriptRootBlueprint` are shared with ScriptAIController.
 

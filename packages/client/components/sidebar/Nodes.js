@@ -1,7 +1,7 @@
 import { css } from '@firebolt-dev/css'
-import { NodeHierarchy } from '../NodeHierarchy'
-import { Pane } from './Pane'
-import { theme } from '../theme'
+import { NodeHierarchy } from '../NodeHierarchy.js'
+import { Pane } from './Pane.js'
+import { theme } from '../theme.js'
 
 export function Nodes({ world, hidden }) {
   const app = world.ui.state.app

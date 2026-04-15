@@ -2,7 +2,7 @@
 
 Static scan of relative `import`/`export`/`require` specifiers that originally resolved into a different workspace package.
 
-Current status: all listed cases have been converted to workspace package imports and the follow-up verification scan found `0` remaining cross-package relative imports.
+Current status: all listed cases have been converted to workspace package imports, the follow-up verification scan found `0` remaining cross-package relative imports, and a second resolver pass found `0` broken package-internal relative imports.
 
 ## Migration Checklist
 
@@ -13,6 +13,7 @@ Current status: all listed cases have been converted to workspace package import
 - [x] Convert `@gamedev/node-client` imports of `@gamedev/core`.
 - [x] Convert `@gamedev/server` imports of `@gamedev/core`.
 - [x] Convert root `gamedev` imports of workspace packages in `scripts/`, `test/`, and `*.d.ts`.
+- [x] Normalize package-internal relative imports to explicit file specifiers for Node ESM.
 - [x] Refresh the workspace install / lockfile for the new package edges.
 - [x] Verify there are no remaining cross-package relative imports.
 

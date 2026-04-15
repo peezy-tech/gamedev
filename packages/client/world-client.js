@@ -5,10 +5,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@firebolt-dev/css'
 
 import { createClientWorld } from '@gamedev/core/createClientWorld.js'
-import { CoreUI } from './components/CoreUI'
-import { assetPath } from './utils'
-import { EditorLayout } from './components/editor/EditorLayout'
-import { createRuntimeWalletAdapter } from './wallet-adapter'
+import { CoreUI } from './components/CoreUI.js'
+import { assetPath } from './utils.js'
+import { EditorLayout } from './components/editor/EditorLayout.js'
+import { createRuntimeWalletAdapter } from './wallet-adapter.js'
 
 export { System } from '@gamedev/core/systems/System.js'
 

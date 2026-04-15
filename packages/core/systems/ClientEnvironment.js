@@ -1,8 +1,8 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 
-import { System } from './System'
+import { System } from './System.js'
 
-import { CSM } from '../libs/csm/CSM'
+import { CSM } from '../libs/csm/CSM.js'
 import { isNumber, isString } from 'lodash-es'
 
 const csmLevels = {

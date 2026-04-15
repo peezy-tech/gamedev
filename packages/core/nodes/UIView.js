@@ -1,9 +1,9 @@
 import Yoga from 'yoga-layout'
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { every, isArray, isBoolean, isNumber, isString } from 'lodash-es'
 
-import { Node } from './Node'
-import { fillRoundRect } from '../extras/roundRect'
+import { Node } from './Node.js'
+import { fillRoundRect } from '../extras/roundRect.js'
 import {
   AlignItems,
   AlignContent,
@@ -17,8 +17,8 @@ import {
   isAlignItem,
   isAlignContent,
   isFlexWrap,
-} from '../extras/yoga'
-import { borderRoundRect } from '../extras/borderRoundRect'
+} from '../extras/yoga.js'
+import { borderRoundRect } from '../extras/borderRoundRect.js'
 
 const defaults = {
   display: 'flex',

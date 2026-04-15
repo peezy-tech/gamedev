@@ -1,10 +1,10 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { isBoolean, isNumber } from 'lodash-es'
 
-import { getRef, Node, secureRef } from './Node'
+import { getRef, Node, secureRef } from './Node.js'
 
-import { Layers } from '../extras/Layers'
-import { geometryToPxMesh } from '../extras/geometryToPxMesh'
+import { Layers } from '../extras/Layers.js'
+import { geometryToPxMesh } from '../extras/geometryToPxMesh.js'
 
 const defaults = {
   type: 'box',

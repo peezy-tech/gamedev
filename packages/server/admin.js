@@ -4,7 +4,7 @@ import fs from 'fs'
 import { readPacket, writePacket } from '@gamedev/core/packets.js'
 import { Ranks } from '@gamedev/core/extras/ranks.js'
 import { buildRuntimeControlAuthorization, readJWT } from '@gamedev/core/utils-server.js'
-import { cleaner } from './cleaner'
+import { cleaner } from './cleaner.js'
 import {
   ADMIN_CREDENTIAL_COMMAND,
   handleRuntimeCredentialCommand,

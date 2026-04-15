@@ -1,7 +1,7 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { every, isBoolean, isNumber, isString } from 'lodash-es'
 
-import { Node } from './Node'
+import { Node } from './Node.js'
 
 const v1 = new THREE.Vector3()
 const v2 = new THREE.Vector3()

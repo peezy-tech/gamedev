@@ -1,4 +1,4 @@
-import { cls } from '../cls'
+import { cls } from '../cls.js'
 
 function renderTree(node, { selectedPath, entryPath, onSelect, dirtyPaths }, depth = 0) {
   if (!node?.children) return null

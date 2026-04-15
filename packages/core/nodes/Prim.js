@@ -1,11 +1,11 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { isBoolean, isNumber, isString, isArray, isObject, isFunction, isEqual } from 'lodash-es'
 
-import { Node, secureRef } from './Node'
-import { getTrianglesFromGeometry } from '../extras/getTrianglesFromGeometry'
-import { getTextureBytesFromMaterial } from '../extras/getTextureBytesFromMaterial'
-import { Layers } from '../extras/Layers'
-import { geometryToPxMesh } from '../extras/geometryToPxMesh'
+import { Node, secureRef } from './Node.js'
+import { getTrianglesFromGeometry } from '../extras/getTrianglesFromGeometry.js'
+import { getTextureBytesFromMaterial } from '../extras/getTextureBytesFromMaterial.js'
+import { Layers } from '../extras/Layers.js'
+import { geometryToPxMesh } from '../extras/geometryToPxMesh.js'
 
 const defaults = {
   type: 'box',

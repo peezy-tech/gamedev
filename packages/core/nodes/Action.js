@@ -1,7 +1,7 @@
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { isFunction, isNumber, isString } from 'lodash-es'
 
-import { Node } from './Node'
+import { Node } from './Node.js'
 
 const defaults = {
   label: 'Interact',

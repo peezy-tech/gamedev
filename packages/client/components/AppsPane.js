@@ -21,8 +21,8 @@ import {
   ZapIcon,
 } from 'lucide-react'
 
-import { usePane } from './usePane'
-import { cls } from './cls'
+import { usePane } from './usePane.js'
+import { cls } from './cls.js'
 import { orderBy } from 'lodash-es'
 import { formatBytes } from '@gamedev/core/extras/formatBytes.js'
 import { areBlueprintsTwinUnique, buildScriptGroups } from '@gamedev/core/extras/blueprintGroups.js'

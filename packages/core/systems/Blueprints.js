@@ -1,5 +1,5 @@
 import { isEqual, merge } from 'lodash-es'
-import { System } from './System'
+import { System } from './System.js'
 
 /**
  * Blueprints System

@@ -1,4 +1,4 @@
-import { System } from './System'
+import { System } from './System.js'
 
 export class AdminXR extends System {
   constructor(world) {

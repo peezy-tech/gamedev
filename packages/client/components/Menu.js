@@ -1,14 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@firebolt-dev/css'
-import { ChevronLeftIcon, ChevronRightIcon } from './Icons'
-import { useUpdate } from './useUpdate'
+import { ChevronLeftIcon, ChevronRightIcon } from './Icons.js'
+import { useUpdate } from './useUpdate.js'
 import { hashFile } from '@gamedev/core/utils-client.js'
 import { LoaderIcon, XIcon } from 'lucide-react'
 import { downloadFile } from '@gamedev/core/extras/downloadFile.js'
-import { CurvePreview } from './CurvePreview'
+import { CurvePreview } from './CurvePreview.js'
 import { Curve } from '@gamedev/core/extras/Curve.js'
-import { Portal } from './Portal'
-import { CurvePane } from './CurvePane'
+import { Portal } from './Portal.js'
+import { CurvePane } from './CurvePane.js'
 
 const MenuContext = createContext()
 

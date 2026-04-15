@@ -1,12 +1,12 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CirclePlusIcon, SearchIcon, SquareCheckBigIcon, SquareIcon, Trash2Icon } from 'lucide-react'
-import { cls } from '../cls'
-import { theme } from '../theme'
+import { cls } from '../cls.js'
+import { theme } from '../theme.js'
 import { sortBy } from 'lodash-es'
 import { uuid } from '@gamedev/core/utils.js'
-import { BUILTIN_APP_TEMPLATES } from '../../builtinApps'
-import { Pane } from './Pane'
+import { BUILTIN_APP_TEMPLATES } from '../../builtinApps.js'
+import { Pane } from './Pane.js'
 
 const CLIENT_BUILTIN_TEMPLATES = BUILTIN_APP_TEMPLATES.map(template => ({
   ...template,

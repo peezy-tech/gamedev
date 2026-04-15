@@ -1,5 +1,5 @@
-import { num } from '../utils'
-import { System } from './System'
+import { num } from '../utils.js'
+import { System } from './System.js'
 
 const TICK_RATE = 1 / 30
 

@@ -1,6 +1,6 @@
-import * as THREE from './three'
-import { Layers } from './Layers'
-import { DEG2RAD } from './general'
+import * as THREE from './three.js'
+import { Layers } from './Layers.js'
+import { DEG2RAD } from './general.js'
 
 export const State = {
   OFF: -1,

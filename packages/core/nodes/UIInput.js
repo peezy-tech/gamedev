@@ -1,8 +1,8 @@
 import { isBoolean, isFunction, isNumber, isString } from 'lodash-es'
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 import { CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js'
 
-import { Node } from './Node'
+import { Node } from './Node.js'
 
 const defaults = {
   value: '',

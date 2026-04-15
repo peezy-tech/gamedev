@@ -9,10 +9,10 @@ import {
   SparkleIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { cls } from '../cls'
-import { theme } from '../theme'
+import { cls } from '../cls.js'
+import { theme } from '../theme.js'
 import { isArray, isBoolean, isEqual, merge } from 'lodash-es'
-import { HintContext } from '../Hint'
+import { HintContext } from '../Hint.js'
 import {
   FieldBtn,
   FieldColor,
@@ -25,15 +25,15 @@ import {
   FieldTextarea,
   FieldToggle,
   FieldVec3,
-} from '../Fields'
+} from '../Fields.js'
 import { hashFile } from '@gamedev/core/utils-client.js'
 import { downloadFile } from '@gamedev/core/extras/downloadFile.js'
 import { areBlueprintsTwinUnique, buildScriptGroups } from '@gamedev/core/extras/blueprintGroups.js'
 import { DEG2RAD, RAD2DEG } from '@gamedev/core/extras/general.js'
 import * as THREE from '@gamedev/core/extras/three.js'
 import { uuid } from '@gamedev/core/utils.js'
-import { Pane } from './Pane'
-import { Group } from './Group'
+import { Pane } from './Pane.js'
+import { Group } from './Group.js'
 
 const extToType = {
   glb: 'model',

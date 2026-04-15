@@ -1,14 +1,14 @@
-import { World } from './World'
+import { World } from './World.js'
 
-import { Client } from './systems/Client'
-import { ClientPrefs } from './systems/ClientPrefs'
-import { ClientLoader } from './systems/ClientLoader'
-import { ClientControls } from './systems/ClientControls'
-import { ClientGraphics } from './systems/ClientGraphics'
-import { ClientEnvironment } from './systems/ClientEnvironment'
-// import { ClientAudio } from './systems/ClientAudio'
+import { Client } from './systems/Client.js'
+import { ClientPrefs } from './systems/ClientPrefs.js'
+import { ClientLoader } from './systems/ClientLoader.js'
+import { ClientControls } from './systems/ClientControls.js'
+import { ClientGraphics } from './systems/ClientGraphics.js'
+import { ClientEnvironment } from './systems/ClientEnvironment.js'
+// import { ClientAudio } from './systems/ClientAudio.js'
 
-export { System } from './systems/System'
+export { System } from './systems/System.js'
 
 export function createViewerWorld() {
   const world = new World()

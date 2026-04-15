@@ -1,11 +1,11 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadMonaco } from './monaco'
+import { loadMonaco } from './monaco.js'
 import { hashFile } from '@gamedev/core/utils-client.js'
 import { isValidScriptPath } from '@gamedev/core/blueprintValidation.js'
 import { buildScriptGroups } from '@gamedev/core/extras/blueprintGroups.js'
-import { ScriptFilesAiOverlay } from './ScriptFilesEditor/ScriptFilesAiOverlay'
-import { ScriptFilesTree } from './ScriptFilesEditor/ScriptFilesTree'
+import { ScriptFilesAiOverlay } from './ScriptFilesEditor/ScriptFilesAiOverlay.js'
+import { ScriptFilesTree } from './ScriptFilesEditor/ScriptFilesTree.js'
 import {
   SHARED_PREFIX,
   buildFileTree,
@@ -18,7 +18,7 @@ import {
   normalizeScope,
   resolveScriptFormatForSave,
   toSharedPath,
-} from './ScriptFilesEditor/scriptFileUtils'
+} from './ScriptFilesEditor/scriptFileUtils.js'
 
 const aiDebugEnabled = (process?.env?.PUBLIC_DEBUG_AI_SCRIPT || globalThis?.env?.PUBLIC_DEBUG_AI_SCRIPT) === 'true'
 

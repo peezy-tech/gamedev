@@ -1,5 +1,5 @@
-import * as THREE from '../extras/three'
-import { Node } from './Node'
+import * as THREE from '../extras/three.js'
+import { Node } from './Node.js'
 
 export class Snap extends Node {
   constructor(data = {}) {

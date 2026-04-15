@@ -1,12 +1,12 @@
 import moment from 'moment'
 import { isArray, isFunction, isNumber } from 'lodash-es'
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 
-import { System } from './System'
-import { getRef } from '../nodes/Node'
-import { Layers } from '../extras/Layers'
-import { ControlPriorities } from '../extras/ControlPriorities'
-import { warn } from '../extras/warn'
+import { System } from './System.js'
+import { getRef } from '../nodes/Node.js'
+import { Layers } from '../extras/Layers.js'
+import { ControlPriorities } from '../extras/ControlPriorities.js'
+import { warn } from '../extras/warn.js'
 
 const isBrowser = typeof window !== 'undefined'
 

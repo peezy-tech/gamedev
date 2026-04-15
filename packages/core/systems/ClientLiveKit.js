@@ -1,7 +1,7 @@
 import { Participant, ParticipantEvent, Room, RoomEvent, ScreenSharePresets, Track } from 'livekit-client'
-import * as THREE from '../extras/three'
+import * as THREE from '../extras/three.js'
 
-import { System } from './System'
+import { System } from './System.js'
 import { isBoolean } from 'lodash-es'
 
 const v1 = new THREE.Vector3()

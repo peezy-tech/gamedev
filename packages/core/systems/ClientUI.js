@@ -1,7 +1,7 @@
 import { isBoolean } from 'lodash-es'
-import { ControlPriorities } from '../extras/ControlPriorities'
-import { validateReticle } from '../extras/ReticleTheme'
-import { System } from './System'
+import { ControlPriorities } from '../extras/ControlPriorities.js'
+import { validateReticle } from '../extras/ReticleTheme.js'
+import { System } from './System.js'
 
 const appPanes = ['app', 'script', 'nodes', 'meta']
 

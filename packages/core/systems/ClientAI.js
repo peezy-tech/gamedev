@@ -1,4 +1,4 @@
-import { System } from './System'
+import { System } from './System.js'
 
 function normalizePrompt(value) {
   if (typeof value !== 'string') return ''
