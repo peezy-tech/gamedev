@@ -811,7 +811,7 @@ export function ExploreMenu({ open, onClose }) {
                       key={world.id || world.slug}
                       className='explore-card'
                       onClick={() => {
-                        window.location.href = `/worlds/${world.slug}`
+                        window.location.href = `/${world.slug}`
                       }}
                     >
                       <div className='explore-card-img-wrap'>
