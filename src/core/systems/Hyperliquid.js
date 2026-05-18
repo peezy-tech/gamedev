@@ -116,6 +116,7 @@ export class Hyperliquid extends System {
     this.streamTransportClosePromise = null
     this.streams = new Map()
     this.streamListenerId = 0
+    this.dataServiceFailureWarnings = new Set()
   }
 
   init() {
@@ -1114,6 +1115,89 @@ export class Hyperliquid extends System {
     console.warn(`[Hyperliquid] Market catalog ${scope} failed: ${message}`)
   }
 
+  _isServerRuntime() {
+    return this.world?.isServer === true || this.world?.network?.isServer === true
+  }
+
+  _getEnvValue(name) {
+    if (typeof process === 'undefined' || !process?.env) return ''
+    return typeof process.env[name] === 'string' ? process.env[name].trim() : ''
+  }
+
+  _getHyperliquidDataUrl() {
+    if (!this._isServerRuntime()) return ''
+    return this._getEnvValue('HYPERLIQUID_DATA_URL')
+  }
+
+  _hasHyperliquidDataService() {
+    return !!this._getHyperliquidDataUrl()
+  }
+
+  _buildHyperliquidDataServiceUrl(pathname, query = {}) {
+    const baseUrl = this._getHyperliquidDataUrl().replace(/\/+$/, '')
+    const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`
+    const url = new URL(`${baseUrl}${normalizedPath}`)
+    for (const [key, value] of Object.entries(query || {})) {
+      if (value === undefined || value === null || value === '') continue
+      url.searchParams.set(key, typeof value === 'boolean' ? String(value) : String(value))
+    }
+    return url
+  }
+
+  async _fetchHyperliquidDataService(pathname, query = {}) {
+    const response = await fetch(this._buildHyperliquidDataServiceUrl(pathname, query))
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) {
+      const message = payload?.message || payload?.error || `HTTP ${response.status}`
+      throw new Error(message)
+    }
+    return payload
+  }
+
+  _warnHyperliquidDataServiceFailure(operation, error) {
+    const key = `${operation}:${error?.message || String(error)}`
+    if (this.dataServiceFailureWarnings.has(key)) return
+    this.dataServiceFailureWarnings.add(key)
+    console.warn(
+      `[Hyperliquid] Data service ${operation} failed, falling back to direct Hyperliquid: ${
+        error?.message || error
+      }`
+    )
+  }
+
+  async _withHyperliquidDataServiceFallback(operation, serviceRequest, directRequest) {
+    if (!this._hasHyperliquidDataService()) {
+      return directRequest()
+    }
+    try {
+      return await serviceRequest()
+    } catch (error) {
+      this._warnHyperliquidDataServiceFailure(operation, error)
+      return directRequest()
+    }
+  }
+
+  _assertHyperliquidDataServiceArray(value, label) {
+    if (!Array.isArray(value)) {
+      throw new Error(`Invalid Hyperliquid data service ${label} response`)
+    }
+    return value
+  }
+
+  _assertHyperliquidDataServiceCatalog(value) {
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      !Array.isArray(value.corePerps) ||
+      !Array.isArray(value.builderPerps) ||
+      !Array.isArray(value.spot) ||
+      !Array.isArray(value.all)
+    ) {
+      throw new Error('Invalid Hyperliquid data service catalog response')
+    }
+    return value
+  }
+
   _normalizePerpMarket(asset, assetCtx, { venue, dex, dexLabel, dexIndex }, assetIndex) {
     const assetName = String(asset?.name || '').trim()
     const runtimeTicker = venue === 'builder' ? this._formatBuilderRuntimeTicker(assetName, dex) : assetName
@@ -1705,24 +1789,74 @@ export class Hyperliquid extends System {
     }, 0)
   }
 
-  async getAvailableTickers() {
+  async _getDirectAvailableTickers() {
     const meta = await this._getMeta()
     return meta.universe.map(asset => asset.name).sort()
   }
 
-  async getPerpMarkets(options = {}) {
+  async getAvailableTickers() {
+    return this._withHyperliquidDataServiceFallback(
+      'getAvailableTickers',
+      async () => {
+        const markets = this._assertHyperliquidDataServiceArray(
+          await this._fetchHyperliquidDataService('/v1/perps', { includeBuilderDexs: false }),
+          'perps'
+        )
+        return markets.map(market => market?.ticker).filter(Boolean).sort()
+      },
+      () => this._getDirectAvailableTickers()
+    )
+  }
+
+  async _getDirectPerpMarkets(options = {}) {
     return this._buildPerpMarkets(options)
   }
 
-  async getSpotMarkets() {
+  async getPerpMarkets(options = {}) {
+    const includeBuilderDexs = options?.includeBuilderDexs !== false
+    return this._withHyperliquidDataServiceFallback(
+      'getPerpMarkets',
+      async () =>
+        this._assertHyperliquidDataServiceArray(
+          await this._fetchHyperliquidDataService('/v1/perps', { includeBuilderDexs }),
+          'perps'
+        ),
+      () => this._getDirectPerpMarkets(options)
+    )
+  }
+
+  async _getDirectSpotMarkets() {
     return this._buildSpotMarkets()
   }
 
-  async getMarketCatalog() {
+  async getSpotMarkets() {
+    return this._withHyperliquidDataServiceFallback(
+      'getSpotMarkets',
+      async () =>
+        this._assertHyperliquidDataServiceArray(
+          await this._fetchHyperliquidDataService('/v1/spot'),
+          'spot'
+        ),
+      () => this._getDirectSpotMarkets()
+    )
+  }
+
+  async _getDirectMarketCatalog() {
     return this._getResolvedMarketCatalog()
   }
 
-  async getCandles(params = {}) {
+  async getMarketCatalog() {
+    return this._withHyperliquidDataServiceFallback(
+      'getMarketCatalog',
+      async () =>
+        this._assertHyperliquidDataServiceCatalog(
+          await this._fetchHyperliquidDataService('/v1/catalog', { includeBuilderDexs: true })
+        ),
+      () => this._getDirectMarketCatalog()
+    )
+  }
+
+  async _getDirectCandles(params = {}) {
     if (typeof this.infoClient?.candleSnapshot !== 'function') {
       return []
     }
@@ -1739,6 +1873,24 @@ export class Hyperliquid extends System {
     }
 
     return candles.map(candle => this._normalizeCandlePoint(candle, descriptor))
+  }
+
+  async getCandles(params = {}) {
+    return this._withHyperliquidDataServiceFallback(
+      'getCandles',
+      async () =>
+        this._assertHyperliquidDataServiceArray(
+          await this._fetchHyperliquidDataService('/v1/candles', {
+            ticker: params?.ticker,
+            interval: params?.interval,
+            limit: params?.limit,
+            startTime: params?.startTime,
+            endTime: params?.endTime,
+          }),
+          'candles'
+        ),
+      () => this._getDirectCandles(params)
+    )
   }
 
   async getOrderStatus(params = {}, { address = null } = {}) {
@@ -1801,7 +1953,7 @@ export class Hyperliquid extends System {
     return this.exchangeClient.order({ orders: normalizedOrders, grouping: 'na' })
   }
 
-  async getPrice(ticker) {
+  async _getDirectPrice(ticker) {
     const market = await this._resolveMarketDescriptor(ticker)
     const mids = await this._getAllMids({ dex: market.venue === 'builder' ? market.dex : null })
     const candidateKeys = [
@@ -1824,6 +1976,22 @@ export class Hyperliquid extends System {
     }
 
     throw new Error(`No price for ${market.ticker}`)
+  }
+
+  async getPrice(ticker) {
+    return this._withHyperliquidDataServiceFallback(
+      'getPrice',
+      async () => {
+        const normalizedTicker = this._normalizeMarketTicker(ticker)
+        const payload = await this._fetchHyperliquidDataService('/v1/price', { ticker: normalizedTicker })
+        const price = this._parseHyperliquidNumber(payload?.price, null)
+        if (price === null || price <= 0) {
+          throw new Error(`Invalid Hyperliquid data service price for ${normalizedTicker}`)
+        }
+        return price
+      },
+      () => this._getDirectPrice(ticker)
+    )
   }
 
   // TODO: A future pass can serve getBalance/getPositions from the latest streamed
@@ -1880,7 +2048,7 @@ export class Hyperliquid extends System {
       throw new Error(`No tradable asset id for ${market?.ticker || ticker}`)
     }
 
-    const currentPrice = await this.getPrice(market.ticker)
+    const currentPrice = await this._getDirectPrice(market.ticker)
 
     const slippageMultiplier = 1 + resolvedSlippage / 100
     const price = this._formatOrderPrice(currentPrice * slippageMultiplier, market)
@@ -1909,7 +2077,7 @@ export class Hyperliquid extends System {
       throw new Error(`No tradable asset id for ${market?.ticker || ticker}`)
     }
 
-    const currentPrice = await this.getPrice(market.ticker)
+    const currentPrice = await this._getDirectPrice(market.ticker)
 
     const slippageMultiplier = 1 - resolvedSlippage / 100
     const price = this._formatOrderPrice(currentPrice * slippageMultiplier, market)

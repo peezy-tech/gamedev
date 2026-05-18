@@ -1047,6 +1047,203 @@ test('Hyperliquid resolves venue-aware prices and orders', async () => {
   ])
 })
 
+function createFetchJsonResponse(body, { status = 200 } = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return body
+    },
+  }
+}
+
+async function withHyperliquidDataServiceEnv(testFn) {
+  const previousUrl = process.env.HYPERLIQUID_DATA_URL
+  const previousFetch = globalThis.fetch
+  process.env.HYPERLIQUID_DATA_URL = 'https://staging.peezy.tech/devnet/hyperliquid'
+  try {
+    await testFn()
+  } finally {
+    if (previousUrl === undefined) {
+      delete process.env.HYPERLIQUID_DATA_URL
+    } else {
+      process.env.HYPERLIQUID_DATA_URL = previousUrl
+    }
+    globalThis.fetch = previousFetch
+  }
+}
+
+test('Hyperliquid server public-data methods use HYPERLIQUID_DATA_URL', async () => {
+  await withHyperliquidDataServiceEnv(async () => {
+    const calls = []
+    globalThis.fetch = async input => {
+      const url = new URL(String(input))
+      calls.push([url.pathname, Object.fromEntries(url.searchParams.entries())])
+      if (url.pathname.endsWith('/v1/price')) {
+        return createFetchJsonResponse({ ticker: 'BTC', price: 104010 })
+      }
+      if (url.pathname.endsWith('/v1/perps')) {
+        return createFetchJsonResponse([
+          { ticker: 'BTC', venue: 'core' },
+          { ticker: 'ETH', venue: 'core' },
+        ])
+      }
+      if (url.pathname.endsWith('/v1/spot')) {
+        return createFetchJsonResponse([{ ticker: 'HYPE/USDC', venue: 'spot' }])
+      }
+      if (url.pathname.endsWith('/v1/catalog')) {
+        return createFetchJsonResponse({
+          corePerps: [{ ticker: 'BTC', venue: 'core' }],
+          builderPerps: [{ ticker: 'LAUNCHPAD:MOON', venue: 'builder' }],
+          spot: [{ ticker: 'HYPE/USDC', venue: 'spot' }],
+          all: [
+            { ticker: 'BTC', venue: 'core' },
+            { ticker: 'LAUNCHPAD:MOON', venue: 'builder' },
+            { ticker: 'HYPE/USDC', venue: 'spot' },
+          ],
+        })
+      }
+      if (url.pathname.endsWith('/v1/candles')) {
+        return createFetchJsonResponse([
+          { t: 1000, T: 1999, s: 'BTC', i: '1m', o: 1, c: 2, h: 3, l: 0.5, v: 4, n: 5 },
+        ])
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    }
+
+    const hl = new Hyperliquid({ network: { isServer: true } })
+    hl.infoClient = {
+      async meta() {
+        throw new Error('direct meta should not be called')
+      },
+    }
+
+    assert.equal(await hl.getPrice('btc'), 104010)
+    assert.deepEqual(await hl.getAvailableTickers(), ['BTC', 'ETH'])
+    assert.deepEqual(await hl.getPerpMarkets(), [
+      { ticker: 'BTC', venue: 'core' },
+      { ticker: 'ETH', venue: 'core' },
+    ])
+    assert.deepEqual(await hl.getSpotMarkets(), [{ ticker: 'HYPE/USDC', venue: 'spot' }])
+    assert.deepEqual((await hl.getMarketCatalog()).all.map(market => market.ticker), [
+      'BTC',
+      'LAUNCHPAD:MOON',
+      'HYPE/USDC',
+    ])
+    assert.deepEqual(await hl.getCandles({ ticker: 'BTC', interval: '1m', limit: 1 }), [
+      { t: 1000, T: 1999, s: 'BTC', i: '1m', o: 1, c: 2, h: 3, l: 0.5, v: 4, n: 5 },
+    ])
+
+    assert.deepEqual(calls.map(call => call[0].replace('/devnet/hyperliquid', '')), [
+      '/v1/price',
+      '/v1/perps',
+      '/v1/perps',
+      '/v1/spot',
+      '/v1/catalog',
+      '/v1/candles',
+    ])
+    assert.equal(calls[0][1].ticker, 'BTC')
+    assert.equal(calls[1][1].includeBuilderDexs, 'false')
+    assert.equal(calls[2][1].includeBuilderDexs, 'true')
+  })
+})
+
+test('Hyperliquid client runtime ignores HYPERLIQUID_DATA_URL', async () => {
+  await withHyperliquidDataServiceEnv(async () => {
+    globalThis.fetch = async () => {
+      throw new Error('client runtime should not call Hyperliquid data service')
+    }
+
+    const hl = new Hyperliquid({ network: { isServer: false } })
+    hl.infoClient = {
+      async meta() {
+        return {
+          universe: [{ name: 'SOL' }, { name: 'BTC' }],
+        }
+      },
+    }
+
+    assert.deepEqual(await hl.getAvailableTickers(), ['BTC', 'SOL'])
+  })
+})
+
+test('Hyperliquid standalone server mode uses direct public data when service env is unset', async () => {
+  const previousUrl = process.env.HYPERLIQUID_DATA_URL
+  delete process.env.HYPERLIQUID_DATA_URL
+  try {
+    const hl = new Hyperliquid({ network: { isServer: true } })
+    hl.infoClient = {
+      async meta() {
+        return {
+          universe: [{ name: 'ETH' }, { name: 'BTC' }],
+        }
+      },
+    }
+
+    assert.deepEqual(await hl.getAvailableTickers(), ['BTC', 'ETH'])
+  } finally {
+    if (previousUrl !== undefined) {
+      process.env.HYPERLIQUID_DATA_URL = previousUrl
+    }
+  }
+})
+
+test('Hyperliquid server public-data methods fall back when data service fails', async () => {
+  await withHyperliquidDataServiceEnv(async () => {
+    globalThis.fetch = async () => createFetchJsonResponse({ error: 'offline' }, { status: 503 })
+    const hl = new Hyperliquid({ network: { isServer: true } })
+    hl._resolveMarketDescriptor = async ticker => ({
+      ticker: hl._normalizeMarketTicker(ticker),
+      runtimeTicker: 'BTC',
+      streamCoin: 'BTC',
+      midPriceKey: 'BTC',
+      venue: 'core',
+    })
+    hl._getAllMids = async () => ({ BTC: '104000' })
+
+    assert.equal(await hl.getPrice('BTC'), 104000)
+  })
+})
+
+test('Hyperliquid verification reads stay direct when data service env is set', async () => {
+  await withHyperliquidDataServiceEnv(async () => {
+    globalThis.fetch = async () => {
+      throw new Error('verification reads must not call Hyperliquid data service')
+    }
+    const calls = []
+    const watchedAddress = getAddress('0x00000000000000000000000000000000000000AA')
+    const hl = new Hyperliquid({ network: { isServer: true } })
+    hl.infoClient = {
+      async orderStatus(params) {
+        calls.push(['orderStatus', params])
+        return { status: 'unknownOid' }
+      },
+      async userFills(params) {
+        calls.push(['userFills', params])
+        return []
+      },
+      async userFillsByTime(params) {
+        calls.push(['userFillsByTime', params])
+        return []
+      },
+    }
+
+    assert.deepEqual(await hl.getOrderStatus({ oid: 42 }, { address: watchedAddress }), { status: 'unknown' })
+    assert.deepEqual(await hl.getUserFills({}, { address: watchedAddress }), [])
+    assert.deepEqual(await hl.getUserFillsByTime({ startTime: 1700000000000 }, { address: watchedAddress }), [])
+    assert.deepEqual(calls, [
+      ['orderStatus', { user: watchedAddress, oid: 42 }],
+      ['userFills', { user: watchedAddress, aggregateByTime: undefined }],
+      ['userFillsByTime', {
+        user: watchedAddress,
+        startTime: 1700000000000,
+        endTime: null,
+        aggregateByTime: undefined,
+      }],
+    ])
+  })
+})
+
 test('Hyperliquid injects a stable runtime API per owner and address', () => {
   let injected = null
   const world = {
