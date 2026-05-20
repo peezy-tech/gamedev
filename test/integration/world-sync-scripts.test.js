@@ -170,6 +170,64 @@ test('remote blueprint sync preserves non-index script entries for redeploy', as
   }
 })
 
+test('dry script upload preserves unchanged runtime asset urls and detects local edits', async () => {
+  const rootDir = await createTempDir('hyperfy-sync-script-url-')
+  const assets = {
+    'entry.js': 'export default () => {\n  return "ok"\n}\n',
+  }
+  const assetServer = await startAssetServer(assets)
+  const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })
+  server.assetsUrl = assetServer.url
+  server._initSnapshot({
+    worldId: 'test',
+    assetsUrl: assetServer.url,
+    settings: {},
+    spawn: { position: [0, 0, 0], quaternion: [0, 0, 0, 1] },
+    entities: [],
+    blueprints: [
+      {
+        id: 'StableScript',
+        name: 'StableScript',
+        script: 'asset://entry.js',
+        scriptFormat: 'module',
+        scriptEntry: 'index.js',
+        scriptFiles: {
+          'index.js': 'asset://entry.js',
+        },
+        props: {},
+      },
+    ],
+  })
+
+  try {
+    await server._onRemoteBlueprint({
+      id: 'StableScript',
+      name: 'StableScript',
+      script: 'asset://entry.js',
+      scriptFormat: 'module',
+      scriptEntry: 'index.js',
+      scriptFiles: {
+        'index.js': 'asset://entry.js',
+      },
+      props: {},
+    })
+
+    const unchanged = await server._uploadScriptForApp('StableScript', null, { upload: false })
+    assert.equal(unchanged.scriptUrl, 'asset://entry.js')
+    assert.deepEqual(unchanged.scriptFiles, { 'index.js': 'asset://entry.js' })
+
+    const entryPath = path.join(rootDir, 'apps', 'StableScript', 'index.js')
+    await fs.writeFile(entryPath, 'export default () => {\n  return "edited"\n}\n', 'utf8')
+
+    const edited = await server._uploadScriptForApp('StableScript', null, { upload: false })
+    assert.notEqual(edited.scriptUrl, 'asset://entry.js')
+    assert.match(edited.scriptUrl, /^asset:\/\/[a-f0-9]{64}\.js$/)
+  } finally {
+    await stopAppServer(server)
+    await assetServer.close()
+  }
+})
+
 test('remote scene blueprint sync preserves $scene.json on first write', async () => {
   const rootDir = await createTempDir('hyperfy-sync-scene-')
   const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })

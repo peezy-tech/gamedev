@@ -1368,9 +1368,11 @@ export class DirectAppServer {
       byApp.get(info.appName).push(info)
     }
     for (const [appName, infos] of byApp.entries()) {
+      const existingScriptRoot = this._resolveExistingScriptRootForApp(appName, infos, localIndex)
       const scriptInfo = await this._safeUploadScriptForApp(appName, infos[0]?.scriptPath, {
         upload: false,
         allowMissing: true,
+        existingScriptRoot,
       })
       if (scriptInfo?.mode === 'module') {
         this._assignScriptRootsForApp(appName, infos, scriptInfo, localIndex)
@@ -3628,9 +3630,13 @@ export class DirectAppServer {
     return message.startsWith('missing_script_entry:') || message.startsWith('missing_script_files:')
   }
 
-  async _safeUploadScriptForApp(appName, scriptPath = null, { upload = true, allowMissing = false } = {}) {
+  async _safeUploadScriptForApp(
+    appName,
+    scriptPath = null,
+    { upload = true, allowMissing = false, existingScriptRoot = null } = {}
+  ) {
     try {
-      return await this._uploadScriptForApp(appName, scriptPath, { upload })
+      return await this._uploadScriptForApp(appName, scriptPath, { upload, existingScriptRoot })
     } catch (err) {
       if (allowMissing && this._isMissingScriptError(err)) {
         return null
@@ -3707,9 +3713,11 @@ export class DirectAppServer {
   }
 
   async _buildDeployPlan(appName, infos, { uploadAssets = false, uploadScripts = false, index = null } = {}) {
+    const existingScriptRoot = this._resolveExistingScriptRootForApp(appName, infos, index)
     const scriptInfo = await this._safeUploadScriptForApp(appName, infos[0].scriptPath, {
       upload: uploadScripts,
       allowMissing: true,
+      existingScriptRoot,
     })
     if (scriptInfo?.mode === 'module') {
       this._assignScriptRootsForApp(appName, infos, scriptInfo, index)
@@ -3935,12 +3943,81 @@ export class DirectAppServer {
     )
   }
 
-  async _uploadScriptForApp(appName, scriptPath = null, { upload = true } = {}) {
-    const modeInfo = this._resolveAppScriptMode(appName)
-    return this._uploadScriptFilesForApp(appName, modeInfo, { upload })
+  _resolveExistingScriptRootForApp(appName, infos = null, index = null) {
+    if (!this.snapshot?.blueprints) return null
+    const ids = new Set()
+    const addInfo = info => {
+      if (!info || info.appName !== appName || !info.id) return
+      ids.add(info.id)
+    }
+
+    if (Array.isArray(infos)) {
+      for (const info of infos) addInfo(info)
+    }
+    if (index && typeof index.values === 'function') {
+      for (const info of index.values()) addInfo(info)
+    }
+    if (this.localBlueprintPathIndex?.size) {
+      for (const info of this.localBlueprintPathIndex.values()) addInfo(info)
+    }
+    if (!ids.size) {
+      for (const blueprint of this.snapshot.blueprints.values()) {
+        if (!blueprint?.id) continue
+        if (parseBlueprintId(blueprint.id).appName === appName) {
+          ids.add(blueprint.id)
+        }
+      }
+    }
+
+    for (const id of ids) {
+      const blueprint = this.snapshot.blueprints.get(id)
+      const root = this._resolveRemoteScriptRootBlueprint(blueprint) || blueprint
+      if (hasScriptFiles(root)) return root
+    }
+    return null
   }
 
-  async _uploadScriptFilesForApp(appName, modeInfo, { upload = true } = {}) {
+  async _uploadScriptForApp(appName, scriptPath = null, { upload = true, existingScriptRoot = null } = {}) {
+    const modeInfo = this._resolveAppScriptMode(appName)
+    const resolvedExistingScriptRoot = existingScriptRoot || this._resolveExistingScriptRootForApp(appName)
+    return this._uploadScriptFilesForApp(appName, modeInfo, {
+      upload,
+      existingScriptRoot: resolvedExistingScriptRoot,
+    })
+  }
+
+  _getExistingScriptFileUrl(scriptRoot, relPath, scriptEntry) {
+    if (!scriptRoot || typeof scriptRoot !== 'object') return null
+    const scriptFiles =
+      scriptRoot.scriptFiles && typeof scriptRoot.scriptFiles === 'object' && !Array.isArray(scriptRoot.scriptFiles)
+        ? scriptRoot.scriptFiles
+        : null
+    const fromFiles = typeof scriptFiles?.[relPath] === 'string' ? scriptFiles[relPath] : null
+    if (fromFiles) return fromFiles
+    if (relPath === scriptEntry && typeof scriptRoot.script === 'string') return scriptRoot.script
+    return null
+  }
+
+  async _resolveUnchangedScriptAssetUrl(existingUrl, { hash, ext } = {}) {
+    const normalizedExisting = typeof existingUrl === 'string' ? normalizeAssetPath(existingUrl) : null
+    if (!normalizedExisting?.startsWith('asset://')) return null
+    const filename = extractAssetFilename(normalizedExisting)
+    if (!filename) return null
+    const existingExt = path.extname(filename).toLowerCase().replace(/^\./, '')
+    if (existingExt && ext && existingExt !== ext) return null
+
+    if (isHashedAssetFilename(filename)) {
+      const expectedHash = filename.slice(0, -path.extname(filename).length).toLowerCase()
+      return expectedHash === hash ? normalizedExisting : null
+    }
+
+    const existingScript = await this._downloadScript(normalizedExisting)
+    if (existingScript == null) return null
+    const existingHash = sha256(Buffer.from(existingScript, 'utf8'))
+    return existingHash === hash ? normalizedExisting : null
+  }
+
+  async _uploadScriptFilesForApp(appName, modeInfo, { upload = true, existingScriptRoot = null } = {}) {
     const appPath = modeInfo?.appPath || path.join(this.appsDir, appName)
     const entryPath = modeInfo?.entryPath || this._getScriptPath(appName)
     if (!entryPath || !fs.existsSync(entryPath)) {
@@ -3977,6 +4054,17 @@ export class DirectAppServer {
       const hash = sha256(buffer)
       const ext = path.extname(file.absPath) || '.js'
       const filename = `${hash}${ext}`
+      let assetUrl = `asset://${filename}`
+      if (!upload) {
+        const preservedUrl = await this._resolveUnchangedScriptAssetUrl(
+          this._getExistingScriptFileUrl(existingScriptRoot, relPath, scriptEntry),
+          {
+            hash,
+            ext: ext.toLowerCase().replace(/^\./, ''),
+          }
+        )
+        if (preservedUrl) assetUrl = preservedUrl
+      }
       if (upload) {
         await this.client.uploadAsset({
           filename,
@@ -3984,7 +4072,6 @@ export class DirectAppServer {
           mimeType: 'text/javascript',
         })
       }
-      const assetUrl = `asset://${filename}`
       scriptFiles[relPath] = assetUrl
       if (relPath === scriptEntry) {
         entryText = buffer.toString('utf8')

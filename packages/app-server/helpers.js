@@ -737,16 +737,20 @@ export function pickBlueprintFields(source) {
   return out
 }
 
+function normalizeNullableScriptField(value) {
+  return value === undefined ? null : value
+}
+
 export function normalizeBlueprintForCompare(source) {
   if (!source || typeof source !== 'object') return null
   return {
     id: source.id,
     name: source.name,
     script: source.script,
-    scriptEntry: source.scriptEntry,
-    scriptFiles: source.scriptFiles,
-    scriptFormat: source.scriptFormat,
-    scriptRef: source.scriptRef,
+    scriptEntry: normalizeNullableScriptField(source.scriptEntry),
+    scriptFiles: normalizeNullableScriptField(source.scriptFiles),
+    scriptFormat: normalizeNullableScriptField(source.scriptFormat),
+    scriptRef: normalizeNullableScriptField(source.scriptRef),
     ...pickBlueprintFields(source),
   }
 }
@@ -766,10 +770,10 @@ export function normalizeBlueprintScriptFields(source) {
   if (!source || typeof source !== 'object') return null
   return {
     script: source.script,
-    scriptEntry: source.scriptEntry,
-    scriptFiles: source.scriptFiles,
-    scriptFormat: source.scriptFormat,
-    scriptRef: source.scriptRef,
+    scriptEntry: normalizeNullableScriptField(source.scriptEntry),
+    scriptFiles: normalizeNullableScriptField(source.scriptFiles),
+    scriptFormat: normalizeNullableScriptField(source.scriptFormat),
+    scriptRef: normalizeNullableScriptField(source.scriptRef),
   }
 }
 
