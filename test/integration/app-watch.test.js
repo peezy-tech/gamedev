@@ -38,7 +38,7 @@ test('app watch schedules deploy when entry file extension changes', async () =>
   const rootDir = await createTempDir('hyperfy-app-watch-rename-')
   const appDir = path.join(rootDir, 'apps', 'RenameApp')
 
-  await writeFile(path.join(appDir, 'index.js'), "export default () => {};\n")
+  await writeFile(path.join(appDir, 'index.js'), 'export default () => {};\n')
 
   const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })
   const scheduled = []

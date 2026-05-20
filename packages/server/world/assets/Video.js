@@ -12,7 +12,7 @@ export default (world, app, fetch, props, setTimeout) => {
       type: 'file',
       kind: 'video',
       label: 'Video',
-      hint: 'The video file to play.'
+      hint: 'The video file to play.',
     },
     {
       key: 'loop',
@@ -31,7 +31,7 @@ export default (world, app, fetch, props, setTimeout) => {
     {
       key: 'surface',
       type: 'section',
-      label: 'Surface'
+      label: 'Surface',
     },
     {
       key: 'width',
@@ -69,7 +69,7 @@ export default (world, app, fetch, props, setTimeout) => {
       key: 'lit',
       type: 'toggle',
       label: 'Lit',
-      hint: 'Whether the surface reacts to world lighting or not.'
+      hint: 'Whether the surface reacts to world lighting or not.',
     },
     {
       key: 'shadows',
@@ -84,7 +84,7 @@ export default (world, app, fetch, props, setTimeout) => {
     {
       key: 'audio',
       type: 'section',
-      label: 'Audio'
+      label: 'Audio',
     },
     {
       key: 'volume',
@@ -94,7 +94,7 @@ export default (world, app, fetch, props, setTimeout) => {
       step: 0.1,
       bigStep: 1,
       initial: 1,
-    }
+    },
   ])
   app.keepActive = true
 
@@ -130,7 +130,7 @@ export default (world, app, fetch, props, setTimeout) => {
 
   app.add(video)
 
-  if (!src) throw new Error("no src in video!");
+  if (!src) throw new Error('no src in video!')
 
   if (sync) {
     if (world.isServer) {
@@ -173,7 +173,6 @@ export default (world, app, fetch, props, setTimeout) => {
           video.time = time
           if (play) video.play()
         }
-
       }
     }
   }

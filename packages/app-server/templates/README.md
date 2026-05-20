@@ -2,10 +2,11 @@
 
 ## Setup
 
-Recommended Node.js version: 22.11.0
+Recommended Node.js version: 24.15.0
 
 ```
-npm i && npm run dev
+vp install
+vp run dev
 ```
 
 ## Start building
@@ -24,4 +25,4 @@ Before any coding agent does work in this SDK repo, require this pre-read from t
 ## Updating the SDK
 
 - Update your SDK and engine:
-  - `npm run update:sdk`
+  - `vp run update:sdk`

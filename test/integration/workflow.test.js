@@ -118,14 +118,17 @@ describe('workflow vnext integrations (server/app-server)', () => {
         fs.writeFileSync(worldPath, JSON.stringify(manifest, null, 2))
         await appServer._onWorldFileChanged()
 
-        await waitFor(async () => {
-          const { res, data } = await fetchJson(`${world.worldUrl}/admin/snapshot`, {
-            adminCode: world.adminCode,
-          })
-          if (!res.ok) return false
-          const entity = data.entities?.find(item => item.id === entityId)
-          return entity?.props?.text === 'from-file'
-        }, { timeoutMs: 6000 })
+        await waitFor(
+          async () => {
+            const { res, data } = await fetchJson(`${world.worldUrl}/admin/snapshot`, {
+              adminCode: world.adminCode,
+            })
+            if (!res.ok) return false
+            const entity = data.entities?.find(item => item.id === entityId)
+            return entity?.props?.text === 'from-file'
+          },
+          { timeoutMs: 6000 }
+        )
 
         admin.close()
       } finally {
@@ -397,10 +400,7 @@ describe('workflow vnext integrations (server/app-server)', () => {
       fs.mkdirSync(appDir, { recursive: true })
 
       fs.writeFileSync(path.join(appDir, 'index.js'), `export const foo = "bar";\n`)
-      fs.writeFileSync(
-        path.join(appDir, 'main.json'),
-        JSON.stringify({ props: { text: 'hello' } }, null, 2)
-      )
+      fs.writeFileSync(path.join(appDir, 'main.json'), JSON.stringify({ props: { text: 'hello' } }, null, 2))
 
       const server = new DirectAppServer({
         worldUrl: world.worldUrl,
@@ -416,7 +416,6 @@ describe('workflow vnext integrations (server/app-server)', () => {
           headers: { 'X-Admin-Code': world.adminCode },
         })
         assert.equal(res.status, 404)
-
       } finally {
         process.env.WORLD_ID = savedEnv.WORLD_ID
         process.env.WORLD_URL = savedEnv.WORLD_URL

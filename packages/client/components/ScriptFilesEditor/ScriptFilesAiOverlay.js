@@ -16,27 +16,16 @@ export function ScriptFilesAiOverlay({
       <div className='script-files-ai-header'>
         <div className='script-files-ai-title'>AI Review</div>
         <div className='script-files-ai-summary'>
-          {aiProposal.summary ||
-            `${aiProposal.files.length} file${aiProposal.files.length === 1 ? '' : 's'} changed`}
+          {aiProposal.summary || `${aiProposal.files.length} file${aiProposal.files.length === 1 ? '' : 's'} changed`}
         </div>
         <div className='script-files-ai-actions'>
           <button className='script-files-ai-action' type='button' onClick={onClose}>
             Close
           </button>
-          <button
-            className='script-files-ai-action'
-            type='button'
-            disabled={saving}
-            onClick={onCommit}
-          >
+          <button className='script-files-ai-action' type='button' disabled={saving} onClick={onCommit}>
             {saving ? 'Applying...' : 'Apply'}
           </button>
-          <button
-            className='script-files-ai-action'
-            type='button'
-            disabled={saving}
-            onClick={onDiscard}
-          >
+          <button className='script-files-ai-action' type='button' disabled={saving} onClick={onDiscard}>
             Discard
           </button>
         </div>

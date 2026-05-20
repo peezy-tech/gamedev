@@ -9,13 +9,13 @@ Hyperfy world projects are normal Node projects that contain only game code and 
 npx gamedev init
 
 # Install dependencies
-npm install
+vp install
 
 # Start local world + continuous sync
-npm run dev
+vp run dev
 ```
 
-The scaffolded `package.json` includes `gamedev` and `typescript` as devDependencies.
+The scaffolded `package.json` includes `gamedev`, `typescript`, and `vite-plus` as devDependencies.
 Built-in apps and a default `$scene` entry are included in `apps/` and `world.json`.
 
 World projects are meant to live in their own repository (no engine source). The CLI syncs your files to a world server:

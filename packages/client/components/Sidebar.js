@@ -247,11 +247,7 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
               }
             `}
           >
-            {isOffline ? (
-              <WifiOffIcon size='1.125rem' color='#6b7280' />
-            ) : (
-              <WifiIcon size='1.125rem' color='#4ade80' />
-            )}
+            {isOffline ? <WifiOffIcon size='1.125rem' color='#6b7280' /> : <WifiIcon size='1.125rem' color='#4ade80' />}
           </div>
         </div>
         {showConn && (
@@ -288,9 +284,13 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
                   border: none;
                   outline: none;
                   text-align: right;
-                  &::placeholder { color: rgba(255,255,255,0.25); }
+                  &::placeholder {
+                    color: rgba(255, 255, 255, 0.25);
+                  }
                 }
-                &:hover { background: rgba(255,255,255,0.03); }
+                &:hover {
+                  background: rgba(255, 255, 255, 0.03);
+                }
               }
               .conn-status {
                 display: flex;
@@ -298,9 +298,12 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
                 height: 2.5rem;
                 padding: 0 1rem;
                 font-size: 0.875rem;
-                color: rgba(255,255,255,0.5);
+                color: rgba(255, 255, 255, 0.5);
                 gap: 0.5rem;
-                .conn-status-label { width: 4.5rem; flex-shrink: 0; }
+                .conn-status-label {
+                  width: 4.5rem;
+                  flex-shrink: 0;
+                }
                 .conn-status-value {
                   flex: 1;
                   text-align: right;
@@ -309,7 +312,7 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
               }
               .conn-sep {
                 height: 1px;
-                background: rgba(255,255,255,0.06);
+                background: rgba(255, 255, 255, 0.06);
                 margin: 0.25rem 0;
               }
               .conn-action {
@@ -321,7 +324,7 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
                 color: ${isOffline ? '#4ade80' : 'rgba(255,255,255,0.5)'};
                 cursor: pointer;
                 &:hover {
-                  background: rgba(255,255,255,0.03);
+                  background: rgba(255, 255, 255, 0.03);
                   color: ${isOffline ? '#6ee7a0' : 'rgba(255,255,255,0.8)'};
                 }
               }
@@ -336,7 +339,10 @@ export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, on
                   value={serverUrl}
                   onChange={e => setServerUrl(e.target.value)}
                   onKeyDown={e => {
-                    if (e.code === 'Enter') { e.preventDefault(); handleConnect() }
+                    if (e.code === 'Enter') {
+                      e.preventDefault()
+                      handleConnect()
+                    }
                   }}
                 />
               </label>
@@ -615,7 +621,9 @@ function WalletBtn({ auth, onClick }) {
   const label = auth.pending
     ? 'Connecting...'
     : auth.connected
-      ? (auth.address ? formatWalletAddress(auth.address) : 'Signed In')
+      ? auth.address
+        ? formatWalletAddress(auth.address)
+        : 'Signed In'
       : providerLoading
         ? 'Loading Auth...'
         : providerUnavailable

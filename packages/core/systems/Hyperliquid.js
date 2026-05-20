@@ -1,11 +1,5 @@
 import { System } from './System.js'
-import {
-  HttpTransport,
-  InfoClient,
-  ExchangeClient,
-  WebSocketTransport,
-  SubscriptionClient,
-} from '@nktkas/hyperliquid'
+import { HttpTransport, InfoClient, ExchangeClient, WebSocketTransport, SubscriptionClient } from '@nktkas/hyperliquid'
 import { PrivateKeySigner } from '@nktkas/hyperliquid/signing'
 import { getAddress } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
@@ -132,12 +126,7 @@ export class Hyperliquid extends System {
     }
 
     const [firstArg, secondArg = null] = args
-    if (
-      firstArg === null ||
-      firstArg === undefined ||
-      typeof firstArg === 'string' ||
-      typeof firstArg === 'number'
-    ) {
+    if (firstArg === null || firstArg === undefined || typeof firstArg === 'string' || typeof firstArg === 'number') {
       return { owner: null, address: firstArg ?? null }
     }
 
@@ -355,13 +344,12 @@ export class Hyperliquid extends System {
   }
 
   async _setConfiguredReferrerIfNeeded() {
-    const code = "LOBBY"
+    const code = 'LOBBY'
     if (!this.address) return
 
     try {
       const referral = await this.infoClient.referral({ user: this.address })
-      const existingCode =
-        typeof referral?.referredBy?.code === 'string' ? referral.referredBy.code.trim() : ''
+      const existingCode = typeof referral?.referredBy?.code === 'string' ? referral.referredBy.code.trim() : ''
       if (existingCode) {
         console.log('[Hyperliquid] Referrer already set, skipping referral setup')
         return
@@ -408,10 +396,7 @@ export class Hyperliquid extends System {
       if (error?.message?.includes('User rejected') || error?.code === 4001) {
         throw new Error('Please switch to Arbitrum to continue')
       }
-      if (
-        error?.message?.includes('Unrecognized chain') ||
-        error?.message?.includes('wallet_addEthereumChain')
-      ) {
+      if (error?.message?.includes('Unrecognized chain') || error?.message?.includes('wallet_addEthereumChain')) {
         throw new Error('Please add Arbitrum network to your wallet')
       }
       throw new Error(`Failed to switch to Arbitrum: ${error?.message || error}`)
@@ -812,8 +797,7 @@ export class Hyperliquid extends System {
       return null
     }
 
-    const parsed =
-      typeof value === 'number' && Number.isInteger(value) ? value : Number.parseInt(String(value), 10)
+    const parsed = typeof value === 'number' && Number.isInteger(value) ? value : Number.parseInt(String(value), 10)
     if (!Number.isInteger(parsed)) {
       throw new Error(`Hyperliquid ${label} must be an integer`)
     }
@@ -910,11 +894,7 @@ export class Hyperliquid extends System {
     let resolvedSlippage = slippageOrOptions
     let orderOptions = maybeOptions
 
-    if (
-      slippageOrOptions &&
-      typeof slippageOrOptions === 'object' &&
-      !Array.isArray(slippageOrOptions)
-    ) {
+    if (slippageOrOptions && typeof slippageOrOptions === 'object' && !Array.isArray(slippageOrOptions)) {
       resolvedSlippage = 1
       orderOptions = slippageOrOptions
     }
@@ -988,11 +968,8 @@ export class Hyperliquid extends System {
   }
 
   _normalizeOrderStatusParams(params = {}, { address = null } = {}) {
-    const request =
-      params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : { oid: params }
-    const oid = this._normalizeOrderIdentifier(
-      request.oid ?? request.cloid ?? request.orderId ?? request.clientOrderId
-    )
+    const request = params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : { oid: params }
+    const oid = this._normalizeOrderIdentifier(request.oid ?? request.cloid ?? request.orderId ?? request.clientOrderId)
     const user = this._getReadAddress(request.user ?? request.address ?? address)
 
     return {
@@ -1002,10 +979,8 @@ export class Hyperliquid extends System {
   }
 
   _normalizeUserFillsParams(params = {}, { address = null } = {}) {
-    const request =
-      params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : {}
-    const aggregateByTime =
-      typeof request.aggregateByTime === 'boolean' ? request.aggregateByTime : undefined
+    const request = params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : {}
+    const aggregateByTime = typeof request.aggregateByTime === 'boolean' ? request.aggregateByTime : undefined
 
     return {
       user: this._getReadAddress(request.user ?? request.address ?? address),
@@ -1014,8 +989,7 @@ export class Hyperliquid extends System {
   }
 
   _normalizeUserFillsByTimeParams(params = {}, { address = null } = {}) {
-    const request =
-      params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : {}
+    const request = params && typeof params === 'object' && !Array.isArray(params) ? { ...params } : {}
     const startTime = this._normalizeOptionalInteger(request.startTime, 'user fills startTime')
     if (startTime === null) {
       throw new Error('Hyperliquid user fills startTime is required')
@@ -1201,7 +1175,12 @@ export class Hyperliquid extends System {
 
     meta.universe.forEach((asset, index) => {
       try {
-        const market = this._normalizePerpMarket(asset, Array.isArray(assetCtxs) ? assetCtxs[index] : null, descriptor, index)
+        const market = this._normalizePerpMarket(
+          asset,
+          Array.isArray(assetCtxs) ? assetCtxs[index] : null,
+          descriptor,
+          index
+        )
         if (market?.asset) {
           markets.push(market)
         }
@@ -1229,39 +1208,39 @@ export class Hyperliquid extends System {
     const markets = spotMeta.universe
       .map(market => {
         try {
-        if (!market || !Array.isArray(market.tokens) || market.tokens.length < 2) return null
-        const baseToken = tokenMap.get(market.tokens[0])
-        const quoteToken = tokenMap.get(market.tokens[1])
-        if (!baseToken || !quoteToken) return null
+          if (!market || !Array.isArray(market.tokens) || market.tokens.length < 2) return null
+          const baseToken = tokenMap.get(market.tokens[0])
+          const quoteToken = tokenMap.get(market.tokens[1])
+          if (!baseToken || !quoteToken) return null
 
-        const assetCtx = Array.isArray(assetCtxs) ? assetCtxs[market.index] : null
-        const runtimeTicker = `${baseToken.name}/${quoteToken.name}`
-        const ticker = this._normalizeMarketTicker(runtimeTicker)
-        const pairIndex = Number.isFinite(market.index) ? market.index : null
-        const pairId = typeof market.name === 'string' && market.name.trim() ? market.name.trim() : runtimeTicker
-        return {
-          ticker,
-          symbol: ticker,
-          runtimeTicker,
-          streamCoin: pairId,
-          midPriceKey: pairId,
-          marketType: 'spot',
-          venue: 'spot',
-          pairId,
-          pairIndex,
-          assetId: Number.isFinite(pairIndex) ? 10000 + pairIndex : null,
-          isCanonical: !!market.isCanonical,
-          baseToken,
-          quoteToken,
-          szDecimals: baseToken.szDecimals,
-          markPrice: this._parseHyperliquidNumber(assetCtx?.markPx),
-          midPrice: this._normalizeNullableHyperliquidNumber(assetCtx?.midPx),
-          circulatingSupply: this._parseHyperliquidNumber(assetCtx?.circulatingSupply),
-          totalSupply: this._parseHyperliquidNumber(assetCtx?.totalSupply),
-          dayBaseVolume: this._parseHyperliquidNumber(assetCtx?.dayBaseVlm),
-          dayNotionalVolume: this._parseHyperliquidNumber(assetCtx?.dayNtlVlm),
-          prevDayPrice: this._parseHyperliquidNumber(assetCtx?.prevDayPx),
-        }
+          const assetCtx = Array.isArray(assetCtxs) ? assetCtxs[market.index] : null
+          const runtimeTicker = `${baseToken.name}/${quoteToken.name}`
+          const ticker = this._normalizeMarketTicker(runtimeTicker)
+          const pairIndex = Number.isFinite(market.index) ? market.index : null
+          const pairId = typeof market.name === 'string' && market.name.trim() ? market.name.trim() : runtimeTicker
+          return {
+            ticker,
+            symbol: ticker,
+            runtimeTicker,
+            streamCoin: pairId,
+            midPriceKey: pairId,
+            marketType: 'spot',
+            venue: 'spot',
+            pairId,
+            pairIndex,
+            assetId: Number.isFinite(pairIndex) ? 10000 + pairIndex : null,
+            isCanonical: !!market.isCanonical,
+            baseToken,
+            quoteToken,
+            szDecimals: baseToken.szDecimals,
+            markPrice: this._parseHyperliquidNumber(assetCtx?.markPx),
+            midPrice: this._normalizeNullableHyperliquidNumber(assetCtx?.midPx),
+            circulatingSupply: this._parseHyperliquidNumber(assetCtx?.circulatingSupply),
+            totalSupply: this._parseHyperliquidNumber(assetCtx?.totalSupply),
+            dayBaseVolume: this._parseHyperliquidNumber(assetCtx?.dayBaseVlm),
+            dayNotionalVolume: this._parseHyperliquidNumber(assetCtx?.dayNtlVlm),
+            prevDayPrice: this._parseHyperliquidNumber(assetCtx?.prevDayPx),
+          }
         } catch (error) {
           this._warnMarketCatalogFailure('spot market normalization', error)
           return null
@@ -1285,11 +1264,14 @@ export class Hyperliquid extends System {
         continue
       }
 
-      const currentQuote = String(current?.quoteToken?.name || '').trim().toUpperCase()
-      const nextQuote = String(market?.quoteToken?.name || '').trim().toUpperCase()
+      const currentQuote = String(current?.quoteToken?.name || '')
+        .trim()
+        .toUpperCase()
+      const nextQuote = String(market?.quoteToken?.name || '')
+        .trim()
+        .toUpperCase()
       const prefersNext =
-        (!!market?.isCanonical && !current?.isCanonical) ||
-        (nextQuote === 'USDC' && currentQuote !== 'USDC')
+        (!!market?.isCanonical && !current?.isCanonical) || (nextQuote === 'USDC' && currentQuote !== 'USDC')
       if (prefersNext) {
         primaryMarkets.set(baseName, market)
       }
@@ -1358,7 +1340,9 @@ export class Hyperliquid extends System {
   }
 
   _normalizePosition(position, { dex = null } = {}) {
-    const runtimeTicker = dex ? this._formatBuilderRuntimeTicker(position?.coin, dex) : String(position?.coin || '').trim()
+    const runtimeTicker = dex
+      ? this._formatBuilderRuntimeTicker(position?.coin, dex)
+      : String(position?.coin || '').trim()
     return {
       ticker: this._normalizeMarketTicker(runtimeTicker),
       size: this._parseHyperliquidNumber(position.szi),
@@ -1736,7 +1720,9 @@ export class Hyperliquid extends System {
   _getSpotUsdBalance(spotClearinghouseState) {
     if (!spotClearinghouseState || !Array.isArray(spotClearinghouseState.balances)) return 0
     return spotClearinghouseState.balances.reduce((sum, balance) => {
-      const coin = String(balance?.coin || '').trim().toUpperCase()
+      const coin = String(balance?.coin || '')
+        .trim()
+        .toUpperCase()
       if (coin !== 'USDC') return sum
       return sum + this._parseHyperliquidNumber(balance?.total)
     }, 0)
@@ -1841,12 +1827,7 @@ export class Hyperliquid extends System {
   async getPrice(ticker) {
     const market = await this._resolveMarketDescriptor(ticker)
     const mids = await this._getAllMids({ dex: market.venue === 'builder' ? market.dex : null })
-    const candidateKeys = [
-      market.midPriceKey,
-      market.streamCoin,
-      market.runtimeTicker,
-      market.ticker,
-    ].filter(Boolean)
+    const candidateKeys = [market.midPriceKey, market.streamCoin, market.runtimeTicker, market.ticker].filter(Boolean)
 
     for (const key of candidateKeys) {
       const price = this._parseHyperliquidNumber(mids?.[key], null)
@@ -1925,16 +1906,19 @@ export class Hyperliquid extends System {
 
     console.log(`[Hyperliquid] buy: ${size} ${market.ticker} @ ${price} (${resolvedSlippage}% slippage)`)
 
-    return this._placeOrder([
-      {
-        a: market.assetId,
-        b: true,
-        p: price,
-        s: size,
-        r: false,
-        t: { limit: { tif: 'Ioc' } },
-      },
-    ], orderOptions)
+    return this._placeOrder(
+      [
+        {
+          a: market.assetId,
+          b: true,
+          p: price,
+          s: size,
+          r: false,
+          t: { limit: { tif: 'Ioc' } },
+        },
+      ],
+      orderOptions
+    )
   }
 
   async sell(ticker, amount, slippage = 1, options = null) {
@@ -1954,16 +1938,19 @@ export class Hyperliquid extends System {
 
     console.log(`[Hyperliquid] sell: ${size} ${market.ticker} @ ${price} (${resolvedSlippage}% slippage)`)
 
-    return this._placeOrder([
-      {
-        a: market.assetId,
-        b: false,
-        p: price,
-        s: size,
-        r: false,
-        t: { limit: { tif: 'Ioc' } },
-      },
-    ], orderOptions)
+    return this._placeOrder(
+      [
+        {
+          a: market.assetId,
+          b: false,
+          p: price,
+          s: size,
+          r: false,
+          t: { limit: { tif: 'Ioc' } },
+        },
+      ],
+      orderOptions
+    )
   }
 
   async closePosition(ticker, slippage = 1, options = null) {

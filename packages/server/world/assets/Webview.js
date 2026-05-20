@@ -3,55 +3,54 @@ export default (world, app, fetch, props, setTimeout) => {
     {
       key: 'url',
       type: 'text',
-      label: 'URL'
+      label: 'URL',
     },
   ])
   app.keepActive = true
 
-  var __defProp = Object.defineProperty;
-  var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+  var __defProp = Object.defineProperty
+  var __name = (target, value) => __defProp(target, 'name', { value, configurable: true })
 
   // apps/youtube/index.js
-  var block = app.get("Block");
+  var block = app.get('Block')
   if (block) {
-    block.visible = false;
+    block.visible = false
   }
   function toEmbedUrl(url) {
     try {
-      const u = new URL(url);
-      let videoId = null;
-      if (u.hostname === "youtu.be") {
-        videoId = u.pathname.slice(1).split("/")[0];
-      } else if (u.hostname.includes("youtube.com")) {
-        if (u.pathname.includes("/embed/")) {
-          return url;
+      const u = new URL(url)
+      let videoId = null
+      if (u.hostname === 'youtu.be') {
+        videoId = u.pathname.slice(1).split('/')[0]
+      } else if (u.hostname.includes('youtube.com')) {
+        if (u.pathname.includes('/embed/')) {
+          return url
         }
-        if (u.pathname === "/watch") {
-          videoId = u.searchParams.get("v");
-        } else if (u.pathname.startsWith("/v/")) {
-          videoId = u.pathname.slice(3).split("/")[0];
-        } else if (u.pathname.startsWith("/shorts/")) {
-          videoId = u.pathname.slice(8).split("/")[0];
+        if (u.pathname === '/watch') {
+          videoId = u.searchParams.get('v')
+        } else if (u.pathname.startsWith('/v/')) {
+          videoId = u.pathname.slice(3).split('/')[0]
+        } else if (u.pathname.startsWith('/shorts/')) {
+          videoId = u.pathname.slice(8).split('/')[0]
         }
       }
       if (videoId) {
-        return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1`
       }
-    } catch (e) {
-    }
-    return url;
+    } catch (e) {}
+    return url
   }
-  __name(toEmbedUrl, "toEmbedUrl");
+  __name(toEmbedUrl, 'toEmbedUrl')
   // var DEFAULT_URL = "https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1";
-  var currentUrl = props.url;
-  var webview = app.create("webview", {
+  var currentUrl = props.url
+  var webview = app.create('webview', {
     src: currentUrl,
     width: 3,
     height: 2,
     position: [0, 1.5, 0],
-    factor: 200
-  });
-  app.add(webview);
+    factor: 200,
+  })
+  app.add(webview)
   // var urlInput = app.create("uiinput", {
   //   value: currentUrl,
   //   placeholder: "Enter URL...",

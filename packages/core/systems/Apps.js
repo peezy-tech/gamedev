@@ -135,11 +135,7 @@ async function createClipboardImageItem(world, value) {
 }
 
 async function copyImageToClipboard(world, value) {
-  if (
-    typeof navigator === 'undefined' ||
-    !navigator.clipboard ||
-    typeof navigator.clipboard.write !== 'function'
-  ) {
+  if (typeof navigator === 'undefined' || !navigator.clipboard || typeof navigator.clipboard.write !== 'function') {
     return false
   }
 
@@ -155,17 +151,13 @@ async function copyImageToClipboard(world, value) {
 }
 
 async function copyToClipboard(world, value, options = {}) {
-  const kind = String(options?.kind || options?.type || '').trim().toLowerCase()
+  const kind = String(options?.kind || options?.type || '')
+    .trim()
+    .toLowerCase()
   const inferredImage =
-    !kind && (
-      (typeof value === 'string' && /^data:image\//i.test(value.trim())) ||
-      (
-        value &&
-        typeof value === 'object' &&
-        typeof value.url === 'string' &&
-        value.url.trim()
-      )
-    )
+    !kind &&
+    ((typeof value === 'string' && /^data:image\//i.test(value.trim())) ||
+      (value && typeof value === 'object' && typeof value.url === 'string' && value.url.trim()))
 
   if (kind === 'image' || inferredImage) {
     return copyImageToClipboard(world, value)

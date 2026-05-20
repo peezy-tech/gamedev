@@ -175,7 +175,10 @@ export function isHashedAssetFilename(filename) {
 
 export function sanitizeFileBaseName(name) {
   const trimmed = (name || '').toString().trim()
-  const base = trimmed.replace(/[^$a-zA-Z0-9._ -]+/g, '-').replace(/\s+/g, ' ').trim()
+  const base = trimmed
+    .replace(/[^$a-zA-Z0-9._ -]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (!base) return 'file'
   return base
 }
@@ -435,8 +438,7 @@ export function getSharedDiskRelativePath(relPath) {
   return null
 }
 
-export const IMPORT_EXPORT_SPECIFIER_REGEX =
-  /\b(?:import|export)\s+(?:type\s+)?(?:[^'"]*from\s*)?['"]([^'"]+)['"]/g
+export const IMPORT_EXPORT_SPECIFIER_REGEX = /\b(?:import|export)\s+(?:type\s+)?(?:[^'"]*from\s*)?['"]([^'"]+)['"]/g
 export const DYNAMIC_IMPORT_SPECIFIER_REGEX = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 
 export function extractImportSpecifiersFallback(sourceText) {
@@ -779,8 +781,7 @@ export function normalizeBlueprintScriptFields(source) {
 
 export function normalizeEntityForCompare(source) {
   if (!source || typeof source !== 'object') return null
-  const props =
-    source.props && typeof source.props === 'object' && !Array.isArray(source.props) ? source.props : {}
+  const props = source.props && typeof source.props === 'object' && !Array.isArray(source.props) ? source.props : {}
   return {
     id: source.id,
     type: source.type || 'app',

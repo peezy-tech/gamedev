@@ -153,7 +153,11 @@ export class PlayerRemote extends Entity {
       this._ragdoll.update(delta)
       const hipsPos = this._ragdoll.getHipsPosition()
       if (hipsPos) {
-        this.base.position.set(hipsPos.x - this._ragdollHipsOffset.x, hipsPos.y - this._ragdollHipsOffset.y, hipsPos.z - this._ragdollHipsOffset.z)
+        this.base.position.set(
+          hipsPos.x - this._ragdollHipsOffset.x,
+          hipsPos.y - this._ragdollHipsOffset.y,
+          hipsPos.z - this._ragdollHipsOffset.z
+        )
         this.base.clean()
       }
       return
@@ -210,7 +214,9 @@ export class PlayerRemote extends Entity {
       this.body.active = false
       const hipsBone = this.avatar.instance.findBone('hips')
       const hipsBoneWorldPos = hipsBone
-        ? new THREE.Vector3().setFromMatrixPosition(new THREE.Matrix4().multiplyMatrices(this.base.matrixWorld, hipsBone.matrixWorld))
+        ? new THREE.Vector3().setFromMatrixPosition(
+            new THREE.Matrix4().multiplyMatrices(this.base.matrixWorld, hipsBone.matrixWorld)
+          )
         : this.base.position.clone()
       this._ragdollHipsOffset = new THREE.Vector3(
         hipsBoneWorldPos.x - this.base.position.x,

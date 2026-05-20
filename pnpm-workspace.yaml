@@ -11,8 +11,8 @@ allowBuilds:
   utf-8-validate: true
 
 catalog:
-  "@types/node": ^24.12.4
-  "@vitejs/plugin-react": ^6.0.2
+  '@types/node': ^24.12.4
+  '@vitejs/plugin-react': ^6.0.2
   tsx: ^4.22.3
   typescript: ^5.9.2
   vite: ^8.0.13

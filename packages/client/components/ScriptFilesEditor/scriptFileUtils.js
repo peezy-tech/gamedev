@@ -30,9 +30,7 @@ function toSharedPath(path) {
 function normalizeAiPatchSet(input) {
   if (!input) return null
   const patchSet = input
-  const files = Array.isArray(patchSet)
-    ? patchSet
-    : patchSet.files || patchSet.changes || patchSet.patches
+  const files = Array.isArray(patchSet) ? patchSet : patchSet.files || patchSet.changes || patchSet.patches
   if (!Array.isArray(files) || files.length === 0) return null
   const normalizedFiles = []
   for (const entry of files) {
@@ -43,8 +41,7 @@ function normalizeAiPatchSet(input) {
     normalizedFiles.push({ path, content })
   }
   if (!normalizedFiles.length) return null
-  const autoApply =
-    patchSet.autoApply === true || patchSet.autoCommit === true || patchSet.autoAccept === true
+  const autoApply = patchSet.autoApply === true || patchSet.autoCommit === true || patchSet.autoAccept === true
   return {
     id: typeof patchSet.id === 'string' ? patchSet.id : null,
     summary:
@@ -126,10 +123,10 @@ function resolveScriptFormatForSave(scriptRoot, entryPath, fileStates, nextEntry
     typeof nextEntryText === 'string'
       ? nextEntryText
       : typeof entryState?.model?.getValue === 'function'
-      ? entryState.model.getValue()
-      : typeof entryState?.originalText === 'string'
-        ? entryState.originalText
-        : null
+        ? entryState.model.getValue()
+        : typeof entryState?.originalText === 'string'
+          ? entryState.originalText
+          : null
   if (typeof entryText !== 'string') return currentFormat
   return entryHasDefaultExport(entryText) ? 'module' : 'legacy-body'
 }

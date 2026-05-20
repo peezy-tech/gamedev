@@ -146,18 +146,22 @@ test('storage commit rejects stale conditional writes', async () => {
       const entryB = await storageB.getFreshEntry('town')
       assert.equal(entryB.updatedAt, entryA.updatedAt)
 
-      const success = await storageA.commit([{
-        key: 'town',
-        value: { version: 2 },
-        expectedUpdatedAt: entryA.updatedAt,
-      }])
+      const success = await storageA.commit([
+        {
+          key: 'town',
+          value: { version: 2 },
+          expectedUpdatedAt: entryA.updatedAt,
+        },
+      ])
       assert.equal(success.ok, true)
 
-      const stale = await storageB.commit([{
-        key: 'town',
-        value: { version: 3 },
-        expectedUpdatedAt: entryB.updatedAt,
-      }])
+      const stale = await storageB.commit([
+        {
+          key: 'town',
+          value: { version: 3 },
+          expectedUpdatedAt: entryB.updatedAt,
+        },
+      ])
       assert.equal(stale.ok, false)
       assert.equal(stale.conflicts.length, 1)
       assert.deepEqual(stale.conflicts[0].value, { version: 2 })
@@ -177,11 +181,13 @@ test('storage commit supports create-if-absent and fresh prefix scans', async ()
     const storageA = new Storage(db, { flushIntervalMs: 25 })
     await storageA.init()
 
-    const created = await storageA.commit([{
-      key: 'players:alice',
-      value: { points: 5 },
-      expectedUpdatedAt: null,
-    }])
+    const created = await storageA.commit([
+      {
+        key: 'players:alice',
+        value: { points: 5 },
+        expectedUpdatedAt: null,
+      },
+    ])
     assert.equal(created.ok, true)
 
     const dbReloaded = Knex({
@@ -194,11 +200,13 @@ test('storage commit supports create-if-absent and fresh prefix scans', async ()
       const storageB = new Storage(dbReloaded, { flushIntervalMs: 25 })
       await storageB.init()
 
-      const staleCreate = await storageB.commit([{
-        key: 'players:alice',
-        value: { points: 8 },
-        expectedUpdatedAt: null,
-      }])
+      const staleCreate = await storageB.commit([
+        {
+          key: 'players:alice',
+          value: { points: 8 },
+          expectedUpdatedAt: null,
+        },
+      ])
       assert.equal(staleCreate.ok, false)
       assert.equal(staleCreate.conflicts.length, 1)
       assert.deepEqual(staleCreate.conflicts[0].value, { points: 5 })

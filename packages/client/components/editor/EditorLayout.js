@@ -169,12 +169,7 @@ export function EditorLayout({ world, ui, children }) {
                 onDisconnectWallet={disconnectWallet}
               />
             )}
-            {ready && (
-              <ExploreMenu
-                open={exploreMenuOpen}
-                onClose={() => setExploreMenuOpen(false)}
-              />
-            )}
+            {ready && <ExploreMenu open={exploreMenuOpen} onClose={() => setExploreMenuOpen(false)} />}
           </div>
 
           {/* Bottom panel */}

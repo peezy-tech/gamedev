@@ -45,7 +45,14 @@ export class Light extends Node {
         this.light = new THREE.PointLight(color, this._intensity, this._distance, this._decay)
         break
       case 'spot':
-        this.light = new THREE.SpotLight(color, this._intensity, this._distance, this._angle, this._penumbra, this._decay)
+        this.light = new THREE.SpotLight(
+          color,
+          this._intensity,
+          this._distance,
+          this._angle,
+          this._penumbra,
+          this._decay
+        )
         this.light.position.set(0, 10, 0)
         this.light.target.position.set(0, 0, 0)
         break

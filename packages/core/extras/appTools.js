@@ -125,7 +125,8 @@ function normalizeSingleHashedScriptEntry(blueprint) {
   if (typeof onlyUrl !== 'string' || !onlyUrl) return
 
   const configuredEntry =
-    typeof blueprint.scriptEntry === 'string' && Object.prototype.hasOwnProperty.call(scriptFiles, blueprint.scriptEntry)
+    typeof blueprint.scriptEntry === 'string' &&
+    Object.prototype.hasOwnProperty.call(scriptFiles, blueprint.scriptEntry)
       ? blueprint.scriptEntry
       : onlyPath
   if (!isHashedScriptEntryPath(configuredEntry)) return
@@ -143,12 +144,7 @@ function deriveLegacyEntryPath(scriptUrl) {
   return entryPath
 }
 
-async function buildModuleAssetFromLegacySource({
-  sourceText,
-  entryPath,
-  lastModified,
-  type,
-}) {
+async function buildModuleAssetFromLegacySource({ sourceText, entryPath, lastModified, type }) {
   const moduleSource = buildLegacyBodyModuleSource(sourceText, entryPath)
   const mime = type || 'text/javascript'
   const draft = new File([moduleSource], entryPath, { type: mime, lastModified })
@@ -162,13 +158,7 @@ async function buildModuleAssetFromLegacySource({
   return { url: `asset://${filename}`, file }
 }
 
-async function convertLegacyScriptBlueprint({
-  blueprint,
-  headerBlueprint,
-  assets,
-  rewrittenAssets,
-  urlMap,
-}) {
+async function convertLegacyScriptBlueprint({ blueprint, headerBlueprint, assets, rewrittenAssets, urlMap }) {
   const scriptFiles = getScriptFiles(blueprint)
   const headerScriptFiles = getScriptFiles(headerBlueprint)
 
@@ -279,8 +269,7 @@ export async function exportApp(blueprint, resolveFile, resolveBlueprint) {
   if (typeof safeBlueprint.script === 'string' && safeBlueprint.script) {
     await addAsset({ type: 'script', url: safeBlueprint.script })
   }
-  const imageUrl =
-    typeof safeBlueprint.image === 'string' ? safeBlueprint.image : safeBlueprint.image?.url
+  const imageUrl = typeof safeBlueprint.image === 'string' ? safeBlueprint.image : safeBlueprint.image?.url
   if (imageUrl) {
     const explicitType = typeof safeBlueprint.image === 'object' ? safeBlueprint.image?.type : null
     const type = explicitType || inferAssetType(imageUrl) || 'texture'

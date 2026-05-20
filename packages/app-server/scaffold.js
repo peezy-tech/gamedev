@@ -41,7 +41,7 @@ dist/
 .DS_Store
 `
 
-const DEFAULT_NVMRC = '22.11.0\n'
+const DEFAULT_NVMRC = '24.15.0\n'
 
 const DEFAULT_TSCONFIG = {
   compilerOptions: {
@@ -80,13 +80,15 @@ function buildPackageJson({ packageName, sdkName, sdkVersion }) {
   const resolvedVersion = sdkVersion || resolveSdkVersion()
   const devDependencies = {
     [sdkName]: 'latest',
-    typescript: '^5.6.3',
+    typescript: '^5.9.2',
+    'vite-plus': '^0.1.22',
   }
   const pkg = {
     name: packageName,
     version: '0.0.0',
     private: true,
     type: 'module',
+    packageManager: 'pnpm@11.1.3',
     scripts: {
       init: 'gamedev init',
       help: 'gamedev help',
@@ -95,7 +97,7 @@ function buildPackageJson({ packageName, sdkName, sdkVersion }) {
       build: 'gamedev apps build --all',
       'deploy:fly': 'bash scripts/fly-deploy.sh',
       'deploy:app': 'gamedev apps deploy',
-      update: 'npm i gamedev@latest && gamedev update',
+      update: `vp install -D ${sdkName}@latest && gamedev update`,
       'update:sdk': 'bash scripts/update-sdk.sh',
       typecheck: 'tsc --noEmit',
       'hyp:extract': 'node scripts/extract-hyp.mjs',

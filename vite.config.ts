@@ -14,10 +14,7 @@ const runtimeCopy = [
   { from: 'packages/core/physx-js-webidl.js', to: 'build' },
   { from: 'packages/core/physx-js-webidl.wasm', to: 'build' },
 ]
-const serverRuntimeCopy = [
-  ...runtimeCopy,
-  { from: 'packages/core/physx-js-webidl.wasm', to: 'build/server-chunks' },
-]
+const serverRuntimeCopy = [...runtimeCopy, { from: 'packages/core/physx-js-webidl.wasm', to: 'build/server-chunks' }]
 
 export default defineConfig({
   plugins: [

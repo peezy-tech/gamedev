@@ -1,17 +1,9 @@
 function isNodeStyleWebSocket(connection) {
-  return (
-    connection
-    && typeof connection.on === 'function'
-    && typeof connection.send === 'function'
-  )
+  return connection && typeof connection.on === 'function' && typeof connection.send === 'function'
 }
 
 function isEventTargetStyleWebSocket(connection) {
-  return (
-    connection
-    && typeof connection.addEventListener === 'function'
-    && typeof connection.send === 'function'
-  )
+  return connection && typeof connection.addEventListener === 'function' && typeof connection.send === 'function'
 }
 
 function adaptEventTargetWebSocket(connection) {
@@ -45,20 +37,12 @@ export function describeWebSocketConnection(connection) {
   return {
     connectionType: typeof connection,
     constructorName: connection?.constructor?.name || null,
-    keys:
-      connection && typeof connection === 'object'
-        ? Object.keys(connection).slice(0, 12)
-        : [],
+    keys: connection && typeof connection === 'object' ? Object.keys(connection).slice(0, 12) : [],
   }
 }
 
 export function resolveWebSocketConnection(connection) {
-  const candidates = [
-    connection,
-    connection?.socket,
-    connection?.websocket,
-    connection?.ws,
-  ]
+  const candidates = [connection, connection?.socket, connection?.websocket, connection?.ws]
 
   for (const candidate of candidates) {
     if (isNodeStyleWebSocket(candidate)) {

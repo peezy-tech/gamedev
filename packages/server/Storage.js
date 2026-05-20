@@ -27,9 +27,13 @@ export class Storage {
     this.deleted = new Set()
     this.pendingPersist = false
     this.activePersistPromise = null
-    this.schedulePersist = throttle(() => {
-      void this.persist()
-    }, flushIntervalMs, { leading: true, trailing: true })
+    this.schedulePersist = throttle(
+      () => {
+        void this.persist()
+      },
+      flushIntervalMs,
+      { leading: true, trailing: true }
+    )
   }
 
   async init() {
@@ -123,9 +127,7 @@ export class Storage {
 
   async getFreshEntriesByPrefix(prefix = '') {
     const normalizedPrefix = String(prefix ?? '')
-    let query = this.db('world_storage')
-      .select('key', 'value', 'createdAt', 'updatedAt')
-      .orderBy('key', 'asc')
+    let query = this.db('world_storage').select('key', 'value', 'createdAt', 'updatedAt').orderBy('key', 'asc')
 
     if (normalizedPrefix) {
       query = query.where('key', 'like', `${normalizedPrefix}%`)
@@ -190,10 +192,9 @@ export class Storage {
       return {
         key: normalizedKey,
         value: cloneValue(operation.value),
-        expectedUpdatedAt:
-          Object.prototype.hasOwnProperty.call(operation, 'expectedUpdatedAt')
-            ? normalizeTimestamp(operation.expectedUpdatedAt)
-            : undefined,
+        expectedUpdatedAt: Object.prototype.hasOwnProperty.call(operation, 'expectedUpdatedAt')
+          ? normalizeTimestamp(operation.expectedUpdatedAt)
+          : undefined,
       }
     })
 
@@ -207,9 +208,7 @@ export class Storage {
     const keys = normalizedOps.map(operation => operation.key)
 
     const result = await this.db.transaction(async trx => {
-      const rows = await trx('world_storage')
-        .select('key', 'value', 'createdAt', 'updatedAt')
-        .whereIn('key', keys)
+      const rows = await trx('world_storage').select('key', 'value', 'createdAt', 'updatedAt').whereIn('key', keys)
       const rowsByKey = new Map(rows.map(row => [this.normalizeKey(row.key), row]))
 
       const conflicts = []
@@ -250,10 +249,7 @@ export class Storage {
         }
       })
 
-      await trx('world_storage')
-        .insert(rowsToWrite)
-        .onConflict('key')
-        .merge(['value', 'updatedAt'])
+      await trx('world_storage').insert(rowsToWrite).onConflict('key').merge(['value', 'updatedAt'])
 
       return {
         ok: true,

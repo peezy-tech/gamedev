@@ -136,7 +136,10 @@ test('runtime credential cache clears on disconnect and auth error', () => {
 test('runtime credentials API rejects invalid payloads', async () => {
   const { client } = createAdminClient()
   client.request = async () => ({ ok: true })
-  await assert.rejects(() => client.getRuntimeCredentials(), err => err?.code === 'invalid_response')
+  await assert.rejects(
+    () => client.getRuntimeCredentials(),
+    err => err?.code === 'invalid_response'
+  )
 })
 
 test('admin snapshot only requires code when admin-code auth is supported', () => {

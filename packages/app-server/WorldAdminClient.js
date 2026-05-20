@@ -314,11 +314,15 @@ export class WorldAdminClient extends EventEmitter {
     })
     let res
     try {
-      res = await fetchWithTimeout(url, {
-        headers: this.adminHeaders(),
-      }, {
-        timeoutMs,
-      })
+      res = await fetchWithTimeout(
+        url,
+        {
+          headers: this.adminHeaders(),
+        },
+        {
+          timeoutMs,
+        }
+      )
     } catch (err) {
       if (err?.name === 'AbortError') {
         debugLog('admin-client', 'snapshot:timeout', {
@@ -369,11 +373,15 @@ export class WorldAdminClient extends EventEmitter {
     })
     let res
     try {
-      res = await fetchWithTimeout(url, {
-        headers: this.adminHeaders(),
-      }, {
-        timeoutMs,
-      })
+      res = await fetchWithTimeout(
+        url,
+        {
+          headers: this.adminHeaders(),
+        },
+        {
+          timeoutMs,
+        }
+      )
     } catch (err) {
       if (err?.name === 'AbortError') {
         debugLog('admin-client', 'changes:timeout', {

@@ -83,7 +83,7 @@ export class Scripts extends System {
   }
 
   init() {
-    const onBlueprintChange = (data) => {
+    const onBlueprintChange = data => {
       const id = data?.id
       if (id) this.invalidateBlueprintCache(id)
     }
@@ -200,12 +200,16 @@ export class Scripts extends System {
       importMeta.url = moduleSpecifier
     }
 
-    const compartment = new Compartment(this.endowments, {}, {
-      resolveHook,
-      importHook,
-      importMetaHook,
-      __noNamespaceBox__: true,
-    })
+    const compartment = new Compartment(
+      this.endowments,
+      {},
+      {
+        resolveHook,
+        importHook,
+        importMetaHook,
+        __noNamespaceBox__: true,
+      }
+    )
 
     const namespaceBox = await compartment.import(entrySpecifier)
     const namespace = namespaceBox && namespaceBox.namespace ? namespaceBox.namespace : namespaceBox
@@ -293,8 +297,7 @@ function compileModuleSource(code, moduleSpecifier) {
     return null
   }
   const isValidIdentifier = name => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-  const propAccess = (obj, prop) =>
-    isValidIdentifier(prop) ? `${obj}.${prop}` : `${obj}[${JSON.stringify(prop)}]`
+  const propAccess = (obj, prop) => (isValidIdentifier(prop) ? `${obj}.${prop}` : `${obj}[${JSON.stringify(prop)}]`)
   const collectBindingNames = (node, names) => {
     if (!node) return
     switch (node.type) {
@@ -393,9 +396,7 @@ function compileModuleSource(code, moduleSpecifier) {
               throw new Error(`invalid_export_specifier:${moduleSpecifier}`)
             }
             addExport(exportedName)
-            exportStatements.push(
-              `${propAccess('exports', exportedName)} = ${propAccess(importVar, localName)};`
-            )
+            exportStatements.push(`${propAccess('exports', exportedName)} = ${propAccess(importVar, localName)};`)
           } else if (spec.type === 'ExportNamespaceSpecifier') {
             const exportedName = getExportName(spec.exported)
             if (!exportedName) {
@@ -441,12 +442,7 @@ function compileModuleSource(code, moduleSpecifier) {
     bodyChunks.push(code.slice(node.start, node.end))
   }
 
-  const moduleBody = [
-    '"use strict";',
-    ...importStatements,
-    ...bodyChunks,
-    ...exportStatements,
-  ]
+  const moduleBody = ['"use strict";', ...importStatements, ...bodyChunks, ...exportStatements]
     .filter(Boolean)
     .join('\n')
 

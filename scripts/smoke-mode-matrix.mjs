@@ -51,14 +51,10 @@ function assert(condition, message) {
 }
 
 const runtimeApiUrl = normalizeUrl(
-  process.env.SMOKE_RUNTIME_API_URL
-    || process.env.PUBLIC_API_URL
-    || 'http://127.0.0.1:3000/api'
+  process.env.SMOKE_RUNTIME_API_URL || process.env.PUBLIC_API_URL || 'http://127.0.0.1:3000/api'
 )
 const worldServiceApiUrl = normalizeUrl(
-  process.env.SMOKE_WORLD_SERVICE_API_URL
-    || process.env.PUBLIC_AUTH_API_URL
-    || 'https://dev.lobby.ws/api'
+  process.env.SMOKE_WORLD_SERVICE_API_URL || process.env.PUBLIC_AUTH_API_URL || 'https://dev.lobby.ws/api'
 )
 const lobbySessionCookie = process.env.SMOKE_LOBBY_SESSION_COOKIE?.trim() || ''
 const timeoutMs = Number.parseInt(process.env.SMOKE_TIMEOUT_MS || '10000', 10)

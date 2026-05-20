@@ -1143,16 +1143,7 @@ export class DirectAppServer {
     }
   }
 
-  _reconcileEntity({
-    id,
-    uid,
-    baselineHash,
-    localHash,
-    remoteHash,
-    base,
-    local,
-    remote,
-  }) {
+  _reconcileEntity({ id, uid, baselineHash, localHash, remoteHash, base, local, remote }) {
     const baseValue = normalizeEntityForCompare(base)
     const localValue = normalizeEntityForCompare(local)
     const remoteValue = normalizeEntityForCompare(remote)

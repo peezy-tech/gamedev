@@ -12,10 +12,7 @@ test('normalizeWorldAdminBaseUrl strips trailing /admin suffixes', () => {
     normalizeWorldAdminBaseUrl('https://dev.lobby.ws/worlds/demo/admin?x=1#section'),
     'https://dev.lobby.ws/worlds/demo'
   )
-  assert.equal(
-    normalizeWorldAdminBaseUrl('https://dev.lobby.ws/worlds/demo'),
-    'https://dev.lobby.ws/worlds/demo'
-  )
+  assert.equal(normalizeWorldAdminBaseUrl('https://dev.lobby.ws/worlds/demo'), 'https://dev.lobby.ws/worlds/demo')
 })
 
 test('joinUrl and toWsUrl preserve slug path prefixes', () => {
@@ -23,10 +20,7 @@ test('joinUrl and toWsUrl preserve slug path prefixes', () => {
     joinUrl('https://dev.lobby.ws/worlds/demo', '/admin/snapshot'),
     'https://dev.lobby.ws/worlds/demo/admin/snapshot'
   )
-  assert.equal(
-    toWsUrl('https://dev.lobby.ws/worlds/demo'),
-    'wss://dev.lobby.ws/worlds/demo'
-  )
+  assert.equal(toWsUrl('https://dev.lobby.ws/worlds/demo'), 'wss://dev.lobby.ws/worlds/demo')
 })
 
 test('WorldAdminClient derives admin endpoints from slug world URLs', () => {

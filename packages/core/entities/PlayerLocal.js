@@ -894,7 +894,11 @@ export class PlayerLocal extends Entity {
       this._ragdoll.update(delta)
       const hipsPos = this._ragdoll.getHipsPosition()
       if (hipsPos) {
-        this.base.position.set(hipsPos.x - this._ragdollHipsOffset.x, hipsPos.y - this._ragdollHipsOffset.y, hipsPos.z - this._ragdollHipsOffset.z)
+        this.base.position.set(
+          hipsPos.x - this._ragdollHipsOffset.x,
+          hipsPos.y - this._ragdollHipsOffset.y,
+          hipsPos.z - this._ragdollHipsOffset.z
+        )
         this.base.matrix.compose(this.base.position, this.base.quaternion, this.base.scale)
         if (this.base.parent) {
           this.base.matrixWorld.multiplyMatrices(this.base.parent.matrixWorld, this.base.matrix)

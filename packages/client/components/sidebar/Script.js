@@ -28,11 +28,12 @@ export function Script({ world, hidden, viewMode = 'chat' }) {
   const aiPromptRef = useRef(null)
   const [aiAttachments, setAiAttachments] = useState([])
   const [aiDocsIndex, setAiDocsIndex] = useState(() => aiController.getDocsIndex?.() || [])
-  const [aiThread, setAiThread] = useState(() =>
-    aiController.getThreadForTarget?.({
-      targetBlueprintId,
-      scriptRootId: moduleRoot?.id,
-    }) || []
+  const [aiThread, setAiThread] = useState(
+    () =>
+      aiController.getThreadForTarget?.({
+        targetBlueprintId,
+        scriptRootId: moduleRoot?.id,
+      }) || []
   )
   const [aiMention, setAiMention] = useState(null)
   const scriptError = app?.scriptError || null

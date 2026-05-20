@@ -218,11 +218,14 @@ test('phase 1 app-server writes .lobby/sync-state.json baselines', async () => {
           },
         })
 
-        await waitFor(() => {
-          const nextState = readJsonFile(syncStatePath)
-          if (!nextState?.objects?.blueprints) return false
-          return Object.values(nextState.objects.blueprints).find(entry => entry.id === blueprintId) || false
-        }, { timeoutMs: 8000 })
+        await waitFor(
+          () => {
+            const nextState = readJsonFile(syncStatePath)
+            if (!nextState?.objects?.blueprints) return false
+            return Object.values(nextState.objects.blueprints).find(entry => entry.id === blueprintId) || false
+          },
+          { timeoutMs: 8000 }
+        )
       } finally {
         admin.close()
       }

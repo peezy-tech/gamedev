@@ -86,9 +86,7 @@ function normalizeAddressForChain(auth, chain, address) {
     )
   }
   return (
-    auth.normalizeWalletAddressForChain?.('ethereum', address || '') ||
-    auth.normalizeSiweAddress?.(address || '') ||
-    ''
+    auth.normalizeWalletAddressForChain?.('ethereum', address || '') || auth.normalizeSiweAddress?.(address || '') || ''
   )
 }
 
@@ -96,9 +94,7 @@ function resolveSessionWallet(session, auth) {
   const walletRow = session?.user?.wallet
   if (walletRow && typeof walletRow === 'object') {
     const type = normalizeWalletType(walletRow.type)
-    const normalizedAddress = type
-      ? normalizeAddressForChain(auth, type, walletRow.address)
-      : ''
+    const normalizedAddress = type ? normalizeAddressForChain(auth, type, walletRow.address) : ''
     if (type && normalizedAddress) {
       return {
         type,
@@ -201,7 +197,9 @@ export function useWalletAuth(world) {
       const expectedChain = expectedWallet.type || 'ethereum'
       const availability = resolveProviderAvailability(auth)
       const providerAvailable = expectedAddress
-        ? (expectedChain === 'solana' ? availability.solana : availability.ethereum)
+        ? expectedChain === 'solana'
+          ? availability.solana
+          : availability.ethereum
         : availability.any
       setAuthState({
         enabled: true,
@@ -225,7 +223,7 @@ export function useWalletAuth(world) {
       const activeAddress = normalizeAddressForChain(
         auth,
         expectedChain,
-        await auth.getActiveWalletAddress?.({ chain: expectedChain }).catch(() => ''),
+        await auth.getActiveWalletAddress?.({ chain: expectedChain }).catch(() => '')
       )
       if (!activeAddress) {
         await kickForWalletChange('wallet_disconnected')
@@ -238,7 +236,7 @@ export function useWalletAuth(world) {
 
       if (expectedChain === 'solana' && expectedWallet.solanaNetwork) {
         const activeNetwork = normalizeSolanaNetwork(
-          await auth.getActiveWalletNetwork?.({ chain: 'solana' }).catch(() => ''),
+          await auth.getActiveWalletNetwork?.({ chain: 'solana' }).catch(() => '')
         )
         if (activeNetwork && activeNetwork !== expectedWallet.solanaNetwork) {
           await kickForWalletChange('wallet_network_changed')
@@ -309,10 +307,11 @@ export function useWalletAuth(world) {
         clearPrivySiweResumeIntent()
       }
 
-      removeAccountSubscription = auth.subscribeAccountChanges?.(
-        handleWalletAddressChange,
-        sessionWallet.address ? { chain: sessionWallet.type || 'ethereum' } : undefined,
-      ) || null
+      removeAccountSubscription =
+        auth.subscribeAccountChanges?.(
+          handleWalletAddressChange,
+          sessionWallet.address ? { chain: sessionWallet.type || 'ethereum' } : undefined
+        ) || null
       await verifyActiveWallet()
       verifyTimerId = setInterval(() => {
         void verifyActiveWallet()

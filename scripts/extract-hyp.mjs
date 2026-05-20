@@ -131,9 +131,7 @@ if (scriptUrl) {
 }
 
 const modelBase = blueprint.scene ? '-scene' : appName
-const modelPath = blueprint.model
-  ? await writeAsset(blueprint.model, modelBase)
-  : null
+const modelPath = blueprint.model ? await writeAsset(blueprint.model, modelBase) : null
 
 const imagePath = blueprint.image?.url
   ? await writeAsset(blueprint.image.url, `${appName}__image`, blueprint.image.name)

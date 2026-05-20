@@ -52,5 +52,8 @@ test('resolveWebSocketConnection adapts EventTarget-style websocket connections'
 
   assert.deepEqual(received, ['world'])
   assert.deepEqual(sent, ['hello'])
-  assert.deepEqual(closed, [[1000, 'done'], [undefined, undefined]])
+  assert.deepEqual(closed, [
+    [1000, 'done'],
+    [undefined, undefined],
+  ])
 })

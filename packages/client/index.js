@@ -58,12 +58,7 @@ function getEthereumWalletProvider() {
 
 function getSolanaWalletProvider() {
   if (typeof window === 'undefined') return null
-  const candidates = [
-    window.solana,
-    window.phantom?.solana,
-    window.backpack,
-    window.backpack?.solana,
-  ]
+  const candidates = [window.solana, window.phantom?.solana, window.backpack, window.backpack?.solana]
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== 'object') continue
     const canConnect = typeof candidate.connect === 'function'
@@ -160,7 +155,7 @@ async function buildWalletOnlySession({
 
   const address = normalizeWalletAddressForChain(
     normalizedSelection.chain,
-    await getActiveWalletAddress?.({ chain: normalizedSelection.chain }).catch(() => ''),
+    await getActiveWalletAddress?.({ chain: normalizedSelection.chain }).catch(() => '')
   )
   if (!address) return null
 
@@ -573,7 +568,10 @@ async function getConnectionUrl(onStatus) {
   const baseWsUrl = env.PUBLIC_WS_URL
     ? env.PUBLIC_WS_URL
     : apiUrl
-      ? apiUrl.replace(/\/api\/?$/, '/ws').replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
+      ? apiUrl
+          .replace(/\/api\/?$/, '/ws')
+          .replace(/^http:/, 'ws:')
+          .replace(/^https:/, 'wss:')
       : typeof window === 'undefined'
         ? null
         : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
@@ -733,12 +731,7 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
       if (normalizedChain !== 'solana') return null
       const provider = getSolanaWalletProvider()
       if (!provider) return null
-      const candidates = [
-        provider.network,
-        provider.cluster,
-        provider.connection?.rpcEndpoint,
-        provider.rpcEndpoint,
-      ]
+      const candidates = [provider.network, provider.cluster, provider.connection?.rpcEndpoint, provider.rpcEndpoint]
       for (const candidate of candidates) {
         if (typeof candidate !== 'string') continue
         const normalized = candidate.trim().toLowerCase()
@@ -761,7 +754,9 @@ function createInjectedRuntimeAuthBridge(authBaseUrl) {
         }
 
         const onAccountChanged = publicKey => {
-          const nextAddress = normalizeSolanaAddress(publicKey?.toBase58?.() || publicKey?.toString?.() || publicKey || '')
+          const nextAddress = normalizeSolanaAddress(
+            publicKey?.toBase58?.() || publicKey?.toString?.() || publicKey || ''
+          )
           listener(nextAddress)
         }
         provider.on('accountChanged', onAccountChanged)

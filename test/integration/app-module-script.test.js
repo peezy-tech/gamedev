@@ -25,11 +25,7 @@ test('app executes module scripts via scriptRef', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'helpers', 'math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'helpers', 'math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)

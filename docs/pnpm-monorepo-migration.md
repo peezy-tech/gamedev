@@ -54,8 +54,8 @@ packages/
 - [x] Update runtime bootstrap and helper scripts for the workspace
 
 - [x] Update integration tests for workspace paths
-- [x] Update Dockerfile for `pnpm` workspace installation/build
-- [x] Update GitHub Actions for `pnpm`
+- [x] Update Dockerfile for workspace installation/build
+- [x] Update GitHub Actions for workspace installation
 - [x] Update docs and README for workspace development
 
 - [x] Generate `pnpm-lock.yaml`
@@ -67,6 +67,6 @@ packages/
 ## Verification
 
 - [x] Clean reinstall verified with `fnm` / Node `24.15.0` from `.nvmrc`
-- [x] `pnpm install` no longer reports ignored native builds
+- [x] `vp install` no longer reports ignored native builds
 - [x] `better-sqlite3` loads correctly after clean reinstall
 - [x] Missing direct runtime/build dependencies were added to `package.json`

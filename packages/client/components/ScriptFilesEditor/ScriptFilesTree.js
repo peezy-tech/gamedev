@@ -28,7 +28,8 @@ function renderTree(node, { selectedPath, entryPath, onSelect, dirtyPaths }, dep
           {isFile && entryPath === child.path && <span className='script-file-entry-tag'>entry</span>}
           {isFile && isDirty && <span className='script-file-dirty'>*</span>}
         </div>
-        {child.children && child.children.size > 0 &&
+        {child.children &&
+          child.children.size > 0 &&
           renderTree(child, { selectedPath, entryPath, onSelect, dirtyPaths }, depth + 1)}
       </div>
     )

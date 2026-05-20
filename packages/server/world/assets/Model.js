@@ -5,7 +5,7 @@ export default (world, app, fetch, props, setTimeout) => {
       type: 'toggle',
       label: 'Collision',
       initial: true,
-      hint: 'Forces all meshes to have collision. Disable this if your model already has embedded collision.'
+      hint: 'Forces all meshes to have collision. Disable this if your model already has embedded collision.',
     },
   ])
 
@@ -20,11 +20,9 @@ export default (world, app, fetch, props, setTimeout) => {
         const collider = app.create('collider')
         collider.type = 'geometry'
         collider.geometry = node.geometry
-        m1.copy(node.matrixWorld).premultiply(appInverseMatrix).decompose(
-          collider.position,
-          collider.quaternion,
-          collider.scale
-        )
+        m1.copy(node.matrixWorld)
+          .premultiply(appInverseMatrix)
+          .decompose(collider.position, collider.quaternion, collider.scale)
         body.add(collider)
       }
     })

@@ -21,11 +21,7 @@ test('module scripts load and execute on server runtime', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'helpers', 'math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'helpers', 'math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)
@@ -63,11 +59,7 @@ test('legacy-body entry preserves imports and wraps body', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'helpers', 'math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'helpers', 'math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)
@@ -108,11 +100,7 @@ test('shared import aliases resolve to shared script files', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'shared-math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'shared-math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)

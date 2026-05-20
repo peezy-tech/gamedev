@@ -10,13 +10,13 @@ Create a new world project with the `gamedev` CLI:
 mkdir my-lobby-world
 cd my-lobby-world
 npx gamedev init
-npm install
-npm run dev
+vp install
+vp run dev
 ```
 
 Then open `http://localhost:3000`.
 
-What `npm run dev` does:
+What `vp run dev` does:
 
 - Requires Node.js `24.15.0` (latest LTS).
 - Starts a local world server when `WORLD_URL` points to localhost.
@@ -59,9 +59,9 @@ Run `gamedev help` for the full command list.
 If you are working on the runtime/SDK itself (not just a world project):
 
 ```bash
-pnpm install
+vp install
 cp .env.example .env
-pnpm run dev
+vp run dev
 ```
 
 Workspace packages live under `packages/`:
@@ -76,9 +76,9 @@ Workspace packages live under `packages/`:
 Useful commands:
 
 ```bash
-pnpm run build
-pnpm run test
-pnpm run lint
+vp run build
+vp run test
+vp run lint
 ```
 
 ## Contributing

@@ -16,13 +16,7 @@ import { deriveAdminUrlFromRequest } from './forwardedPrefix.js'
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
 const PING_RATE = 10 // seconds
 const defaultSpawn = '{ "position": [0, 0, 0], "quaternion": [0, 0, 0, 1] }'
-const SCRIPT_BLUEPRINT_FIELDS = new Set([
-  'script',
-  'scriptEntry',
-  'scriptFiles',
-  'scriptFormat',
-  'scriptRef',
-])
+const SCRIPT_BLUEPRINT_FIELDS = new Set(['script', 'scriptEntry', 'scriptFiles', 'scriptFormat', 'scriptRef'])
 
 const HEALTH_MAX = 100
 const PUBLIC_ADMIN_URL = process.env.PUBLIC_ADMIN_URL || ''
@@ -43,8 +37,10 @@ function getPlayerCustomData(data) {
 
 function deriveAdminUrlFromEnv() {
   return (
-    (process.env.PUBLIC_WS_URL || '').replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/ws\/?$/, '') ||
-    (process.env.PUBLIC_API_URL || '').replace(/\/api\/?$/, '')
+    (process.env.PUBLIC_WS_URL || '')
+      .replace(/^wss:/, 'https:')
+      .replace(/^ws:/, 'http:')
+      .replace(/\/ws\/?$/, '') || (process.env.PUBLIC_API_URL || '').replace(/\/api\/?$/, '')
   )
 }
 
@@ -756,7 +752,10 @@ export class ServerNetwork extends System {
     if (!blueprint) {
       return { ok: false, error: 'not_found' }
     }
-    const normalizedChange = normalizeScriptReferenceBlueprint(change, { currentBlueprint: blueprint, world: this.world })
+    const normalizedChange = normalizeScriptReferenceBlueprint(change, {
+      currentBlueprint: blueprint,
+      world: this.world,
+    })
     const validation = validateBlueprintScriptFields(normalizedChange)
     if (!validation.ok) return validation
     const hasScriptChange = hasScriptFields(normalizedChange)
@@ -842,7 +841,9 @@ export class ServerNetwork extends System {
   applyEntityAdded(data, { ignoreNetworkId, actor, source, lastOpId } = {}) {
     const nextData = data && typeof data === 'object' ? { ...data } : data
     const operation =
-      nextData?.type === 'app' ? this.createOperationMetadata({ actor, source, lastOpId }, moment().toISOString()) : null
+      nextData?.type === 'app'
+        ? this.createOperationMetadata({ actor, source, lastOpId }, moment().toISOString())
+        : null
     if (nextData?.type === 'app') {
       const blueprintScope =
         typeof nextData.blueprint === 'string' ? this.world.blueprints.get(nextData.blueprint)?.scope : null
@@ -882,7 +883,9 @@ export class ServerNetwork extends System {
       }
     }
     let nextData = data
-    const operation = entity.isApp ? this.createOperationMetadata({ actor, source, lastOpId }, moment().toISOString()) : null
+    const operation = entity.isApp
+      ? this.createOperationMetadata({ actor, source, lastOpId }, moment().toISOString())
+      : null
     if (entity.isApp) {
       const merged = { ...entity.data, ...data }
       const blueprintId =
@@ -1150,16 +1153,19 @@ export class ServerNetwork extends System {
     )
   }
 
-  onSubscribeLogs = (socket) => {
+  onSubscribeLogs = socket => {
     if (!socket.player?.isBuilder()) return
     this.logSubscribers.add(socket.id)
     const history = this.world.logs?.entries || []
     if (history.length > 0) {
-      socket.send('serverLogHistory', history.map(e => ({ level: e.level, args: e.args, timestamp: e.timestamp })))
+      socket.send(
+        'serverLogHistory',
+        history.map(e => ({ level: e.level, args: e.args, timestamp: e.timestamp }))
+      )
     }
   }
 
-  onUnsubscribeLogs = (socket) => {
+  onUnsubscribeLogs = socket => {
     this.logSubscribers.delete(socket.id)
   }
 

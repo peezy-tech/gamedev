@@ -909,7 +909,10 @@ interface EVMAPI {
   getNativeBalance(address?: string | null): Promise<number>
   getTokenBalance(tokenAddress: string, address?: string | null, decimals?: number): Promise<number>
   getUSDCBalance(address?: string | null): Promise<number>
-  transferNative(to: string, amount: number | string): Promise<{
+  transferNative(
+    to: string,
+    amount: number | string
+  ): Promise<{
     hash: string
     receipt: any
   }>
@@ -922,7 +925,10 @@ interface EVMAPI {
     hash: string
     receipt: any
   }>
-  transferUSDC(to: string, amount: number | string): Promise<{
+  transferUSDC(
+    to: string,
+    amount: number | string
+  ): Promise<{
     hash: string
     receipt: any
   }>
@@ -1018,10 +1024,7 @@ interface HyperliquidWatchOnlyAPI {
     params: HyperliquidOrderBookParams,
     listener: (payload: any) => void
   ): Promise<HyperliquidStreamHandle>
-  subscribeCandles(
-    params: HyperliquidCandleParams,
-    listener: (payload: any) => void
-  ): Promise<HyperliquidStreamHandle>
+  subscribeCandles(params: HyperliquidCandleParams, listener: (payload: any) => void): Promise<HyperliquidStreamHandle>
   subscribeAccount(listener: (payload: HyperliquidAccountSnapshot) => void): Promise<HyperliquidStreamHandle>
 }
 
@@ -1094,7 +1097,10 @@ interface WorldAPI {
   getQueryParam(key: string): string | null
   setQueryParam(key: string, value?: string | null): void
   open(url: string, newTab?: boolean): void
-  copy(value: string | { url: string }, options?: { kind?: 'text' | 'image'; type?: 'text' | 'image' }): Promise<boolean>
+  copy(
+    value: string | { url: string },
+    options?: { kind?: 'text' | 'image'; type?: 'text' | 'image' }
+  ): Promise<boolean>
 
   // Time
   getTime(): number

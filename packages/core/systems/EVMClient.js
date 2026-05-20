@@ -447,7 +447,12 @@ export class EVM extends System {
       delete request.chainId
     }
 
-    if (!requestedChainId && !normalizeChainId(this.chainId) && this.isConnected() && this.walletAdapter?.readContract) {
+    if (
+      !requestedChainId &&
+      !normalizeChainId(this.chainId) &&
+      this.isConnected() &&
+      this.walletAdapter?.readContract
+    ) {
       return this.walletAdapter.readContract(request)
     }
 
@@ -509,7 +514,8 @@ export class EVM extends System {
 
   async switchChain(params, { chainId } = {}) {
     const requestedChainId =
-      normalizeChainId(typeof params === 'object' && params !== null ? params.chainId : params) || normalizeChainId(chainId)
+      normalizeChainId(typeof params === 'object' && params !== null ? params.chainId : params) ||
+      normalizeChainId(chainId)
 
     if (!requestedChainId) {
       throw new Error('chainId is required')

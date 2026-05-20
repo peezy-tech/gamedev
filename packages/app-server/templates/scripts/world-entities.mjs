@@ -6,9 +6,9 @@ import process from 'node:process'
 import readline from 'node:readline/promises'
 
 const usage = `Usage:
-  npm run world:entities -- add --template-id <entityId> --transforms <path> [--world <path>] [--replace] [--yes]
-  npm run world:entities -- delete --blueprint <name> [--world <path>] [--yes]
-  npm run world:entities -- delete --ids <path> [--world <path>] [--yes]
+  vp run world:entities -- add --template-id <entityId> --transforms <path> [--world <path>] [--replace] [--yes]
+  vp run world:entities -- delete --blueprint <name> [--world <path>] [--yes]
+  vp run world:entities -- delete --ids <path> [--world <path>] [--yes]
 
 Commands:
   add       Create entity clones from a template entity and a transform array.

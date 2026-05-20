@@ -75,18 +75,21 @@ export async function waitForHealthz(worldUrl, { timeoutMs = 20000 } = {}) {
 }
 
 async function waitForOkUrl(url, { timeoutMs = 20000 } = {}) {
-  await waitFor(async () => {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 2000)
-    try {
-      const res = await fetch(url, { signal: controller.signal })
-      return res.ok
-    } catch {
-      return false
-    } finally {
-      clearTimeout(timer)
-    }
-  }, { timeoutMs, intervalMs: 200 })
+  await waitFor(
+    async () => {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 2000)
+      try {
+        const res = await fetch(url, { signal: controller.signal })
+        return res.ok
+      } catch {
+        return false
+      } finally {
+        clearTimeout(timer)
+      }
+    },
+    { timeoutMs, intervalMs: 200 }
+  )
 }
 
 async function ensureBuildReady() {
@@ -229,23 +232,26 @@ async function launchRuntimeProcess({ env, readyUrl, timeoutMs = 20000, failureL
   })
 
   try {
-    await waitFor(async () => {
-      if (exitInfo) {
-        throw new Error(
-          `${failureLabel} exited early (${exitInfo.code ?? 'null'}${exitInfo.signal ? `/${exitInfo.signal}` : ''})\n${stdout}\n${stderr}`.trim()
-        )
-      }
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 2000)
-      try {
-        const res = await fetch(readyUrl, { signal: controller.signal })
-        return res.ok
-      } catch {
-        return false
-      } finally {
-        clearTimeout(timer)
-      }
-    }, { timeoutMs, intervalMs: 200 })
+    await waitFor(
+      async () => {
+        if (exitInfo) {
+          throw new Error(
+            `${failureLabel} exited early (${exitInfo.code ?? 'null'}${exitInfo.signal ? `/${exitInfo.signal}` : ''})\n${stdout}\n${stderr}`.trim()
+          )
+        }
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 2000)
+        try {
+          const res = await fetch(readyUrl, { signal: controller.signal })
+          return res.ok
+        } catch {
+          return false
+        } finally {
+          clearTimeout(timer)
+        }
+      },
+      { timeoutMs, intervalMs: 200 }
+    )
   } catch (err) {
     child.kill('SIGTERM')
     const details = err instanceof Error && err.message ? err.message : `${stdout}\n${stderr}`.trim()
@@ -339,18 +345,22 @@ export async function startStandbyRuntimeServer({ env = {} } = {}) {
   ]) {
     delete finalEnv[key]
   }
-  Object.assign(finalEnv, {
-    NODE_ENV: 'test',
-    PORT: String(port),
-    HOST: '127.0.0.1',
-    JWT_SECRET: env.JWT_SECRET || crypto.randomBytes(24).toString('base64url'),
-    RUNTIME_BOOTSTRAP: '1',
-    RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
-    ASSETS: 'local',
-    ASSETS_BASE_URL: `${worldUrl}/assets`,
-    DB_URI: 'local',
-    CLEAN: 'false',
-  }, env)
+  Object.assign(
+    finalEnv,
+    {
+      NODE_ENV: 'test',
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      JWT_SECRET: env.JWT_SECRET || crypto.randomBytes(24).toString('base64url'),
+      RUNTIME_BOOTSTRAP: '1',
+      RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
+      ASSETS: 'local',
+      ASSETS_BASE_URL: `${worldUrl}/assets`,
+      DB_URI: 'local',
+      CLEAN: 'false',
+    },
+    env
+  )
 
   const processHandle = await launchRuntimeProcess({
     env: finalEnv,
@@ -364,7 +374,7 @@ export async function startStandbyRuntimeServer({ env = {} } = {}) {
     jwtSecret: finalEnv.JWT_SECRET,
     stop: processHandle.stop,
     getStdout: processHandle.getStdout,
-      getStderr: processHandle.getStderr,
+    getStderr: processHandle.getStderr,
   }
 }
 

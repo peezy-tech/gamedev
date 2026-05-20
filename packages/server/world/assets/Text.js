@@ -31,7 +31,7 @@ export default (world, app, fetch, props, setTimeout) => {
     {
       key: 'canvas',
       type: 'section',
-      label: 'Canvas'
+      label: 'Canvas',
     },
     {
       key: 'width',

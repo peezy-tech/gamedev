@@ -276,16 +276,20 @@ export async function buildStaticClient() {
 }
 
 export async function buildWorldClient({ dev = false } = {}) {
-  await fs.emptyDir(buildDir)
+  await fs.remove(path.join(buildDir, 'world-client.js'))
+  await fs.remove(path.join(buildDir, 'assets'))
+  await fs.remove(path.join(buildDir, 'world-client-assets'))
   return runBrowserBuild({
     dev,
     outDir: buildDir,
+    emptyOutDir: false,
     minify: false,
     sourcemap: 'inline',
     input: path.join(rootDir, 'packages/client/world-client.js'),
     external: ['three', 'react', 'react-dom', 'ses'],
     output: {
       entryFileNames: 'world-client.js',
+      chunkFileNames: 'world-client-assets/[name]-[hash].js',
       assetFileNames: 'world-client-assets/[name]-[hash][extname]',
       codeSplitting: false,
     },
@@ -293,7 +297,6 @@ export async function buildWorldClient({ dev = false } = {}) {
 }
 
 export async function buildViewer({ dev = false } = {}) {
-  await fs.emptyDir(buildDir)
   return runBrowserBuild({
     dev,
     outDir: path.join(buildDir, 'viewer'),

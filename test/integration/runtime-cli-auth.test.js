@@ -392,13 +392,16 @@ test('cli auth session flow completes on the world server without a loopback cal
   assert.equal(insufficientComplete.res.status, 409)
   assert.equal(insufficientComplete.data?.error, 'capability_required')
 
-  const completed = await fetchJson(`${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`, {
-    method: 'POST',
-    body: {
-      worldUrl: world.worldUrl,
-      authToken: guest.data.token,
-    },
-  })
+  const completed = await fetchJson(
+    `${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`,
+    {
+      method: 'POST',
+      body: {
+        worldUrl: world.worldUrl,
+        authToken: guest.data.token,
+      },
+    }
+  )
   assert.equal(completed.res.status, 200)
   assert.equal(completed.data?.ok, true)
   assert.equal(completed.data?.status, 'complete')

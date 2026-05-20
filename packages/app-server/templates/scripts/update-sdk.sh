@@ -11,8 +11,8 @@ SYNC_FILES=(
   .nvmrc
   AGENTS.md
   CLAUDE.md
-  package-lock.json
   package.json
+  pnpm-lock.yaml
   README.md
   tsconfig.json
 )
@@ -67,8 +67,8 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is required."
+if ! command -v vp >/dev/null 2>&1; then
+  echo "Vite Plus (vp) is required."
   exit 1
 fi
 
@@ -142,6 +142,6 @@ if [[ -f "$SELF_BACKUP" ]]; then
 fi
 
 echo "Ensuring gamedev is latest..."
-npm install gamedev@latest
+vp install -D gamedev@latest
 
 echo "Sync complete (no commit, no staging)."

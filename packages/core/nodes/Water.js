@@ -204,7 +204,13 @@ export class Water extends Node {
     if (!isArray(value) || value.length !== 3 || !value.every(isNumber)) {
       throw new Error('[water] sunDirection must be [x, y, z] array')
     }
-    if (this._sunDirection && this._sunDirection[0] === value[0] && this._sunDirection[1] === value[1] && this._sunDirection[2] === value[2]) return
+    if (
+      this._sunDirection &&
+      this._sunDirection[0] === value[0] &&
+      this._sunDirection[1] === value[1] &&
+      this._sunDirection[2] === value[2]
+    )
+      return
     this._sunDirection = value
     if (this.water) {
       this.water.material.uniforms['sunDirection'].value.fromArray(value)
