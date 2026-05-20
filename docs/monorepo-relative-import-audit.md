@@ -2,20 +2,20 @@
 
 Static scan of relative `import`/`export`/`require` specifiers that originally resolved into a different workspace package.
 
-Current status: all listed cases have been converted to workspace package imports, the follow-up verification scan found `0` remaining cross-package relative imports, and a second resolver pass found `0` broken package-internal relative imports.
+Current status: most listed cases have been converted to workspace package imports, with one publish-specific exception. Runtime files shipped and executed directly by the root `gamedev` package use relative paths into packaged workspace folders so npm installs do not need private `workspace:*` runtime dependencies.
 
 ## Migration Checklist
 
 - [x] Add missing `workspace:*` dependency edges to workspace package manifests.
-- [x] Convert `@gamedev/app-server` imports of `@gamedev/core`.
-- [x] Convert `@gamedev/cli` imports of `@gamedev/app-server`.
+- [x] Keep published `@gamedev/app-server` runtime imports of `@gamedev/core` package-local.
+- [x] Keep published `@gamedev/cli` runtime imports of `@gamedev/app-server` package-local.
 - [x] Convert `@gamedev/client` imports of `@gamedev/core`.
 - [x] Convert `@gamedev/node-client` imports of `@gamedev/core`.
 - [x] Convert `@gamedev/server` imports of `@gamedev/core`.
 - [x] Convert root `gamedev` imports of workspace packages in `scripts/`, `test/`, and `*.d.ts`.
 - [x] Normalize package-internal relative imports to explicit file specifiers for Node ESM.
 - [x] Refresh the workspace install / lockfile for the new package edges.
-- [x] Verify there are no remaining cross-package relative imports.
+- [x] Verify published runtime entrypoints do not require private workspace runtime dependencies.
 
 ## Baseline Audit Summary
 

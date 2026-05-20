@@ -11,6 +11,8 @@ const clientOnly = process.argv.includes('--client-only')
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(dirname, '../')
 const buildDir = path.join(rootDir, 'build')
+const packageJson = await fs.readJson(path.join(rootDir, 'package.json'))
+const externalPackages = Object.keys(packageJson.dependencies ?? {}).filter(name => !name.startsWith('@gamedev/'))
 
 function isLocalHost(hostname) {
   if (!hostname) return false
@@ -174,7 +176,7 @@ if (!clientOnly) {
     treeShaking: true,
     minify: false,
     sourcemap: true,
-    packages: 'external',
+    external: externalPackages,
     define: {
       'process.env.CLIENT': 'false',
       'process.env.SERVER': 'true',
@@ -209,8 +211,6 @@ if (!clientOnly) {
                 cwd: rootDir,
                 env: childEnv,
               })
-            } else {
-              process.exit(0)
             }
           })
         },
@@ -222,6 +222,7 @@ if (!clientOnly) {
     await serverCtx.watch()
   } else {
     await serverCtx.rebuild()
+    await serverCtx.dispose()
   }
 }
 
@@ -239,12 +240,13 @@ if (!clientOnly) {
     treeShaking: true,
     minify: false,
     sourcemap: true,
-    packages: 'external',
+    external: externalPackages,
     loader: {},
   })
   if (dev) {
     await nodeClientCtx.watch()
   } else {
     await nodeClientCtx.rebuild()
+    await nodeClientCtx.dispose()
   }
 }

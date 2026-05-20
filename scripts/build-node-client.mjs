@@ -10,6 +10,8 @@ const dev = process.argv.includes('--dev')
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(dirname, '../')
 const buildDir = path.join(rootDir, 'build')
+const packageJson = await fs.readJson(path.join(rootDir, 'package.json'))
+const externalPackages = Object.keys(packageJson.dependencies ?? {}).filter(name => !name.startsWith('@gamedev/'))
 
 // await fs.emptyDir(buildDir)
 
@@ -33,7 +35,7 @@ let spawn
     treeShaking: true,
     minify: false,
     sourcemap: true,
-    packages: 'external',
+    external: externalPackages,
     loader: {},
     plugins: [
       {
@@ -53,8 +55,6 @@ let spawn
               // (re)start server
               spawn?.kill('SIGTERM')
               spawn = fork(path.join(rootDir, 'build/world-node-client.js'))
-            } else {
-              process.exit(0)
             }
           })
         },
@@ -65,5 +65,6 @@ let spawn
     await nodeClientCtx.watch()
   } else {
     await nodeClientCtx.rebuild()
+    await nodeClientCtx.dispose()
   }
 }

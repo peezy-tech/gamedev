@@ -6,12 +6,12 @@ import { fileURLToPath } from 'url'
 import { spawn } from 'child_process'
 import { customAlphabet } from 'nanoid'
 
-import { ensureProjectAuth } from '@gamedev/app-server/cliAuth.js'
-import { debugLog } from '@gamedev/app-server/debug.js'
-import { runAppCommand, runScriptCommand, runSyncCommand } from '@gamedev/app-server/commands.js'
-import { DirectAppServer } from '@gamedev/app-server/direct.js'
-import { scaffoldBaseProject, scaffoldBuiltins, updateBuiltins, writeManifest } from '@gamedev/app-server/scaffold.js'
-import { applyTargetEnv, parseTargetArgs, resolveTarget } from '@gamedev/app-server/targets.js'
+import { ensureProjectAuth } from '../app-server/cliAuth.js'
+import { debugLog } from '../app-server/debug.js'
+import { runAppCommand, runScriptCommand, runSyncCommand } from '../app-server/commands.js'
+import { DirectAppServer } from '../app-server/direct.js'
+import { scaffoldBaseProject, scaffoldBuiltins, updateBuiltins, writeManifest } from '../app-server/scaffold.js'
+import { applyTargetEnv, parseTargetArgs, resolveTarget } from '../app-server/targets.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(__dirname, '../..')
