@@ -6,7 +6,7 @@ import {
   readProjectAuthEntry,
   removeProjectAuthEntry,
   writeProjectAuthEntry,
-} from '../../app-server/projectAuth.js'
+} from '@gamedev/app-server/projectAuth.js'
 import { createTempDir } from './helpers.js'
 
 test('project auth store persists per-world bearer tokens', async t => {

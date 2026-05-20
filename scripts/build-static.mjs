@@ -21,9 +21,9 @@ import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(dirname, '../')
 const outDir = path.join(rootDir, 'build/static')
-const clientPublicDir = path.join(rootDir, 'src/client/public')
-const htmlSrc = path.join(rootDir, 'src/client/public/index.html')
-const worldAssetsDir = path.join(rootDir, 'src/world/assets')
+const clientPublicDir = path.join(rootDir, 'packages/client/public')
+const htmlSrc = path.join(rootDir, 'packages/client/public/index.html')
+const worldAssetsDir = path.join(rootDir, 'packages/server/world/assets')
 
 // Public env vars baked into the static build.
 // No PUBLIC_WS_URL → client boots into offline mode by default.
@@ -37,7 +37,7 @@ const publicEnvs = {
 await fs.emptyDir(outDir)
 
 const ctx = await esbuild.context({
-  entryPoints: ['src/client/index.js', 'src/client/particles.js'],
+  entryPoints: ['packages/client/index.js', 'packages/client/particles.js'],
   entryNames: '/[name]-[hash]',
   outdir: outDir,
   platform: 'browser',
@@ -69,7 +69,7 @@ const ctx = await esbuild.context({
 
           // copy physx wasm
           await fs.copy(
-            path.join(rootDir, 'src/core/physx-js-webidl.wasm'),
+            path.join(rootDir, 'packages/core/physx-js-webidl.wasm'),
             path.join(outDir, 'physx-js-webidl.wasm')
           )
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { completeRuntimeStartup } from '../../src/server/runtimeStartup.js'
+import { completeRuntimeStartup } from '@gamedev/server/runtimeStartup.js'
 
 function createLogger() {
   const messages = {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import path from 'path'
 import { test } from 'node:test'
 
-import { DirectAppServer } from '../../app-server/direct.js'
+import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import {
   AdminWsClient,
   createTempDir,

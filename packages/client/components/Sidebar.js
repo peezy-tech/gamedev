@@ -1,0 +1,806 @@
+import { css } from '@firebolt-dev/css'
+import { useEffect, useState } from 'react'
+import { HammerIcon, WifiIcon, WifiOffIcon } from 'lucide-react'
+import { cls } from './cls.js'
+import { theme } from './theme.js'
+import { HintProvider } from './Hint.js'
+import { exportApp } from '@gamedev/core/extras/appTools.js'
+import { assetPath, isTouch } from '../utils.js'
+import { downloadFile } from '@gamedev/core/extras/downloadFile.js'
+import { useRank } from './useRank.js'
+import { sanitizeWsUrl } from '@gamedev/core/utils.js'
+import { getPreferredServerUrl, resolveConnectionPolicy, navigateToServer } from '@gamedev/core/utils-client.js'
+import { MouseLeftIcon } from './MouseLeftIcon.js'
+import { MouseRightIcon } from './MouseRightIcon.js'
+import { MouseWheelIcon } from './MouseWheelIcon.js'
+import { buttons, propToLabel } from '@gamedev/core/extras/buttons.js'
+import { World } from './sidebar/World.js'
+import { Apps } from './sidebar/Apps.js'
+import { Add } from './sidebar/Add.js'
+import { App } from './sidebar/App.js'
+import { Script } from './sidebar/Script.js'
+import { Nodes } from './sidebar/Nodes.js'
+import { Meta } from './sidebar/Meta.js'
+
+export function Sidebar({ world, ui, onOpenMenu, walletAuth, onConnectWallet, onDisconnectWallet }) {
+  const player = world.entities.player
+  const { isBuilder } = useRank(world, player)
+  const activePane = ui.active ? ui.pane : null
+  const [open, setOpen] = useState(false)
+  const [walletMenuOpen, setWalletMenuOpen] = useState(false)
+  const isPrivyAuth = walletAuth?.mode === 'privy'
+  const showWalletMenu = !!walletMenuOpen && !isPrivyAuth && !walletAuth?.connected
+  const downloadApp = async () => {
+    const app = ui.app
+    if (!app?.blueprint) return
+    try {
+      const file = await exportApp(app.blueprint, world.loader.loadFile, id => world.blueprints.get(id))
+      downloadFile(file)
+    } catch (err) {
+      console.error(err)
+      world.emit('toast', 'Export failed')
+    }
+  }
+  useEffect(() => {
+    if (ui.app && !open) setOpen(true)
+  }, [ui.app])
+  useEffect(() => {
+    if (isPrivyAuth || walletAuth?.connected) {
+      setWalletMenuOpen(false)
+    }
+  }, [isPrivyAuth, walletAuth?.connected])
+  const selectPane = pane => {
+    world.ui.togglePane(pane)
+    if (!ui.active) setOpen(true)
+  }
+  const [showConn, setShowConn] = useState(false)
+  const [connectionPolicy] = useState(() => resolveConnectionPolicy())
+  const [isOffline, setIsOffline] = useState(() => !!world.network?.isOffline)
+  const [ping, setPing] = useState(null)
+  const [serverUrl, setServerUrl] = useState(() => getPreferredServerUrl())
+  useEffect(() => {
+    const onPing = ms => setPing(ms)
+    const onConnectionStatus = ({ status } = {}) => {
+      if (status === 'connected') {
+        setIsOffline(false)
+        return
+      }
+      if (status === 'offline') {
+        setIsOffline(true)
+        setPing(null)
+      }
+    }
+    const onDisconnect = () => {
+      setIsOffline(true)
+      setPing(null)
+    }
+    world.on('ping', onPing)
+    world.on('connectionStatus', onConnectionStatus)
+    world.on('disconnect', onDisconnect)
+    return () => {
+      world.off('ping', onPing)
+      world.off('connectionStatus', onConnectionStatus)
+      world.off('disconnect', onDisconnect)
+    }
+  }, [])
+  const handleConnect = () => {
+    const clean = sanitizeWsUrl(serverUrl)
+    if (!clean) return
+    navigateToServer(clean)
+  }
+  const handleDisconnect = () => {
+    world.network?.ws?.close()
+  }
+  return (
+    <HintProvider>
+      <div
+        className='sidebar'
+        css={css`
+          position: absolute;
+          font-size: 1rem;
+          top: calc(2rem + env(safe-area-inset-top));
+          right: calc(2rem + env(safe-area-inset-right));
+          bottom: calc(2rem + env(safe-area-inset-bottom));
+          left: calc(0.75rem + env(safe-area-inset-left));
+          display: flex;
+          gap: 0.625rem;
+          justify-content: flex-start;
+          overflow: hidden;
+          .sidebar-topbar {
+            position: absolute;
+            top: 0;
+            left: calc(0.75rem + env(safe-area-inset-left));
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            pointer-events: auto;
+          }
+          .sidebar-wallet-wrap {
+            position: relative;
+          }
+          .sidebar-center {
+            position: relative;
+            align-self: center;
+            display: flex;
+            gap: 0.625rem;
+            &.open {
+              height: 35%;
+            }
+          }
+          .sidebar-actions {
+            position: absolute;
+            left: 0;
+            bottom: calc(100% + 0.75rem);
+            transform: scale(0.5);
+            transform-origin: bottom left;
+            pointer-events: none;
+            @media all and (max-width: 1200px) {
+              bottom: calc(100% + 0.5rem);
+            }
+          }
+          .sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            pointer-events: auto;
+            background: transparent;
+            border: 1px solid ${theme.border};
+            border-radius: ${theme.radius};
+            padding: 0.25rem;
+          }
+          .sidebar-nav-toggle {
+            width: 2.25rem;
+            height: 2.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.6);
+            border-radius: ${theme.radiusSmall};
+            &:hover {
+              cursor: pointer;
+              color: white;
+              background: ${theme.bgHover};
+            }
+          }
+          .sidebar-nav-btn {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.8125rem;
+            color: rgba(255, 255, 255, 0.6);
+            white-space: nowrap;
+            border-radius: ${theme.radiusSmall};
+            &:hover {
+              cursor: pointer;
+              color: white;
+              background: ${theme.bgHover};
+            }
+            &.active {
+              color: white;
+              background: ${theme.bgHover};
+            }
+            &.suspended {
+              color: rgba(255, 255, 255, 0.6);
+              &::after {
+                content: ' *';
+              }
+            }
+          }
+          .sidebar-nav-divider {
+            height: 1px;
+            background: ${theme.borderLight};
+            margin: 0.25rem 0;
+          }
+          .sidebar-script {
+            align-self: stretch;
+            display: flex;
+            pointer-events: auto;
+          }
+          &.touch {
+            font-size: 0.875rem;
+            top: env(safe-area-inset-top);
+            right: calc(0.75rem + env(safe-area-inset-right));
+            bottom: env(safe-area-inset-bottom);
+            left: calc(0.75rem + env(safe-area-inset-left));
+          }
+        `}
+      >
+        <div className='sidebar-topbar'>
+          <LogoBtn onClick={onOpenMenu} />
+          <div className='sidebar-wallet-wrap'>
+            <WalletBtn
+              auth={walletAuth}
+              onClick={() => {
+                if (walletAuth?.pending) return
+                if (isPrivyAuth || walletAuth?.connected) {
+                  onConnectWallet?.()
+                  return
+                }
+                setWalletMenuOpen(prev => !prev)
+              }}
+            />
+            {showWalletMenu && (
+              <WalletConnectMenu
+                auth={walletAuth}
+                onClose={() => setWalletMenuOpen(false)}
+                onSelect={selection => {
+                  setWalletMenuOpen(false)
+                  onConnectWallet?.(selection)
+                }}
+              />
+            )}
+          </div>
+          <WalletDisconnectBtn auth={walletAuth} onClick={onDisconnectWallet} />
+          <div
+            className='sidebar-conn-btn'
+            title='Connection'
+            onClick={() => setShowConn(v => !v)}
+            css={css`
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 2rem;
+              height: 2rem;
+              border-radius: 50%;
+              cursor: pointer;
+              flex-shrink: 0;
+              &:hover {
+                background: rgba(255, 255, 255, 0.08);
+              }
+            `}
+          >
+            {isOffline ? (
+              <WifiOffIcon size='1.125rem' color='#6b7280' />
+            ) : (
+              <WifiIcon size='1.125rem' color='#4ade80' />
+            )}
+          </div>
+        </div>
+        {showConn && (
+          <div
+            className='conn-panel'
+            css={css`
+              position: absolute;
+              top: 3rem;
+              right: 0.75rem;
+              background: rgba(11, 10, 21, 0.95);
+              border: 1px solid rgba(255, 255, 255, 0.08);
+              border-radius: 0.75rem;
+              width: 18rem;
+              padding: 0.5rem 0;
+              pointer-events: auto;
+              z-index: 100;
+              .conn-field {
+                display: flex;
+                align-items: center;
+                height: 2.5rem;
+                padding: 0 1rem;
+                gap: 0.5rem;
+                .conn-field-label {
+                  width: 4.5rem;
+                  flex-shrink: 0;
+                  font-size: 0.875rem;
+                  color: rgba(255, 255, 255, 0.5);
+                }
+                input {
+                  flex: 1;
+                  font-size: 0.875rem;
+                  background: transparent;
+                  color: white;
+                  border: none;
+                  outline: none;
+                  text-align: right;
+                  &::placeholder { color: rgba(255,255,255,0.25); }
+                }
+                &:hover { background: rgba(255,255,255,0.03); }
+              }
+              .conn-status {
+                display: flex;
+                align-items: center;
+                height: 2.5rem;
+                padding: 0 1rem;
+                font-size: 0.875rem;
+                color: rgba(255,255,255,0.5);
+                gap: 0.5rem;
+                .conn-status-label { width: 4.5rem; flex-shrink: 0; }
+                .conn-status-value {
+                  flex: 1;
+                  text-align: right;
+                  color: ${isOffline ? 'rgba(255,255,255,0.3)' : '#4ade80'};
+                }
+              }
+              .conn-sep {
+                height: 1px;
+                background: rgba(255,255,255,0.06);
+                margin: 0.25rem 0;
+              }
+              .conn-action {
+                display: flex;
+                align-items: center;
+                height: 2.5rem;
+                padding: 0 1rem;
+                font-size: 0.875rem;
+                color: ${isOffline ? '#4ade80' : 'rgba(255,255,255,0.5)'};
+                cursor: pointer;
+                &:hover {
+                  background: rgba(255,255,255,0.03);
+                  color: ${isOffline ? '#6ee7a0' : 'rgba(255,255,255,0.8)'};
+                }
+              }
+            `}
+          >
+            {connectionPolicy.allowUrlOverride && (
+              <label className='conn-field'>
+                <span className='conn-field-label'>Server</span>
+                <input
+                  type='text'
+                  placeholder='wss://your-world.fly.dev/ws'
+                  value={serverUrl}
+                  onChange={e => setServerUrl(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.code === 'Enter') { e.preventDefault(); handleConnect() }
+                  }}
+                />
+              </label>
+            )}
+            <div className='conn-status'>
+              <span className='conn-status-label'>Status</span>
+              <span className='conn-status-value'>
+                {isOffline ? 'Offline' : `Online${ping != null ? ` · ${ping}ms` : ''}`}
+              </span>
+            </div>
+            <div className='conn-sep' />
+            <div className='conn-action' onClick={isOffline ? handleConnect : handleDisconnect}>
+              {isOffline ? 'Connect' : 'Disconnect'}
+            </div>
+          </div>
+        )}
+        {isBuilder && (
+          <div className={cls('sidebar-center', { open })}>
+            <div className={cls('sidebar-nav', { open })}>
+              <div className='sidebar-nav-toggle' onClick={() => setOpen(!open)}>
+                <HammerIcon size='1.125rem' />
+              </div>
+              {open && (
+                <>
+                  <div className='sidebar-nav-divider' />
+                  <div
+                    className={cls('sidebar-nav-btn', { active: activePane === 'world' })}
+                    onClick={() => selectPane('world')}
+                  >
+                    World
+                  </div>
+                  <div
+                    className={cls('sidebar-nav-btn', { active: activePane === 'apps' })}
+                    onClick={() => selectPane('apps')}
+                  >
+                    Objects
+                  </div>
+                  <div
+                    className={cls('sidebar-nav-btn', {
+                      active: activePane === 'add',
+                      suspended: ui.app?.blueprint.id === '$scene',
+                    })}
+                    onClick={() => selectPane('add')}
+                  >
+                    Library
+                  </div>
+                  {ui.app && (
+                    <>
+                      <div className='sidebar-nav-divider' />
+                      <div
+                        className={cls('sidebar-nav-btn', { active: activePane === 'app' })}
+                        onClick={() => selectPane('app')}
+                      >
+                        Object
+                      </div>
+                      <div
+                        className={cls('sidebar-nav-btn', { active: activePane === 'script' })}
+                        onClick={() => selectPane('script')}
+                      >
+                        Script
+                      </div>
+                      <div
+                        className={cls('sidebar-nav-btn', { active: activePane === 'nodes' })}
+                        onClick={() => selectPane('nodes')}
+                      >
+                        Nodes
+                      </div>
+                      <div
+                        className={cls('sidebar-nav-btn', { active: activePane === 'meta' })}
+                        onClick={() => selectPane('meta')}
+                      >
+                        Meta
+                      </div>
+                      <div className='sidebar-nav-divider' />
+                      <div className='sidebar-nav-btn' onClick={downloadApp}>
+                        Export
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            {open && ui.pane === 'world' && <World world={world} hidden={!ui.active} />}
+            {open && ui.pane === 'apps' && <Apps world={world} hidden={!ui.active} />}
+            {open && ui.pane === 'add' && <Add world={world} hidden={!ui.active} />}
+            {open && ui.pane === 'app' && <App key={ui.app.data.id} world={world} hidden={!ui.active} />}
+            {open && ui.pane !== 'script' && ui.pane === 'nodes' && (
+              <Nodes key={ui.app.data.id} world={world} hidden={!ui.active} />
+            )}
+            {open && ui.pane !== 'script' && ui.pane === 'meta' && (
+              <Meta key={ui.app.data.id} world={world} hidden={!ui.active} />
+            )}
+            <ActionsPanel world={world} />
+          </div>
+        )}
+        {isBuilder && open && ui.pane === 'script' && (
+          <div className='sidebar-script'>
+            <Script key={ui.app.data.id} world={world} hidden={!ui.active} />
+          </div>
+        )}
+      </div>
+    </HintProvider>
+  )
+}
+
+function ActionsPanel({ world }) {
+  const [showActions, setShowActions] = useState(() => world.prefs.actions)
+  useEffect(() => {
+    const onPrefsChange = changes => {
+      if (changes.actions) setShowActions(changes.actions.value)
+    }
+    world.prefs.on('change', onPrefsChange)
+    return () => {
+      world.prefs.off('change', onPrefsChange)
+    }
+  }, [])
+  if (isTouch) return null
+  if (!showActions) return null
+  return (
+    <div className='sidebar-actions'>
+      <Actions world={world} />
+    </div>
+  )
+}
+
+function Actions({ world }) {
+  const [actions, setActions] = useState(() => world.controls.actions)
+  useEffect(() => {
+    world.on('actions', setActions)
+    return () => world.off('actions', setActions)
+  }, [])
+  return (
+    <div
+      className='actions'
+      css={css`
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        .actions-item {
+          display: flex;
+          align-items: flex-start;
+          margin: 0 0 0.5rem;
+          &-icon {
+            flex: 0 0 auto;
+            width: 2.25em;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+          &-label {
+            margin-left: 0.5em;
+            line-height: 1.2;
+            white-space: normal;
+            max-width: 12em;
+            paint-order: stroke fill;
+            -webkit-text-stroke: 0.25rem rgba(0, 0, 0, 0.2);
+          }
+        }
+      `}
+    >
+      {actions.map(action => (
+        <div className='actions-item' key={action.id}>
+          <div className='actions-item-icon'>{getActionIcon(action)}</div>
+          <div className='actions-item-label'>{action.label}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function getActionIcon(action) {
+  if (action.type === 'custom') {
+    return <ActionPill label={action.btn} />
+  }
+  if (action.type === 'controlLeft') {
+    return <ActionPill label='Ctrl' />
+  }
+  if (action.type === 'mouseLeft') {
+    return <ActionIcon icon={MouseLeftIcon} />
+  }
+  if (action.type === 'mouseRight') {
+    return <ActionIcon icon={MouseRightIcon} />
+  }
+  if (action.type === 'mouseWheel') {
+    return <ActionIcon icon={MouseWheelIcon} />
+  }
+  if (buttons.has(action.type)) {
+    return <ActionPill label={propToLabel[action.type]} />
+  }
+  return <ActionPill label='?' />
+}
+
+function ActionPill({ label }) {
+  return (
+    <div
+      className='actionpill'
+      css={css`
+        border: 0.0625rem solid white;
+        border-radius: 0.25rem;
+        background: rgba(0, 0, 0, 0.1);
+        padding: 0.125rem 0.3125rem;
+        font-size: 0.75em;
+        line-height: 1;
+        height: 1.25em;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        paint-order: stroke fill;
+        -webkit-text-stroke: 0.25rem rgba(0, 0, 0, 0.2);
+      `}
+    >
+      {label}
+    </div>
+  )
+}
+
+function ActionIcon({ icon: Icon }) {
+  return (
+    <div
+      className='actionicon'
+      css={css`
+        line-height: 0;
+        svg {
+          filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+        }
+      `}
+    >
+      <Icon size='1.5rem' />
+    </div>
+  )
+}
+
+function LogoBtn({ onClick }) {
+  return (
+    <div
+      className='sidebar-logo'
+      css={css`
+        width: 2.75rem;
+        height: 2.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid ${theme.border};
+        border-radius: ${theme.radius};
+        cursor: pointer;
+        &:hover {
+          background: ${theme.bgHover};
+        }
+        img {
+          width: 1.75rem;
+          height: 1.75rem;
+          object-fit: contain;
+        }
+      `}
+      onClick={onClick}
+    >
+      <img src={assetPath('/logo.png')} />
+    </div>
+  )
+}
+
+function formatWalletAddress(address) {
+  if (!address) return ''
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
+function WalletBtn({ auth, onClick }) {
+  if (!auth?.enabled) return null
+  const providerUnavailable = !auth.providerAvailable
+  const providerLoading = auth.mode === 'privy' && providerUnavailable
+  const disabled = auth.pending || auth.connected || providerUnavailable
+  const actionLabel = auth.mode === 'privy' ? 'Sign In' : 'Connect Wallet'
+  const unavailableLabel = auth.mode === 'privy' ? 'Auth Unavailable' : 'No Wallet'
+  const label = auth.pending
+    ? 'Connecting...'
+    : auth.connected
+      ? (auth.address ? formatWalletAddress(auth.address) : 'Signed In')
+      : providerLoading
+        ? 'Loading Auth...'
+        : providerUnavailable
+          ? unavailableLabel
+          : actionLabel
+  return (
+    <div
+      className={cls('sidebar-wallet', { disabled })}
+      css={css`
+        min-width: 7.5rem;
+        height: 2.75rem;
+        padding: 0 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid ${theme.border};
+        border-radius: ${theme.radius};
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        user-select: none;
+        &:hover {
+          background: ${theme.bgHover};
+        }
+        &.disabled {
+          cursor: default;
+          color: rgba(255, 255, 255, 0.55);
+          background: transparent;
+        }
+      `}
+      onClick={() => {
+        if (disabled) return
+        onClick?.()
+      }}
+    >
+      {label}
+    </div>
+  )
+}
+
+function WalletDisconnectBtn({ auth, onClick }) {
+  if (!auth?.enabled || !auth.connected) return null
+  const disabled = auth.pending
+  return (
+    <div
+      className={cls('sidebar-wallet-disconnect', { disabled })}
+      css={css`
+        height: 2.75rem;
+        padding: 0 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid rgba(255, 125, 125, 0.45);
+        border-radius: ${theme.radius};
+        color: rgba(255, 185, 185, 0.95);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        user-select: none;
+        &:hover {
+          background: rgba(255, 90, 90, 0.12);
+        }
+        &.disabled {
+          cursor: default;
+          color: rgba(255, 185, 185, 0.55);
+          background: transparent;
+        }
+      `}
+      onClick={() => {
+        if (disabled) return
+        onClick?.()
+      }}
+    >
+      Disconnect
+    </div>
+  )
+}
+
+function WalletConnectMenu({ auth, onClose, onSelect }) {
+  const availability = auth?.providerAvailability || {
+    ethereum: !!auth?.providerAvailable,
+    solana: false,
+  }
+  const options = [
+    {
+      key: 'ethereum',
+      label: 'Ethereum',
+      available: !!availability.ethereum,
+      selection: { chain: 'ethereum' },
+    },
+    {
+      key: 'solana-mainnet',
+      label: 'Solana',
+      available: !!availability.solana,
+      selection: { chain: 'solana', network: 'mainnet' },
+    },
+  ]
+
+  return (
+    <div
+      className='sidebar-wallet-menu'
+      css={css`
+        position: absolute;
+        top: calc(100% + 0.4rem);
+        left: 0;
+        width: 12.75rem;
+        background: ${theme.bgPanel};
+        border: 1px solid ${theme.border};
+        border-radius: ${theme.radius};
+        backdrop-filter: blur(8px);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+        z-index: 20;
+        .sidebar-wallet-menu-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0.55rem 0.7rem;
+          font-size: 0.7rem;
+          color: rgba(255, 255, 255, 0.82);
+        }
+        .sidebar-wallet-menu-close {
+          cursor: pointer;
+          color: rgba(255, 255, 255, 0.62);
+          &:hover {
+            color: white;
+          }
+        }
+        .sidebar-wallet-menu-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          padding: 0.2rem 0.45rem 0.6rem;
+        }
+        .sidebar-wallet-menu-btn {
+          height: 2.1rem;
+          border: 1px solid ${theme.border};
+          border-radius: ${theme.radiusSmall};
+          background: rgba(255, 255, 255, 0.02);
+          color: rgba(255, 255, 255, 0.9);
+          font-size: 0.72rem;
+          font-weight: 600;
+          text-align: left;
+          padding: 0 0.6rem;
+          cursor: pointer;
+          &:hover {
+            background: ${theme.bgHover};
+          }
+          &.disabled {
+            cursor: default;
+            color: rgba(255, 255, 255, 0.45);
+            border-color: ${theme.borderLight};
+            background: transparent;
+          }
+        }
+      `}
+    >
+      <div className='sidebar-wallet-menu-head'>
+        <span>Connect wallet</span>
+        <span className='sidebar-wallet-menu-close' onClick={() => onClose?.()}>
+          Close
+        </span>
+      </div>
+      <div className='sidebar-wallet-menu-actions'>
+        {options.map(option => {
+          const disabled = auth?.pending || !option.available
+          return (
+            <button
+              key={option.key}
+              type='button'
+              className={cls('sidebar-wallet-menu-btn', { disabled })}
+              onClick={() => {
+                if (disabled) return
+                onSelect?.(option.selection)
+              }}
+            >
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

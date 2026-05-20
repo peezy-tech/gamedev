@@ -20,7 +20,7 @@ const viewerBuildDir = path.join(rootDir, 'build/viewer')
 
 {
   const clientCtx = await esbuild.context({
-    entryPoints: ['src/core/createViewerWorld.js'],
+    entryPoints: ['packages/core/createViewerWorld.js'],
     entryNames: '/[name]-[hash]',
     outdir: viewerBuildDir,
     platform: 'browser',

@@ -6,7 +6,7 @@ import {
   createAgonesSdkHttp,
   isAgonesSdkHttpEnabled,
   resolveAgonesSdkHttpBaseUrl,
-} from '../../src/server/agonesSdkHttp.js'
+} from '@gamedev/server/agonesSdkHttp.js'
 
 test('resolveAgonesSdkHttpBaseUrl uses the default and configured Agones SDK ports', () => {
   assert.equal(resolveAgonesSdkHttpBaseUrl({}), `http://127.0.0.1:${AGONES_SDK_DEFAULT_HTTP_PORT}`)

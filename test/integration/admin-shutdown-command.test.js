@@ -5,7 +5,7 @@ import {
   ADMIN_SHUTDOWN_COMMAND,
   handleAdminShutdownCommand,
   resolveAgonesShutdownUrl,
-} from '../../src/server/adminShutdown.js'
+} from '@gamedev/server/adminShutdown.js'
 
 test('command contract uses agones_shutdown name', () => {
   assert.equal(ADMIN_SHUTDOWN_COMMAND, 'agones_shutdown')

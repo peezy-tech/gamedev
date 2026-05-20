@@ -10,6 +10,8 @@ const dev = process.argv.includes('--dev')
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(dirname, '../')
 const buildDir = path.join(rootDir, 'build')
+const packageJson = await fs.readJson(path.join(rootDir, 'package.json'))
+const externalPackages = Object.keys(packageJson.dependencies ?? {}).filter(name => !name.startsWith('@gamedev/'))
 
 // await fs.emptyDir(buildDir)
 
@@ -25,7 +27,7 @@ let spawn
 
 {
   const nodeClientCtx = await esbuild.context({
-    entryPoints: ['src/node-client/index.js'],
+    entryPoints: ['packages/node-client/index.js'],
     outfile: 'build/world-node-client.js',
     platform: 'node',
     format: 'esm',
@@ -33,7 +35,7 @@ let spawn
     treeShaking: true,
     minify: false,
     sourcemap: true,
-    packages: 'external',
+    external: externalPackages,
     loader: {},
     plugins: [
       {
@@ -41,11 +43,11 @@ let spawn
         setup(build) {
           build.onEnd(async result => {
             // copy over physx js
-            const physxIdlSrc = path.join(rootDir, 'src/core/physx-js-webidl.js')
+            const physxIdlSrc = path.join(rootDir, 'packages/core/physx-js-webidl.js')
             const physxIdlDest = path.join(rootDir, 'build/physx-js-webidl.js')
             await fs.copy(physxIdlSrc, physxIdlDest)
             // copy over physx wasm
-            const physxWasmSrc = path.join(rootDir, 'src/core/physx-js-webidl.wasm')
+            const physxWasmSrc = path.join(rootDir, 'packages/core/physx-js-webidl.wasm')
             const physxWasmDest = path.join(rootDir, 'build/physx-js-webidl.wasm')
             await fs.copy(physxWasmSrc, physxWasmDest)
             // start the server or stop here
@@ -53,8 +55,6 @@ let spawn
               // (re)start server
               spawn?.kill('SIGTERM')
               spawn = fork(path.join(rootDir, 'build/world-node-client.js'))
-            } else {
-              process.exit(0)
             }
           })
         },
@@ -65,5 +65,6 @@ let spawn
     await nodeClientCtx.watch()
   } else {
     await nodeClientCtx.rebuild()
+    await nodeClientCtx.dispose()
   }
 }
