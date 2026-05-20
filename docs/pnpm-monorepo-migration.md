@@ -66,7 +66,7 @@ packages/
 
 ## Verification
 
-- [x] Clean reinstall verified with `fnm` / Node `22.11.0` from `.nvmrc`
+- [x] Clean reinstall verified with `fnm` / Node `24.15.0` from `.nvmrc`
 - [x] `pnpm install` no longer reports ignored native builds
 - [x] `better-sqlite3` loads correctly after clean reinstall
 - [x] Missing direct runtime/build dependencies were added to `package.json`
