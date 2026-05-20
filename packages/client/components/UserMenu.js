@@ -1013,7 +1013,7 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
   const openWorld = slugValue => {
     const slug = typeof slugValue === 'string' ? slugValue.trim() : ''
     if (!slug) return
-    window.location.href = `/worlds/${slug}`
+    window.location.href = `/${slug}`
   }
 
   const renderWorldSection = () => {
