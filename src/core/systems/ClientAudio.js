@@ -1,6 +1,7 @@
 import * as THREE from '../extras/three'
 
 import { System } from './System'
+import { publicAssetPath } from '../utils'
 
 const up = new THREE.Vector3(0, 1, 0)
 const v1 = new THREE.Vector3()
@@ -65,7 +66,7 @@ export class ClientAudio extends System {
         const video = document.createElement('video')
         video.playsInline = true
         video.muted = true
-        video.src = '/tiny.mp4'
+        video.src = publicAssetPath('/tiny.mp4')
         video
           .play()
           .then(() => {

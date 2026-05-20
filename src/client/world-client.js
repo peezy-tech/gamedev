@@ -9,6 +9,7 @@ import { CoreUI } from './components/CoreUI'
 import { assetPath } from './utils'
 import { EditorLayout } from './components/editor/EditorLayout'
 import { createRuntimeWalletAdapter } from './wallet-adapter'
+import { resolveClientConnectionConfig } from './runtimeConnection'
 
 export { System } from '../core/systems/System'
 
@@ -33,17 +34,20 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
     let cancelled = false
     const resolve = async () => {
       try {
-        let finalWsUrl = wsUrl
-        if (typeof finalWsUrl === 'function') {
-          finalWsUrl = finalWsUrl()
-          if (finalWsUrl instanceof Promise) finalWsUrl = await finalWsUrl
+        let finalConnection = wsUrl
+        if (typeof finalConnection === 'function') {
+          finalConnection = finalConnection()
+          if (finalConnection instanceof Promise) finalConnection = await finalConnection
         }
         if (cancelled) return
-        setResolvedWsUrl(finalWsUrl)
-        const derivedHttpUrl = finalWsUrl.replace(/^ws/, 'http').replace(/\/ws.*$/, '')
-        setApiBaseUrl(apiUrl || derivedHttpUrl)
-        const cleanedAuthUrl = typeof authUrl === 'string' ? authUrl.trim() : authUrl
-        setAuthBaseUrl(cleanedAuthUrl)
+        const connection = resolveClientConnectionConfig({
+          connection: finalConnection,
+          apiUrl,
+          authUrl,
+        })
+        setResolvedWsUrl(connection.wsUrl)
+        setApiBaseUrl(connection.apiUrl)
+        setAuthBaseUrl(connection.authUrl)
       } catch (err) {
         console.error('Failed to resolve connection:', err)
       }

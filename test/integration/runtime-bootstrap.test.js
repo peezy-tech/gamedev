@@ -8,6 +8,7 @@ import {
   derivePublicWsUrlFromApiUrl,
   deriveRuntimeBootstrapAuthToken,
   derivePublicAdminUrl,
+  allowsOpenAdminAccess,
   parseRuntimeBootstrapPayload,
   resolveControlInternalBaseUrl,
   resolveControlInternalUrl,
@@ -36,6 +37,7 @@ test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding'
     },
     runtime: {
       instanceId: 'lobby-world-abc',
+      releaseId: 'rel_001',
       publicApiUrl: 'https://gs.example.com:7000/api',
       publicWsUrl: 'wss://gs.example.com:7000/ws',
       publicAdminUrl: 'https://gs.example.com:7000/admin',
@@ -59,6 +61,7 @@ test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding'
     'PUBLIC_API_URL',
     'PUBLIC_WS_URL',
     'PUBLIC_ADMIN_URL',
+    'RUNTIME_CONTROL_RELEASE_ID',
     'PUBLIC_AUTH_URL',
     'PUBLIC_PRIVY_APP_ID',
     'CONTROL_INTERNAL_BASE_URL',
@@ -71,6 +74,7 @@ test('applyHostedRuntimeBootstrapPayload backfills hosted runtime world binding'
   assert.equal(env.PUBLIC_ADMIN_URL, 'https://gs.example.com:7000/admin')
   assert.equal(env.PUBLIC_API_URL, 'https://gs.example.com:7000/api')
   assert.equal(env.PUBLIC_WS_URL, 'wss://gs.example.com:7000/ws')
+  assert.equal(env.RUNTIME_CONTROL_RELEASE_ID, 'rel_001')
   assert.equal(env.PUBLIC_PRIVY_APP_ID, 'privy-app-id')
   assert.equal(env.CONTROL_INTERNAL_BASE_URL, 'https://world-service.lobby.svc.cluster.local/api')
 })
@@ -99,6 +103,24 @@ test('resolveRuntimeBootstrapMode honors the rollout switch and standby defaults
   assert.throws(
     () => resolveRuntimeBootstrapMode({ RUNTIME_BOOTSTRAP_MODE: 'legacy' }),
     /\[envs\] RUNTIME_BOOTSTRAP_MODE must be 'pull' or 'push'/
+  )
+})
+
+test('standalone wallet mode disables open-admin fallback', () => {
+  assert.equal(allowsOpenAdminAccess({ WORLD_ID: 'local-world' }), true)
+  assert.equal(
+    allowsOpenAdminAccess({
+      WORLD_ID: 'local-world',
+      STANDALONE_WALLET_AUTH: 'true',
+    }),
+    false
+  )
+  assert.equal(
+    allowsOpenAdminAccess({
+      WORLD_ID: 'local-world',
+      AUTH_IDENTITY_MODE: 'standalone-wallet',
+    }),
+    false
   )
 })
 
@@ -181,6 +203,7 @@ test('parseRuntimeBootstrapPayload normalizes the frozen binding shape', () => {
     },
     runtime: {
       instanceId: 'lobby-world-ghi',
+      releaseId: 'rel_004',
       publicApiUrl: 'https://gs.example.com:7443/api/',
       publicWsUrl: '',
     },
@@ -193,6 +216,7 @@ test('parseRuntimeBootstrapPayload normalizes the frozen binding shape', () => {
   })
 
   assert.equal(parsed.bootstrapId, 'world-4:lobby-world-ghi')
+  assert.equal(parsed.runtime.releaseId, 'rel_004')
   assert.equal(parsed.runtime.publicApiUrl, 'https://gs.example.com:7443/api')
   assert.equal(parsed.runtime.publicWsUrl, 'wss://gs.example.com:7443/ws')
   assert.equal(parsed.runtime.publicAdminUrl, 'https://gs.example.com:7443/admin')
@@ -213,6 +237,18 @@ test('derivePublicAdminUrl prefers api urls and falls back to websocket urls', (
       publicWsUrl: 'wss://runtime.example.com/ws',
     }),
     'https://runtime.example.com/admin'
+  )
+  assert.equal(
+    derivePublicAdminUrl({
+      publicWsUrl: 'wss://runtime.example.com/session?token=runtime',
+    }),
+    'https://runtime.example.com/admin'
+  )
+  assert.equal(
+    derivePublicAdminUrl({
+      publicWsUrl: 'wss://runtime.example.com/runtime/inst-123/socket',
+    }),
+    'https://runtime.example.com/runtime/inst-123/admin'
   )
 })
 

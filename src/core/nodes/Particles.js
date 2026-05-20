@@ -2,6 +2,7 @@ import * as THREE from '../extras/three'
 import { every, isArray, isBoolean, isFunction, isNumber, isString } from 'lodash-es'
 
 import { Node } from './Node'
+import { publicAssetPath } from '../utils'
 
 const shapeTypes = ['point', 'sphere', 'hemisphere', 'cone', 'box', 'circle', 'rectangle']
 const spaces = ['local', 'world']
@@ -55,7 +56,7 @@ const defaults = {
   emissive: '1',                      // particle start emissive intensity (bloom)
 
   // rendering
-  image: '/particle.png',
+  image: publicAssetPath('/particle.png'),
   spritesheet: null,                  // [rows, cols, frameRate, loops]
   blending: 'normal',                 // additive or normal (normal requires sorting)
   lit: false,                         // lit or unlit material

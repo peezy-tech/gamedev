@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import http from 'node:http'
 import net from 'node:net'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 
 import { readPacket } from '../../src/core/packets.js'
 import { buildRuntimeControlAuthorization } from '../../src/core/utils-server.js'
 import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
 import { createTempDir, startStandbyRuntimeServer, waitFor } from './helpers.js'
+
+const execFileAsync = promisify(execFile)
 
 function toWsUrl(httpUrl) {
   if (httpUrl.startsWith('https://')) return `wss://${httpUrl.slice('https://'.length)}`
@@ -113,17 +117,53 @@ async function startAgonesReadyStub() {
   }
 }
 
-function buildStandbyBinding({ worldId, runtimeInstanceId, worldUrl, auth = {}, controlInternalBaseUrl = 'http://world-service.internal/api' } = {}) {
+async function createSelfSignedTlsPair(dir) {
+  const keyPath = path.join(dir, 'tls.key')
+  const certPath = path.join(dir, 'tls.crt')
+  try {
+    await execFileAsync('openssl', [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-keyout',
+      keyPath,
+      '-out',
+      certPath,
+      '-subj',
+      '/CN=127.0.0.1',
+      '-days',
+      '1',
+      '-addext',
+      'subjectAltName=IP:127.0.0.1,DNS:localhost',
+    ])
+  } catch {
+    return null
+  }
+  return { certPath, keyPath }
+}
+
+function buildStandbyBinding({
+  worldId,
+  runtimeInstanceId,
+  worldUrl,
+  releaseId,
+  worldSlug = 'standby-world',
+  auth = {},
+  controlInternalBaseUrl = 'http://world-service.internal/api',
+} = {}) {
   return {
     bootstrapId: `${worldId}:${runtimeInstanceId}`,
     world: {
       id: worldId,
-      slug: 'standby-world',
+      slug: worldSlug,
       publicMaxUploadSize: 12,
       shutdownIdleSeconds: 0,
     },
     runtime: {
       instanceId: runtimeInstanceId,
+      ...(releaseId ? { releaseId } : {}),
       publicApiUrl: `${worldUrl}/api`,
     },
     auth,
@@ -155,6 +195,13 @@ async function waitForRuntimeEvent(server, event, matcher = () => true) {
   })
 }
 
+async function normalizeWebSocketMessageData(data) {
+  if (data instanceof Blob) return Buffer.from(await data.arrayBuffer())
+  if (data instanceof ArrayBuffer) return Buffer.from(data)
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+  return data
+}
+
 async function connectWorldSocket(wsUrl) {
   const ws = new WebSocket(wsUrl)
   return await new Promise((resolve, reject) => {
@@ -171,11 +218,16 @@ async function connectWorldSocket(wsUrl) {
       ws.removeEventListener('close', onClose)
     }
 
-    const onMessage = event => {
-      const [method, data] = readPacket(event.data)
-      if (method !== 'snapshot') return
-      cleanup()
-      resolve({ ws, snapshot: data })
+    const onMessage = async event => {
+      try {
+        const [method, data] = readPacket(await normalizeWebSocketMessageData(event.data))
+        if (method !== 'onSnapshot') return
+        cleanup()
+        resolve({ ws, snapshot: data })
+      } catch (err) {
+        cleanup()
+        reject(err instanceof Error ? err : new Error('ws_message_error'))
+      }
     }
 
     const onError = err => {
@@ -200,7 +252,13 @@ test('runtime boots into standby with pre-init bootstrap status', async t => {
     return
   }
 
-  const server = await startStandbyRuntimeServer()
+  const server = await startStandbyRuntimeServer({
+    env: {
+      RUNTIME_CONTROL_GAME_SLUG: 'standby-world',
+      RUNTIME_CONTROL_RELEASE_ID: 'rel-test',
+      RUNTIME_CONTROL_REGION: 'use',
+    },
+  })
   t.after(async () => {
     await server.stop()
   })
@@ -250,13 +308,76 @@ test('runtime requests Agones Ready while booting into standby when the SDK side
   assert.ok(agonesStub.requests.find(request => request.method === 'POST' && request.url === '/ready'))
 })
 
+test('runtime-control Agones TLS shape serves standby routes on a single listener', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const tlsDir = await createTempDir('hyperfy-runtime-tls-')
+  t.after(async () => {
+    await fsPromises.rm(tlsDir, { recursive: true, force: true })
+  })
+
+  const tls = await createSelfSignedTlsPair(tlsDir)
+  if (!tls) {
+    t.skip('openssl self-signed certificate generation is unavailable')
+    return
+  }
+
+  const previousTlsReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+  t.after(() => {
+    if (previousTlsReject === undefined) {
+      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED
+    } else {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = previousTlsReject
+    }
+  })
+
+  const server = await startStandbyRuntimeServer({
+    env: {
+      TLS_CERT_PATH: tls.certPath,
+      TLS_KEY_PATH: tls.keyPath,
+      RUNTIME_CONTROL_GAME_SLUG: 'standby-world',
+      RUNTIME_CONTROL_RELEASE_ID: 'rel-test',
+      RUNTIME_CONTROL_REGION: 'use',
+    },
+  })
+  t.after(async () => {
+    await server.stop()
+  })
+
+  assert.match(server.worldUrl, /^https:\/\/127\.0\.0\.1:/)
+  assert.doesNotMatch(server.getStdout(), /WSS server listening/)
+  assert.match(server.getStdout(), /HTTPS server listening on port/)
+
+  const healthzRes = await fetch(`${server.worldUrl}/healthz`)
+  const healthz = await healthzRes.json()
+  assert.equal(healthzRes.status, 200)
+  assert.equal(healthz.ok, true)
+  assert.equal(healthz.state, 'standby')
+
+  const statusRes = await fetch(`${server.worldUrl}/internal/bootstrap/status`)
+  const status = await statusRes.json()
+  assert.equal(statusRes.status, 200)
+  assert.equal(status.state, 'standby')
+  assert.equal(status.runtime.instanceId, server.runtimeInstanceId)
+})
+
 test('runtime gates gameplay and admin entrypoints until bootstrap is ready', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')
     return
   }
 
-  const server = await startStandbyRuntimeServer()
+  const server = await startStandbyRuntimeServer({
+    env: {
+      RUNTIME_CONTROL_GAME_SLUG: 'standby-world',
+      RUNTIME_CONTROL_RELEASE_ID: 'rel-test',
+      RUNTIME_CONTROL_REGION: 'use',
+    },
+  })
   t.after(async () => {
     await server.stop()
   })
@@ -297,7 +418,13 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
     return
   }
 
-  const server = await startStandbyRuntimeServer()
+  const server = await startStandbyRuntimeServer({
+    env: {
+      RUNTIME_CONTROL_GAME_SLUG: 'standby-world',
+      RUNTIME_CONTROL_RELEASE_ID: 'rel-test',
+      RUNTIME_CONTROL_REGION: 'use',
+    },
+  })
   t.after(async () => {
     await server.stop()
   })
@@ -336,6 +463,11 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
   assert.equal(runtimeStatus.ok, true)
   assert.equal(runtimeStatus.state, 'ready')
   assert.equal(runtimeStatus.worldId, worldId)
+  assert.equal(runtimeStatus.instanceId, server.runtimeInstanceId)
+  assert.equal(runtimeStatus.gameServerName, server.runtimeInstanceId)
+  assert.equal(runtimeStatus.gameSlug, 'standby-world')
+  assert.equal(runtimeStatus.releaseId, 'rel-test')
+  assert.equal(runtimeStatus.region, 'use')
 
   const bootstrapStatusRes = await fetch(`${server.worldUrl}/internal/bootstrap/status`)
   const bootstrapStatus = await bootstrapStatusRes.json()
@@ -498,6 +630,113 @@ test('runtime rejects bootstrap rebinding after a successful push', async t => {
   assert.equal(rebindPayload.receivedBootstrapId, `other-world:${server.runtimeInstanceId}`)
   assert.equal(rebindPayload.status.state, 'ready')
   assert.equal(rebindPayload.status.world.id, worldId)
+})
+
+test('runtime rejects bootstrap payloads for a different release id', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer({
+    env: {
+      RUNTIME_CONTROL_RELEASE_ID: 'rel_expected',
+    },
+  })
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const response = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret),
+    },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId: `world-${server.runtimeInstanceId}`,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+      releaseId: 'rel_other',
+    })),
+  })
+  const payload = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'runtime_release_mismatch')
+  assert.equal(payload.expectedReleaseId, 'rel_expected')
+  assert.equal(payload.receivedReleaseId, 'rel_other')
+})
+
+test('runtime rejects bootstrap payloads for a different world id', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer({
+    env: {
+      RUNTIME_CONTROL_WORLD_ID: 'world-expected',
+    },
+  })
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const response = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret),
+    },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId: 'world-other',
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+    })),
+  })
+  const payload = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'runtime_world_mismatch')
+  assert.equal(payload.expectedWorldId, 'world-expected')
+  assert.equal(payload.receivedWorldId, 'world-other')
+})
+
+test('runtime rejects bootstrap payloads for a different game slug', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+    return
+  }
+
+  const server = await startStandbyRuntimeServer({
+    env: {
+      RUNTIME_CONTROL_GAME_SLUG: 'expected-game',
+    },
+  })
+  t.after(async () => {
+    await server.stop()
+  })
+
+  const response = await fetch(`${server.worldUrl}/internal/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: buildRuntimeBootstrapAuthorization(server.runtimeInstanceId, server.jwtSecret),
+    },
+    body: JSON.stringify(buildStandbyBinding({
+      worldId: `world-${server.runtimeInstanceId}`,
+      runtimeInstanceId: server.runtimeInstanceId,
+      worldUrl: server.worldUrl,
+      worldSlug: 'other-game',
+    })),
+  })
+  const payload = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'runtime_game_mismatch')
+  assert.equal(payload.expectedGameSlug, 'expected-game')
+  assert.equal(payload.receivedGameSlug, 'other-game')
 })
 
 test('runtime uses bound control callbacks with world-scoped auth after bootstrap', async t => {
@@ -736,11 +975,13 @@ test('runtime emits structured bootstrap failure logs', async t => {
     return
   }
 
-  const worldRoot = await createTempDir('hyperfy-bootstrap-failed-')
-  const blockedWorldPath = path.join(worldRoot, 'blocked-world')
+  const blockedWorldSlug = `blocked-${Date.now()}`
+  const worldRoot = path.join(process.cwd(), '.runtime-worlds')
+  const blockedWorldPath = path.join(worldRoot, blockedWorldSlug)
+  await fsPromises.mkdir(worldRoot, { recursive: true })
   await fsPromises.writeFile(blockedWorldPath, 'blocked')
   t.after(async () => {
-    await fsPromises.rm(worldRoot, { recursive: true, force: true }).catch(() => {})
+    await fsPromises.rm(blockedWorldPath, { force: true }).catch(() => {})
   })
 
   const runtimeInstanceId = 'runtime-bootstrap-failed'
@@ -761,6 +1002,7 @@ test('runtime emits structured bootstrap failure logs', async t => {
     worldId,
     runtimeInstanceId,
     worldUrl: server.worldUrl,
+    worldSlug: blockedWorldSlug,
   })
   const authorization = buildRuntimeBootstrapAuthorization(runtimeInstanceId, jwtSecret)
 

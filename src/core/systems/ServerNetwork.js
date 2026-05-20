@@ -189,11 +189,13 @@ export class ServerNetwork extends System {
     this.logSubscribers = new Set()
     this.authMode = 'standalone'
     this.usesLobbyIdentity = false
+    this.requiresWalletIdentity = false
   }
 
   init({ db, authConfig } = {}) {
     this.db = db
     this.usesLobbyIdentity = !!authConfig?.usesLobbyIdentity
+    this.requiresWalletIdentity = !!authConfig?.requiresWalletIdentity
   }
 
   async start() {
@@ -474,7 +476,7 @@ export class ServerNetwork extends System {
       if (authToken) {
         try {
           const tokenData = await readJWT(authToken, {
-            worldId: this.usesLobbyIdentity ? this.worldId : undefined,
+            worldId: this.usesLobbyIdentity || this.requiresWalletIdentity ? this.worldId : undefined,
           })
           const userId = tokenData?.userId
           if (!userId) {
@@ -492,8 +494,14 @@ export class ServerNetwork extends System {
             await this.db('users').insert(user).onConflict('id').ignore()
           }
         } catch (err) {
-          console.warn('failed to read authToken, continuing as guest')
+          console.warn('failed to read authToken')
         }
+      }
+      if (!user && this.requiresWalletIdentity) {
+        const packet = writePacket('kick', 'auth_required')
+        ws.send(packet)
+        ws.close()
+        return
       }
       if (!user) {
         const isStandaloneLobbyGuest = this.usesLobbyIdentity

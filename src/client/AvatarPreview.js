@@ -1,13 +1,14 @@
 import * as THREE from 'three'
 import { isString } from 'lodash'
 import { Emotes } from '../core/extras/playerEmotes'
+import { publicAssetPath } from '../core/utils'
 
 const MAX_UPLOAD_SIZE = 1000000000000 // TODO
 const MAX_UPLOAD_SIZE_LABEL = '1LOLS'
 
 const FOV = 70
 const PLANE_ASPECT_RATIO = 16 / 9
-const HDR_URL = '/day2.hdr'
+const HDR_URL = publicAssetPath('/day2.hdr')
 
 const DEG2RAD = THREE.MathUtils.DEG2RAD
 const RAD2DEG = THREE.MathUtils.RAD2DEG

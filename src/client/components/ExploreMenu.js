@@ -10,6 +10,7 @@ import {
   XIcon,
 } from 'lucide-react'
 import { editorTheme as theme } from './editor/editorTheme'
+import { assetPath } from '../utils'
 
 function resolveWorldServiceApiBase() {
   const configuredAuthUrl = typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''
@@ -817,10 +818,10 @@ export function ExploreMenu({ open, onClose }) {
                       <div className='explore-card-img-wrap'>
                         <img
                           className='explore-card-img'
-                          src={world.image || '/placeholder-room.png'}
+                          src={world.image || assetPath('/placeholder-room.png')}
                           alt={world.name || world.slug}
                           onError={e => {
-                            e.currentTarget.src = '/placeholder-room.png'
+                            e.currentTarget.src = assetPath('/placeholder-room.png')
                           }}
                         />
                       </div>

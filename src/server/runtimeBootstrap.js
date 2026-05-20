@@ -25,6 +25,17 @@ export function hasValue(value) {
   return normalizeString(value).length > 0
 }
 
+function isTruthy(value) {
+  if (typeof value === 'boolean') return value
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
+function usesStandaloneWalletIdentity(env = process.env) {
+  return isTruthy(env.STANDALONE_WALLET_AUTH) || env.AUTH_IDENTITY_MODE === 'standalone-wallet'
+}
+
 export function resolveRuntimeBootstrapMode(env = process.env) {
   const explicitMode = normalizeString(env.RUNTIME_BOOTSTRAP_MODE).toLowerCase()
   if (explicitMode) {
@@ -52,7 +63,7 @@ export function hasSupportedAdminCode(env = process.env) {
 }
 
 export function allowsOpenAdminAccess(env = process.env) {
-  return !usesHostedRuntimeBootstrap(env) && !hasValue(env.ADMIN_CODE)
+  return !usesHostedRuntimeBootstrap(env) && !usesStandaloneWalletIdentity(env) && !hasValue(env.ADMIN_CODE)
 }
 
 export function clearPushRuntimeBindingEnv(env = process.env) {
@@ -82,18 +93,33 @@ export function derivePublicAdminUrl({ publicApiUrl, publicWsUrl } = {}) {
     return baseUrl ? `${baseUrl}/admin` : null
   }
 
-  const normalizedWsUrl = normalizePublicUrl(publicWsUrl)
-  if (!normalizedWsUrl) return null
-
-  const baseUrl = normalizedWsUrl
-    .replace(/\/ws\/?$/, '')
-    .replace(/^wss:/, 'https:')
-    .replace(/^ws:/, 'http:')
+  const baseUrl = deriveHttpBaseUrlFromWsUrl(publicWsUrl)
   return baseUrl ? `${baseUrl}/admin` : null
 }
 
 function normalizePublicUrl(value) {
   return normalizeString(value).replace(/\/+$/, '')
+}
+
+function deriveHttpBaseUrlFromWsUrl(publicWsUrl) {
+  const normalizedWsUrl = normalizePublicUrl(publicWsUrl)
+  if (!normalizedWsUrl) return null
+
+  try {
+    const url = new URL(normalizedWsUrl)
+    if (url.protocol === 'ws:') url.protocol = 'http:'
+    if (url.protocol === 'wss:') url.protocol = 'https:'
+    url.search = ''
+    url.hash = ''
+    const segments = url.pathname.split('/').filter(Boolean)
+    url.pathname = segments.length > 1 ? `/${segments.slice(0, -1).join('/')}` : '/'
+    return normalizePublicUrl(url.toString()) || null
+  } catch {
+    return normalizedWsUrl
+      .replace(/\/ws\/?$/, '')
+      .replace(/^wss:/, 'https:')
+      .replace(/^ws:/, 'http:') || null
+  }
 }
 
 function parseNonNegativeInteger(value) {
@@ -214,6 +240,7 @@ export function parseRuntimeBootstrapPayload(payload = null, { runtimeInstanceId
   const dbSchema = normalizeString(payload?.world?.dbSchema)
   const normalizedRuntimeInstanceId = normalizeString(payload?.runtime?.instanceId)
   const resolvedRuntimeInstanceId = normalizedRuntimeInstanceId || normalizeString(runtimeInstanceId)
+  const runtimeReleaseId = normalizeString(payload?.runtime?.releaseId)
   const runtimeApiUrl = normalizePublicUrl(payload?.runtime?.publicApiUrl) || null
   const runtimeWsUrlRaw = normalizePublicUrl(payload?.runtime?.publicWsUrl) || null
   const runtimeAdminUrlRaw = normalizePublicUrl(payload?.runtime?.publicAdminUrl) || null
@@ -246,6 +273,7 @@ export function parseRuntimeBootstrapPayload(payload = null, { runtimeInstanceId
     },
     runtime: {
       instanceId: resolvedRuntimeInstanceId || null,
+      releaseId: runtimeReleaseId || null,
       publicApiUrl: runtimeApiUrl,
       publicWsUrl: runtimeWsUrl,
       publicAdminUrl: runtimeAdminUrl,
@@ -273,6 +301,7 @@ export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = 
   const runtimeApiUrl = normalizePublicUrl(binding.runtime.publicApiUrl)
   const runtimeWsUrl = normalizePublicUrl(binding.runtime.publicWsUrl)
   const runtimeAdminUrl = normalizePublicUrl(binding.runtime.publicAdminUrl)
+  const runtimeReleaseId = normalizeString(binding.runtime.releaseId)
   const authUrl = normalizePublicUrl(binding.auth.publicAuthUrl)
   const privyAppId = normalizeString(binding.auth.publicPrivyAppId)
   const controlInternalBaseUrl = normalizePublicUrl(binding.control.internalBaseUrl)
@@ -323,6 +352,11 @@ export function applyHostedRuntimeBootstrapPayload(env = process.env, payload = 
   if (runtimeAdminUrl) {
     env.PUBLIC_ADMIN_URL = runtimeAdminUrl
     appliedKeys.push('PUBLIC_ADMIN_URL')
+  }
+
+  if (runtimeReleaseId) {
+    env.RUNTIME_CONTROL_RELEASE_ID = runtimeReleaseId
+    appliedKeys.push('RUNTIME_CONTROL_RELEASE_ID')
   }
 
   if (authUrl) {

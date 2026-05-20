@@ -27,6 +27,15 @@ import { createAgonesIdleController, resolveAgonesIdleShutdownTimeoutMs } from '
 import { createRegistryState, getRegistryPublicStatus, registerWithRegistry } from './registry'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { resolveAuthRuntimeConfig } from './authModes'
+import {
+  createStandaloneWalletAuthStore,
+  handleStandaloneWalletExchange,
+  handleStandaloneWalletLogout,
+  handleStandaloneWalletMe,
+  handleStandaloneWalletNonce,
+  handleStandaloneWalletProfile,
+  handleStandaloneWalletVerify,
+} from './standaloneWalletAuth.js'
 import { completeRuntimeStartup } from './runtimeStartup.js'
 import {
   applyHostedRuntimeBootstrapPayload,
@@ -358,7 +367,10 @@ function validateStaticRuntimeEnv(env = process.env) {
     throw new Error('[envs] JWT_SECRET not set')
   }
   if (!hasValue(env.ASSETS)) {
-    throw new Error(`[envs] ASSETS must be set to 'local' or 's3'`)
+    throw new Error(`[envs] ASSETS must be set to 'local', 's3', or 'asset-service'`)
+  }
+  if (env.ASSETS === 'asset-service' && !hasValue(env.ASSETS_BASE_URL) && hasValue(env.PUBLIC_API_URL)) {
+    env.ASSETS_BASE_URL = env.PUBLIC_API_URL.replace(/\/api\/?$/, '').replace(/\/+$/, '') + '/assets'
   }
   if (!hasValue(env.ASSETS_BASE_URL)) {
     throw new Error('[envs] ASSETS_BASE_URL must be set')
@@ -381,6 +393,7 @@ function warnIfRuntimeUsesLegacyControlPlaneBaseUrl(env = process.env) {
 function warnIfAdminCodeUnset(env = process.env) {
   if (warnedAboutMissingAdminCode) return
   if (usesHostedRuntimeBootstrap(env)) return
+  if (resolveAuthRuntimeConfig(env).requiresWalletIdentity) return
   if (hasValue(env.ADMIN_CODE)) return
   warnedAboutMissingAdminCode = true
   console.warn('[envs] ADMIN_CODE not set - admin privileges are open to all players')
@@ -464,6 +477,26 @@ function normalizeRequestedAssetPath(value) {
   return path.posix.normalize(`/${value}`).replace(/^\/+/, '')
 }
 
+function isAssetServiceBackend(assets) {
+  return assets?.kind === 'asset-service' && typeof assets.resolveServiceAssetUrl === 'function'
+}
+
+function findBuiltInAssetPath(assetPath) {
+  const normalized = normalizeRequestedAssetPath(assetPath)
+  if (!normalized) return null
+  const candidates = [
+    path.join(rootDir, 'build/world/assets', normalized),
+    path.join(rootDir, 'src/world/assets', normalized),
+  ]
+  for (const candidate of candidates) {
+    const resolvedCandidate = path.resolve(candidate)
+    if (fs.existsSync(resolvedCandidate) && fs.statSync(resolvedCandidate).isFile()) {
+      return resolvedCandidate
+    }
+  }
+  return null
+}
+
 function resolveContentType(filePath) {
   return MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
 }
@@ -495,10 +528,30 @@ function buildPublicEnvsCode() {
     if (!key.startsWith('PUBLIC_')) continue
     publicEnvs[key] = process.env[key]
   }
+  const authConfig = resolveAuthRuntimeConfig(process.env)
+  if (authConfig.requiresWalletIdentity && !publicEnvs.PUBLIC_REQUIRE_WALLET_AUTH) {
+    publicEnvs.PUBLIC_REQUIRE_WALLET_AUTH = 'true'
+  }
   return `
   if (!globalThis.env) globalThis.env = {}
   globalThis.env = ${JSON.stringify(publicEnvs)}
 `
+}
+
+function parseCorsOrigins(value) {
+  if (typeof value !== 'string') return new Set()
+  return new Set(
+    value
+      .split(',')
+      .map(origin => origin.trim().replace(/\/+$/, ''))
+      .filter(Boolean)
+  )
+}
+
+function resolveCredentialedCorsOrigin(origin, allowedOrigins, callback) {
+  if (!origin) return callback(null, true)
+  const normalizedOrigin = origin.replace(/\/+$/, '')
+  return callback(null, allowedOrigins.has(normalizedOrigin))
 }
 
 function buildBootstrapStatusPayload(state) {
@@ -533,10 +586,17 @@ function buildBootstrapStatusPayload(state) {
 }
 
 function buildRuntimeStatusPayload(state) {
+  const runtimeInstanceId = resolveRuntimeBootstrapInstanceId(process.env)
   const payload = {
     ok: isRuntimeReady(state),
     state: state.lifecycle.state,
     worldId: state.resources.world?.network?.worldId || process.env.WORLD_ID || null,
+    gameSlug: process.env.RUNTIME_CONTROL_GAME_SLUG || state.lifecycle.worldSlug || null,
+    releaseId: process.env.RUNTIME_CONTROL_RELEASE_ID || null,
+    region: process.env.RUNTIME_CONTROL_REGION || null,
+    instanceId: runtimeInstanceId,
+    runtimeInstanceId,
+    gameServerName: runtimeInstanceId,
     commitHash: process.env.COMMIT_HASH || null,
     listable: !!state.registryState?.listable,
     updatedAt: nowIso(),
@@ -680,6 +740,7 @@ function buildRuntimeState({ initialBinding = null, initialSource = null } = {})
     registryState: createRegistryState(process.env),
     auth: {
       cliAuthSessions: createCliAuthSessionStore(),
+      walletAuth: createStandaloneWalletAuthStore(),
     },
     resources: {
       assets: null,
@@ -971,7 +1032,7 @@ async function initializeRuntime({ source, binding = null } = {}) {
       agonesIdleController: agonesIntegration.agonesIdleController,
       agonesIdleControllerEnabled: agonesIntegration.agonesIdleControllerEnabled,
       idleTimeoutMs: agonesIntegration.idleTimeoutMs,
-      requestAgonesReady: source !== 'push',
+      requestAgonesReady: source !== 'push' && hasValue(process.env.AGONES_SDK_HTTP_PORT),
       registryState: runtimeState.registryState,
       worldId: world?.network?.worldId || process.env.WORLD_ID || null,
       commitHash: process.env.COMMIT_HASH || null,
@@ -1051,7 +1112,7 @@ async function handleAuthExchange(req, reply) {
   }
 
   const authConfig = resolveAuthRuntimeConfig(process.env)
-  if (!authConfig.usesLobbyIdentity) {
+  if (!authConfig.usesLobbyIdentity && !authConfig.usesStandaloneWalletIdentity) {
     return reply.code(404).send({ error: 'not_found' })
   }
 
@@ -1061,13 +1122,17 @@ async function handleAuthExchange(req, reply) {
   }
 
   const boundWorldId = resolveBoundWorldId()
-  const controlAuthorization = resolveRuntimeControlAuthorization(boundWorldId)
-  const verification = await verifyIdentityExchangeTokenWithLobby(identityToken, {
-    controlBaseUrl: resolveControlInternalBaseUrl(process.env),
-    worldId: boundWorldId,
-    jwtSecret: process.env.JWT_SECRET,
-    authorization: controlAuthorization,
-  })
+  const verification = authConfig.usesStandaloneWalletIdentity
+    ? {
+        ok: true,
+        claims: runtimeState.auth.walletAuth.consumeExchangeToken(identityToken),
+      }
+    : await verifyIdentityExchangeTokenWithLobby(identityToken, {
+        controlBaseUrl: resolveControlInternalBaseUrl(process.env),
+        worldId: boundWorldId,
+        jwtSecret: process.env.JWT_SECRET,
+        authorization: resolveRuntimeControlAuthorization(boundWorldId),
+      })
   if (!verification?.ok) {
     if (verification?.reason === 'unreachable') {
       return reply.code(503).send({ error: 'identity_verifier_unreachable' })
@@ -1076,6 +1141,9 @@ async function handleAuthExchange(req, reply) {
   }
 
   const claims = verification.claims
+  if (!claims || typeof claims !== 'object') {
+    return reply.code(401).send({ error: 'invalid_exchange_token' })
+  }
   const userId = typeof claims?.userId === 'string' ? claims.userId.trim() : ''
   if (!userId) {
     return reply.code(401).send({ error: 'invalid_exchange_token' })
@@ -1088,7 +1156,10 @@ async function handleAuthExchange(req, reply) {
 
   const claimName = formatUserName(typeof claims?.name === 'string' ? claims.name.trim() : 'Anonymous')
   const avatar = typeof claims?.avatar === 'string' ? claims.avatar.trim() || null : null
-  const rank = await resolveLobbyRoleRank(userId, { worldId: boundWorldId })
+  const standaloneRank = Number.isFinite(claims?.rank) ? claims.rank : null
+  const rank = authConfig.usesStandaloneWalletIdentity
+    ? standaloneRank ?? Ranks.VISITOR
+    : await resolveLobbyRoleRank(userId, { worldId: boundWorldId })
 
   await db('users')
     .insert({
@@ -1251,7 +1322,7 @@ async function handleCliAuthGuest(req, reply) {
     return sendRuntimeNotReady(reply, runtimeState)
   }
   const authConfig = resolveAuthRuntimeConfig(process.env)
-  if (authConfig.usesLobbyIdentity) {
+  if (authConfig.usesLobbyIdentity || authConfig.requiresWalletIdentity) {
     return reply.code(404).send({ error: 'not_found' })
   }
   try {
@@ -1274,13 +1345,39 @@ async function handleLocalAssetsRequest(req, reply) {
     return sendRuntimeNotReady(reply, runtimeState)
   }
 
-  const assetsDir = runtimeState.resources.world?.assetsDir
-  if (!assetsDir) {
+  const assetPath = normalizeRequestedAssetPath(req.params['*'])
+  if (!assetPath) {
     return reply.code(404).send()
   }
 
-  const assetPath = normalizeRequestedAssetPath(req.params['*'])
-  if (!assetPath) {
+  const assets = runtimeState.resources.assets
+  if (isAssetServiceBackend(assets)) {
+    const builtInAssetPath = findBuiltInAssetPath(assetPath)
+    if (builtInAssetPath) {
+      reply.type(resolveContentType(builtInAssetPath))
+      reply.header('Cache-Control', 'public, max-age=31536000, immutable')
+      reply.header('Expires', new Date(Date.now() + 31536000000).toUTCString())
+      return reply.send(fs.createReadStream(builtInAssetPath))
+    }
+
+    const serviceUrl = assets.resolveServiceAssetUrl(assetPath)
+    if (!serviceUrl) {
+      return reply.code(404).send()
+    }
+    const response = await fetch(serviceUrl).catch(() => null)
+    if (!response?.ok) {
+      return reply.code(response?.status || 502).send({ error: response?.status === 404 ? 'not_found' : 'asset_fetch_failed' })
+    }
+    const contentType = response.headers.get('content-type') || resolveContentType(assetPath)
+    reply.type(contentType)
+    reply.header('Cache-Control', response.headers.get('cache-control') || 'public, max-age=31536000, immutable')
+    const etag = response.headers.get('etag')
+    if (etag) reply.header('ETag', etag)
+    return reply.send(Buffer.from(await response.arrayBuffer()))
+  }
+
+  const assetsDir = runtimeState.resources.world?.assetsDir
+  if (!assetsDir) {
     return reply.code(404).send()
   }
 
@@ -1342,6 +1439,33 @@ async function handleBootstrapRequest(req, reply) {
   const normalizedBinding = parseRuntimeBootstrapPayload(binding, {
     runtimeInstanceId: expectedRuntimeInstanceId,
   })
+  const expectedWorldId = String(process.env.RUNTIME_CONTROL_WORLD_ID || '').trim()
+  const receivedWorldId = String(normalizedBinding.world.id || '').trim()
+  if (expectedWorldId && receivedWorldId !== expectedWorldId) {
+    return reply.code(409).send({
+      error: 'runtime_world_mismatch',
+      expectedWorldId,
+      receivedWorldId: receivedWorldId || null,
+    })
+  }
+  const expectedGameSlug = String(process.env.RUNTIME_CONTROL_GAME_SLUG || '').trim()
+  const receivedGameSlug = String(normalizedBinding.world.slug || '').trim()
+  if (expectedGameSlug && receivedGameSlug !== expectedGameSlug) {
+    return reply.code(409).send({
+      error: 'runtime_game_mismatch',
+      expectedGameSlug,
+      receivedGameSlug: receivedGameSlug || null,
+    })
+  }
+  const expectedReleaseId = String(process.env.RUNTIME_CONTROL_RELEASE_ID || '').trim()
+  const receivedReleaseId = String(normalizedBinding.runtime.releaseId || '').trim()
+  if (expectedReleaseId && receivedReleaseId && receivedReleaseId !== expectedReleaseId) {
+    return reply.code(409).send({
+      error: 'runtime_release_mismatch',
+      expectedReleaseId,
+      receivedReleaseId,
+    })
+  }
   logRuntimeBootstrapDebug(runtimeState, 'bootstrap_request_received', {
     bootstrapId: normalizedBinding.bootstrapId || null,
     runtimeInstanceId: normalizedBinding.runtime.instanceId || expectedRuntimeInstanceId || null,
@@ -1468,7 +1592,16 @@ async function handleBootstrapRequest(req, reply) {
 }
 
 function registerCommonPlugins(app) {
-  app.register(cors)
+  const authConfig = resolveAuthRuntimeConfig(process.env)
+  if (authConfig.usesStandaloneWalletIdentity) {
+    const credentialedCorsOrigins = parseCorsOrigins(process.env.CORS_ORIGINS || process.env.PUBLIC_CLIENT_ORIGINS)
+    app.register(cors, {
+      origin: (origin, callback) => resolveCredentialedCorsOrigin(origin, credentialedCorsOrigins, callback),
+      credentials: true,
+    })
+  } else {
+    app.register(cors)
+  }
   app.register(compress)
   app.addHook('onRequest', async req => {
     if (req.url?.match(/\.spz(\?|$)/)) {
@@ -1528,6 +1661,30 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
   })
 
   app.post('/api/auth/exchange', handleAuthExchange)
+  app.post('/api/auth/identity/nonce', async (req, reply) => {
+    if (!resolveAuthRuntimeConfig(process.env).usesStandaloneWalletIdentity) return reply.code(404).send({ error: 'not_found' })
+    return handleStandaloneWalletNonce(req, reply, runtimeState.auth.walletAuth)
+  })
+  app.post('/api/auth/identity/verify', async (req, reply) => {
+    if (!resolveAuthRuntimeConfig(process.env).usesStandaloneWalletIdentity) return reply.code(404).send({ error: 'not_found' })
+    return handleStandaloneWalletVerify(req, reply, runtimeState.auth.walletAuth)
+  })
+  app.get('/api/auth/identity/me', async (req, reply) => {
+    if (!resolveAuthRuntimeConfig(process.env).usesStandaloneWalletIdentity) return reply.code(404).send({ error: 'not_found' })
+    return handleStandaloneWalletMe(req, reply, runtimeState.auth.walletAuth)
+  })
+  app.post('/api/auth/identity/exchange', async (req, reply) => {
+    if (!resolveAuthRuntimeConfig(process.env).usesStandaloneWalletIdentity) return reply.code(404).send({ error: 'not_found' })
+    return handleStandaloneWalletExchange(req, reply, runtimeState.auth.walletAuth)
+  })
+  app.patch('/api/auth/identity/profile', async (req, reply) => {
+    if (!resolveAuthRuntimeConfig(process.env).usesStandaloneWalletIdentity) return reply.code(404).send({ error: 'not_found' })
+    return handleStandaloneWalletProfile(req, reply, runtimeState.auth.walletAuth)
+  })
+  app.post('/api/auth/identity/logout', async (req, reply) => {
+    if (!resolveAuthRuntimeConfig(process.env).usesStandaloneWalletIdentity) return reply.code(404).send({ error: 'not_found' })
+    return handleStandaloneWalletLogout(req, reply, runtimeState.auth.walletAuth)
+  })
   app.post('/api/auth/cli/session', handleCliAuthSessionCreate)
   app.get('/api/auth/cli/session/:sessionId', handleCliAuthSessionStatus)
   app.post('/api/auth/cli/session/:sessionId', handleCliAuthSessionComplete)

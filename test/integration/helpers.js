@@ -320,7 +320,8 @@ export async function startWorldServer({ adminCode = 'admin', env: extraEnv = {}
 export async function startStandbyRuntimeServer({ env = {} } = {}) {
   await ensureBuildReady()
   const port = env.PORT || (await getAvailablePort())
-  const worldUrl = `http://127.0.0.1:${port}`
+  const mainServerUsesTls = env.TLS_CERT_PATH && env.TLS_KEY_PATH && !env.DIRECT_WSS_PORT
+  const worldUrl = `${mainServerUsesTls ? 'https' : 'http'}://127.0.0.1:${port}`
   const runtimeInstanceId = env.RUNTIME_BOOTSTRAP_INSTANCE_ID || `runtime-${crypto.randomUUID()}`
   const finalEnv = { ...process.env }
   for (const key of [
@@ -333,6 +334,10 @@ export async function startStandbyRuntimeServer({ env = {} } = {}) {
     'PUBLIC_PRIVY_APP_ID',
     'PUBLIC_WORLD_MAX_PLAYERS',
     'PUBLIC_WS_URL',
+    'RUNTIME_CONTROL_GAME_SLUG',
+    'RUNTIME_CONTROL_REGION',
+    'RUNTIME_CONTROL_RELEASE_ID',
+    'RUNTIME_CONTROL_WORLD_ID',
     'RUNTIME_BOOTSTRAP_URL',
     'SHUTDOWN_IDLE',
     'WORLD',

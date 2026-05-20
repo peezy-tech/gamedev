@@ -2,6 +2,7 @@ import { isNumber, isString, isArray } from 'lodash-es'
 import { Water as ThreeWater } from '../extras/ThreeWater'
 import * as THREE from '../extras/three'
 import { Node } from './Node'
+import { publicAssetPath } from '../utils'
 
 const _rotMatrix = new THREE.Matrix4().makeRotationX(-Math.PI / 2)
 
@@ -55,7 +56,7 @@ export class Water extends Node {
       normalsTexture.wrapS = THREE.RepeatWrapping
       normalsTexture.wrapT = THREE.RepeatWrapping
     } else {
-      normalsTexture = new THREE.TextureLoader().load('/waternormals.jpg', texture => {
+      normalsTexture = new THREE.TextureLoader().load(publicAssetPath('/waternormals.jpg'), texture => {
         texture.wrapS = texture.wrapT = THREE.RepeatWrapping
       })
     }

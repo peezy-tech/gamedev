@@ -8,6 +8,7 @@ import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana'
 import { arbitrum } from '@privy-io/chains'
 
 import { storage } from '../core/storage'
+import { buildRuntimeAssignmentRequestBody } from './runtimeConnection.js'
 import { Client } from './world-client'
 
 function buildWsUrl(baseUrl, token) {
@@ -27,6 +28,13 @@ function buildWsUrl(baseUrl, token) {
 
 function hasValue(value) {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+function isTruthy(value) {
+  if (typeof value === 'boolean') return value
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
 }
 
 function resolveAuthEndpoint(authBaseUrl, pathSuffix) {
@@ -472,33 +480,168 @@ async function exchangeForRuntimeSession(runtimeApiUrl, identityToken) {
   return token
 }
 
+let runtimeAssignmentPromise = null
+
+function normalizeRuntimeUrl(value) {
+  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
+}
+
+function readParentGameTroveBootstrapUrl() {
+  if (typeof window === 'undefined') return ''
+  const localUrl = normalizeRuntimeUrl(window.__GAME_TROVE_BOOTSTRAP_URL__)
+  if (localUrl) return localUrl
+  try {
+    if (window.parent && window.parent !== window) {
+      return normalizeRuntimeUrl(window.parent.__GAME_TROVE_BOOTSTRAP_URL__)
+    }
+  } catch {
+    // Cross-origin parent; explicit PUBLIC_RUNTIME_ASSIGNMENT_URL can still work.
+  }
+  return ''
+}
+
+async function resolveRuntimeAssignmentUrl() {
+  const explicit = normalizeRuntimeUrl(env.PUBLIC_RUNTIME_ASSIGNMENT_URL)
+  if (explicit) return explicit
+
+  const bootstrapUrl = readParentGameTroveBootstrapUrl()
+  if (!bootstrapUrl) return ''
+
+  const res = await fetch(bootstrapUrl, {
+    headers: { accept: 'application/json' },
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const err = new Error('Unable to load game bootstrap')
+    err.status = res.status
+    throw err
+  }
+  const bootstrap = await res.json()
+  return normalizeRuntimeUrl(bootstrap?.endpoints?.runtimeAssignment)
+}
+
+async function readRuntimeAssignmentSession() {
+  if (typeof globalThis === 'undefined') return null
+  const authBridge = globalThis.__runtimeAuth
+  if (!authBridge || typeof authBridge.getSessionUser !== 'function') return null
+  return authBridge.getSessionUser().catch(() => null)
+}
+
+function readRuntimeWalletSnapshot() {
+  if (typeof globalThis === 'undefined') return null
+  return globalThis.__runtimeWalletBridge?.getSnapshot?.() || null
+}
+
+async function readEthereumProviderAccounts() {
+  const provider = getEthereumWalletProvider()
+  if (!provider) return []
+  const accounts = await provider.request({ method: 'eth_accounts' }).catch(() => [])
+  return Array.isArray(accounts) ? accounts : []
+}
+
+async function runtimeAssignmentRequestBody() {
+  return buildRuntimeAssignmentRequestBody({
+    env,
+    search: typeof window === 'undefined' ? '' : window.location.search,
+    session: await readRuntimeAssignmentSession(),
+    walletSnapshot: readRuntimeWalletSnapshot(),
+    ethereumAccounts: await readEthereumProviderAccounts(),
+    solanaAddress: readSolanaProviderAddress(getSolanaWalletProvider()),
+  })
+}
+
+function normalizeRuntimeAssignment(body) {
+  const assignment = body?.assignment
+  const endpoints = assignment?.endpoints
+  const apiUrl = normalizeRuntimeUrl(endpoints?.apiUrl)
+  const wsUrl = normalizeRuntimeUrl(endpoints?.wsUrl)
+  if (!assignment || !apiUrl || !wsUrl) {
+    throw new Error('Runtime assignment did not include connection endpoints')
+  }
+  return {
+    apiUrl,
+    wsUrl,
+    authUrl: normalizeRuntimeUrl(endpoints?.authUrl),
+    healthUrl: normalizeRuntimeUrl(endpoints?.healthUrl),
+    instanceId: normalizeRuntimeUrl(assignment.instanceId),
+    region: normalizeRuntimeUrl(assignment.region),
+  }
+}
+
+async function fetchRuntimeAssignment(onStatus) {
+  const assignmentUrl = await resolveRuntimeAssignmentUrl()
+  if (!assignmentUrl) return null
+
+  onStatus?.('connecting', 'Finding runtime...')
+  const res = await fetch(assignmentUrl, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify(await runtimeAssignmentRequestBody()),
+  })
+  const body = await res.json().catch(() => null)
+  if (!res.ok) {
+    const err = new Error(body?.message || body?.error || 'Runtime assignment failed')
+    err.status = res.status
+    throw err
+  }
+  return normalizeRuntimeAssignment(body)
+}
+
+function resolveAssignedAuthUrl(assignedRuntime, apiUrl, requiresWalletIdentity) {
+  const explicit = normalizeRuntimeUrl(env.PUBLIC_AUTH_URL)
+  if (explicit) return explicit
+  if (assignedRuntime?.authUrl) return assignedRuntime.authUrl
+  return assignedRuntime?.apiUrl && requiresWalletIdentity ? `${apiUrl.replace(/\/+$/, '')}/auth/identity` : ''
+}
+
 async function getConnectionUrl(onStatus) {
-  const apiUrl = env.PUBLIC_API_URL || (typeof window === 'undefined' ? null : `${window.location.origin}/api`)
-  const usesLobbyIdentity = hasValue(env.PUBLIC_AUTH_URL)
+  if (!runtimeAssignmentPromise) {
+    runtimeAssignmentPromise = fetchRuntimeAssignment(onStatus).catch(error => {
+      runtimeAssignmentPromise = null
+      throw error
+    })
+  }
+  const assignedRuntime = await runtimeAssignmentPromise
+  const apiUrl = assignedRuntime?.apiUrl || env.PUBLIC_API_URL || (typeof window === 'undefined' ? null : `${window.location.origin}/api`)
+  const requiresWalletIdentity = isTruthy(env.PUBLIC_REQUIRE_WALLET_AUTH || env.PUBLIC_WALLET_AUTH_REQUIRED)
+  const authBaseUrl = resolveAssignedAuthUrl(assignedRuntime, apiUrl, requiresWalletIdentity)
+  const usesLobbyIdentity = hasValue(authBaseUrl)
 
   if (!apiUrl) {
     throw new Error('PUBLIC_API_URL is required')
   }
 
-  const baseWsUrl = env.PUBLIC_WS_URL
-    ? env.PUBLIC_WS_URL
-    : apiUrl
-      ? apiUrl.replace(/\/api\/?$/, '/ws').replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
-      : typeof window === 'undefined'
-        ? null
-        : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
+  const baseWsUrl = assignedRuntime?.wsUrl
+    || (env.PUBLIC_WS_URL
+      ? env.PUBLIC_WS_URL
+      : apiUrl
+        ? apiUrl.replace(/\/api\/?$/, '/ws').replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
+        : typeof window === 'undefined'
+          ? null
+          : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`)
   if (!baseWsUrl) {
     throw new Error('PUBLIC_WS_URL is required for runtime connection')
   }
 
+  const connectionConfig = wsUrl => ({
+    wsUrl,
+    apiUrl,
+    authUrl: authBaseUrl || null,
+    instanceId: assignedRuntime?.instanceId || null,
+    region: assignedRuntime?.region || null,
+  })
+
   const continueAsGuest = (message = 'Continuing as guest...') => {
     clearRuntimeAuthState()
     onStatus?.('connecting', message)
-    return buildWsUrl(baseWsUrl)
+    return connectionConfig(buildWsUrl(baseWsUrl))
   }
 
   if (usesLobbyIdentity) {
-    const authBaseUrl = env.PUBLIC_AUTH_URL
     onStatus?.('auth', 'Authorizing...')
     let hasSession = false
     try {
@@ -519,7 +662,18 @@ async function getConnectionUrl(onStatus) {
           }
         }
         if (!hasSession) {
-          return continueAsGuest()
+          if (requiresWalletIdentity) {
+            const provider = getEthereumWalletProvider()
+            if (!provider) {
+              throw createAuthError('No wallet provider found', 401, { skipAuth: true })
+            }
+            onStatus?.('auth', 'Connecting wallet...')
+            await performSiweLoginWithProvider(provider, authBaseUrl, onStatus)
+            await fetchAuthMe(authBaseUrl)
+            hasSession = true
+          } else {
+            return continueAsGuest()
+          }
         }
       } else {
         throw err
@@ -529,16 +683,17 @@ async function getConnectionUrl(onStatus) {
     try {
       const identityToken = await fetchIdentityExchangeToken(authBaseUrl)
       const runtimeSessionToken = await exchangeForRuntimeSession(apiUrl, identityToken)
-      return buildWsUrl(baseWsUrl, runtimeSessionToken)
+      return connectionConfig(buildWsUrl(baseWsUrl, runtimeSessionToken))
     } catch (err) {
       if (err?.status === 400 || err?.status === 401) {
+        if (requiresWalletIdentity) throw err
         return continueAsGuest()
       }
       throw err
     }
   }
 
-  return buildWsUrl(baseWsUrl)
+  return connectionConfig(buildWsUrl(baseWsUrl))
 }
 
 function createInjectedRuntimeAuthBridge(authBaseUrl) {
@@ -937,14 +1092,119 @@ if (typeof globalThis !== 'undefined') {
   globalThis.__runtimeWalletBridge = runtimeWalletBridge
 }
 
+function WalletAuthGate({ authBaseUrl, onReady }) {
+  const [checking, setChecking] = useState(true)
+  const [pending, setPending] = useState(false)
+  const [message, setMessage] = useState('Wallet sign-in required')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    const check = async () => {
+      try {
+        await fetchAuthMe(authBaseUrl)
+        if (!cancelled) onReady?.()
+      } catch (err) {
+        if (!cancelled) {
+          setChecking(false)
+          if (err?.status && err.status !== 401) {
+            setError(err.message || 'Unable to check wallet session')
+          }
+        }
+      }
+    }
+    void check()
+    return () => {
+      cancelled = true
+    }
+  }, [authBaseUrl, onReady])
+
+  const connect = async () => {
+    if (pending) return
+    const auth = globalThis.__runtimeAuth
+    if (!auth?.enabled || typeof auth.connectWalletSession !== 'function') {
+      setError('Wallet auth is unavailable')
+      return
+    }
+    if (!auth.hasWalletProvider?.('ethereum')) {
+      setError('No Ethereum wallet provider found')
+      return
+    }
+    setPending(true)
+    setError('')
+    try {
+      await auth.connectWalletSession({
+        chain: 'ethereum',
+        onStatus: (_status, nextMessage) => {
+          if (nextMessage) setMessage(nextMessage)
+        },
+      })
+      onReady?.()
+    } catch (err) {
+      setError(err?.message || 'Wallet sign-in failed')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#050505',
+        color: 'white',
+        fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      }}
+    >
+      <div style={{ width: 'min(360px, calc(100vw - 48px))', display: 'grid', gap: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>{checking ? 'Checking wallet session...' : message}</div>
+        {error && <div style={{ color: '#ff8a8a', fontSize: 14, lineHeight: 1.4 }}>{error}</div>}
+        {!checking && (
+          <button
+            type='button'
+            disabled={pending}
+            onClick={connect}
+            style={{
+              height: 44,
+              border: 0,
+              borderRadius: 6,
+              cursor: pending ? 'default' : 'pointer',
+              background: pending ? '#5f6368' : '#ffffff',
+              color: '#050505',
+              fontSize: 15,
+              fontWeight: 700,
+            }}
+          >
+            {pending ? 'Connecting...' : 'Connect wallet'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [connectionStatus, setConnectionStatus] = useState(null)
+  const requiresWalletIdentity = hasValue(authBaseUrl) && isTruthy(env.PUBLIC_REQUIRE_WALLET_AUTH || env.PUBLIC_WALLET_AUTH_REQUIRED)
+  const [walletGateReady, setWalletGateReady] = useState(!requiresWalletIdentity)
 
   const wsUrl = useCallback(() => {
     return getConnectionUrl((status, message) => {
       setConnectionStatus({ status, message })
     })
   }, [])
+
+  const markWalletGateReady = useCallback(() => {
+    setWalletGateReady(true)
+  }, [])
+
+  if (!walletGateReady) {
+    return <WalletAuthGate authBaseUrl={authBaseUrl} onReady={markWalletGateReady} />
+  }
 
   return (
     <Client

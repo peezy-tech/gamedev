@@ -3,6 +3,7 @@ import { GlobeIcon, HammerIcon, LoaderIcon, UserIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { editorTheme as theme } from './editor/editorTheme'
 import { MicIcon, MicOffIcon } from './Icons'
+import { assetPath } from '../utils'
 
 const onboardingSteps = [
   { selector: '.editor-logo', text: 'Settings' },
@@ -244,7 +245,7 @@ function LogoBtn({ onClick }) {
       `}
       onClick={onClick}
     >
-      <img src='/logo.png' />
+      <img src={assetPath('/logo.png')} />
     </div>
   )
 }

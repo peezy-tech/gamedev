@@ -35,7 +35,7 @@ async function connectWorldSocket(wsUrl) {
 
     const onMessage = event => {
       const [method, data] = readPacket(event.data)
-      if (method !== 'snapshot') return
+      if (method !== 'onSnapshot') return
       cleanup()
       resolve({ ws, snapshot: data })
     }
@@ -237,6 +237,32 @@ test('standalone open-admin mode accepts guest cli tokens on /admin even before 
   } finally {
     ws.close()
   }
+})
+
+test('standalone wallet mode disables guest cli bootstrap', async t => {
+  if (!(await canListenOnLoopback())) {
+    t.skip('loopback sockets are unavailable in this environment')
+  }
+
+  const world = await startWorldServer({
+    adminCode: '',
+    env: {
+      STANDALONE_WALLET_AUTH: 'true',
+      PUBLIC_AUTH_URL: 'http://127.0.0.1:1/api/auth/identity',
+    },
+  })
+  t.after(async () => {
+    await world.stop()
+  })
+
+  const guest = await fetchJson(`${world.worldUrl}/api/auth/cli/guest`, {
+    method: 'POST',
+  })
+  assert.equal(guest.res.status, 404)
+
+  const missing = await fetchJson(`${world.worldUrl}/api/auth/cli/status`)
+  assert.equal(missing.res.status, 401)
+  assert.equal(missing.data?.error, 'auth_required')
 })
 
 test('cli auth session flow completes on the world server without a loopback callback', async t => {

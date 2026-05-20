@@ -38,7 +38,8 @@ async function readManagedPublicEnv(worldUrl) {
   const response = await fetch(`${worldUrl}/env.js`)
   assert.equal(response.status, 200)
   const body = await response.text()
-  const match = body.match(/globalThis\.env = (\{[\s\S]*\})/)
+  const matches = [...body.matchAll(/globalThis\.env = (\{[^\n]*\})/g)]
+  const match = matches.at(-1)
   assert.ok(match, 'env.js did not expose globalThis.env')
   const envs = JSON.parse(match[1])
   return {

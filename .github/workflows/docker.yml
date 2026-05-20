@@ -40,6 +40,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build and push
+        id: runtime_image
         uses: docker/build-push-action@v6
         with:
           platforms: linux/amd64,linux/arm64
@@ -48,3 +49,16 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             COMMIT_HASH=${{ github.sha }}
+
+      - name: Summarize published runtime image digest
+        run: |
+          {
+            echo "### gamedev runtime image"
+            echo "- image: \`ghcr.io/${{ github.repository }}\`"
+            echo "- digest: \`ghcr.io/${{ github.repository }}@${{ steps.runtime_image.outputs.digest }}\`"
+            echo ""
+            echo "Use this digest for runtime-control releases:"
+            echo "\`\`\`bash"
+            echo "GAME_PROTOCOL_RUNTIME_IMAGE=ghcr.io/${{ github.repository }}@${{ steps.runtime_image.outputs.digest }}"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"

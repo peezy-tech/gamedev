@@ -857,6 +857,7 @@ function LoadingOverlay({ world, connectionStatus }) {
 }
 
 const kickMessages = {
+  auth_required: 'Wallet sign-in required.',
   duplicate_user: 'Player already active on another device or window.',
   player_limit: 'Player limit reached.',
   wallet_changed: 'Wallet changed. You have been signed out.',

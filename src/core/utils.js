@@ -24,3 +24,18 @@ export function num(min, max, dp = 0) {
   const value = Math.random() * (max - min) + min
   return parseFloat(value.toFixed(dp))
 }
+
+function normalizePublicAssetBase(value) {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  return trimmed.replace(/\/+$/, '')
+}
+
+export function publicAssetPath(value) {
+  if (typeof value !== 'string' || !value.trim()) return ''
+  const pathname = value.startsWith('/') ? value : `/${value}`
+  const base = normalizePublicAssetBase(globalThis?.env?.PUBLIC_ASSET_BASE)
+  if (!base) return pathname
+  return `${base}${pathname}`
+}
