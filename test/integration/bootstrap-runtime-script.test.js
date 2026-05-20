@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import net from 'node:net'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
 import { getRepoRoot, startStandbyRuntimeServer } from './helpers.js'
 
@@ -41,7 +41,7 @@ test('bootstrap-runtime script binds a standby runtime and waits for ready', asy
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
   const worldId = `script-${server.runtimeInstanceId}`

@@ -3,7 +3,7 @@ import { File } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { exportApp } from '@gamedev/core/extras/appTools.js'
 import { createTempDir, getRepoRoot } from './helpers.js'
 

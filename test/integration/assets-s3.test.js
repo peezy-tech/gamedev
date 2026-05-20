@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import fsPromises from 'node:fs/promises'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
 import { AssetsS3 } from '@gamedev/server/AssetsS3.js'
 import { createTempDir } from './helpers.js'
@@ -12,7 +12,7 @@ test('AssetsS3 init skips built-in uploads when runtime bootstrap mode is enable
   await fsPromises.mkdir(builtInAssetsDir, { recursive: true })
   await fsPromises.writeFile(path.join(builtInAssetsDir, 'avatar.vrm'), 'avatar')
 
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await fsPromises.rm(rootDir, { recursive: true, force: true })
   })
 

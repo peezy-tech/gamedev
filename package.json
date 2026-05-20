@@ -69,8 +69,8 @@
     "format": "vp fmt --write .",
     "format:check": "vp fmt --check .",
     "check": "vp check",
-    "test": "node --test --loader ./scripts/node-esm-loader.mjs \"test/integration/**/*.test.js\"",
-    "test:integration": "node --test --loader ./scripts/node-esm-loader.mjs \"test/integration/**/*.test.js\"",
+    "test": "vp test run",
+    "test:integration": "vp test run",
     "smoke:matrix": "node scripts/smoke-mode-matrix.mjs"
   },
   "bin": {

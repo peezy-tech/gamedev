@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { createTempDir, stopAppServer, waitFor } from './helpers.js'
 

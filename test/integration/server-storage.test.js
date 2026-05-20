@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import path from 'path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import Knex from 'knex'
 
 import { Storage } from '@gamedev/server/Storage.js'

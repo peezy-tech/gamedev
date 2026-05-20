@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import EventEmitter from 'node:events'
 import { setImmediate as setImmediatePromise } from 'node:timers/promises'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
 import {
   createAgonesPlayerTracker,

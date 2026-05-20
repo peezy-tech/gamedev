@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { WorldAdminClient } from '@gamedev/app-server/WorldAdminClient.js'
 import { joinUrl, normalizeWorldAdminBaseUrl, toWsUrl } from '@gamedev/app-server/helpers.js'
 

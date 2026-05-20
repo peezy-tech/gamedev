@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { writePacket } from '@gamedev/core/packets.js'
 import { AdminClient, ADMIN_SHUTDOWN_COMMAND, RUNTIME_CREDENTIAL_COMMAND } from '@gamedev/core/systems/AdminClient.js'
 
