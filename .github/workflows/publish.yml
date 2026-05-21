@@ -52,6 +52,66 @@ jobs:
             exit 1
           fi
 
+      - name: Check trusted publishing context
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "node=$(node --version)"
+          echo "npm=$(npm --version)"
+          echo "package_repository_url=$(node -p 'require("./package.json").repository.url')"
+          echo "github_repository=${GITHUB_REPOSITORY}"
+          echo "github_ref=${GITHUB_REF}"
+          echo "github_workflow_ref=${GITHUB_WORKFLOW_REF}"
+          echo "runner_environment=${RUNNER_ENVIRONMENT:-}"
+
+          node --input-type=module <<'NODE'
+          const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+          const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+
+          if (!requestUrl || !requestToken) {
+            throw new Error('GitHub OIDC request environment is not available');
+          }
+
+          const url = new URL(requestUrl);
+          url.searchParams.set('audience', 'npm:registry.npmjs.org');
+
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${requestToken}`,
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to request GitHub OIDC token: ${response.status} ${response.statusText}`);
+          }
+
+          const { value } = await response.json();
+          const [, encodedPayload] = value.split('.');
+          const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+          const keys = [
+            'iss',
+            'aud',
+            'sub',
+            'repository',
+            'repository_owner',
+            'ref',
+            'workflow',
+            'workflow_ref',
+            'job_workflow_ref',
+            'environment',
+            'runner_environment',
+            'event_name',
+            'sha',
+          ];
+
+          console.log('oidc_token_available=true');
+          for (const key of keys) {
+            if (Object.hasOwn(payload, key)) {
+              const value = Array.isArray(payload[key]) ? payload[key].join(',') : payload[key];
+              console.log(`oidc_${key}=${value}`);
+            }
+          }
+          NODE
+
       - name: Publish package to npm
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
