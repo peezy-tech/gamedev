@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
-import { test } from 'node:test'
-import { DirectAppServer } from '../../app-server/direct.js'
+import { test } from 'vite-plus/test'
+import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { createTempDir, stopAppServer, waitFor } from './helpers.js'
 
 async function writeFile(filePath, contents) {
@@ -38,7 +38,7 @@ test('app watch schedules deploy when entry file extension changes', async () =>
   const rootDir = await createTempDir('hyperfy-app-watch-rename-')
   const appDir = path.join(rootDir, 'apps', 'RenameApp')
 
-  await writeFile(path.join(appDir, 'index.js'), "export default () => {};\n")
+  await writeFile(path.join(appDir, 'index.js'), 'export default () => {};\n')
 
   const server = new DirectAppServer({ worldUrl: 'http://example.com', rootDir })
   const scheduled = []

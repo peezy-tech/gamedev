@@ -106,11 +106,61 @@ Returns an array of all players.
 
 ### `.get(key)`: Any
 
-Gets a value from persistent world storage by key. Only available on the server.
+Gets the current cached value from world storage by key. Only available on the server.
+
+This reads the runtime instance cache. It is fast, but it does not force a fresh read from the shared database.
 
 ### `.set(key, value)`
 
-Sets a value in persistent world storage by key. Only available on the server. Values must be JSON-serializable.
+Sets a cached world storage value by key. Only available on the server. Values must be JSON-serializable.
+
+This updates the local runtime cache immediately and persists shortly after. For cross-instance coordination, prefer `.setFresh(...)` or `.commitStorage(...)`.
+
+### `.getFresh(key)`: Promise<Any>
+
+Reads a key directly from persistent world storage and refreshes the local cache for that key.
+
+Use this when another runtime instance may have written newer data.
+
+### `.getFreshEntry(key)`: Promise<{ key, exists, value, createdAt, updatedAt }>
+
+Like `.getFresh(key)`, but also returns row metadata and timestamps.
+
+`updatedAt` is useful for compare-and-swap style writes with `.commitStorage(...)`.
+
+### `.getFreshEntriesByPrefix(prefix = '')`: Promise<Array<{ key, exists, value, createdAt, updatedAt }>>
+
+Reads every storage row whose key starts with `prefix` and refreshes those keys in the local cache.
+
+This is useful for shared indexes, per-player keyspaces, and leaderboard scans.
+
+### `.listStorageKeys(prefix = '')`: Promise<string[]>
+
+Returns storage keys matching the given prefix.
+
+### `.setFresh(key, value)`: Promise<Any>
+
+Writes a key directly to persistent storage and refreshes the local cache immediately.
+
+Use this for state that must be visible to other instances right away.
+
+### `.commitStorage(operations)`: Promise<{ ok, conflicts, entries }>
+
+Atomically writes multiple storage keys.
+
+Each operation has the shape:
+
+```js
+{
+  key: 'tycoon:town:layout:v2',
+  value: nextValue,
+  expectedUpdatedAt: currentUpdatedAtOrNull,
+}
+```
+
+If `expectedUpdatedAt` is provided, the write succeeds only if the stored row still has that timestamp. On conflict, the result returns `ok: false` plus the conflicting fresh rows.
+
+This is the primitive to use when many instances may update the same shared records.
 
 ### `.getQueryParam(key)`
 
@@ -123,6 +173,15 @@ Sets a query parameter in the browsers url
 ### `.open(url: string, newTab: ?Boolean)`
 
 Opens a link, defaults to new tab.
+
+### `.copy(value, options?)`
+
+Copies content to the system clipboard on the client.
+
+- Text: `await world.copy('0xabc...')`
+- Image: `await world.copy(props.image?.url, { kind: 'image' })`
+
+Returns `true` when the clipboard write succeeds, otherwise `false`.
 
 ### `.evm(chainId?)`
 
@@ -539,6 +598,15 @@ Places an IOC sell order for a core perp, spot pair, or builder/HIP-3 perp.
 #### `closePosition(ticker, slippage = 1, { cloid? }?)`
 
 Closes the full open position or spot holding for a ticker.
+
+#### `updateLeverage(ticker, leverage, { type = 'cross' }?)`
+
+Updates leverage for a perpetual market on the connected wallet runtime.
+
+Notes:
+- `ticker` must resolve to a perpetual market, not spot.
+- `leverage` must be an integer greater than or equal to `1`.
+- `type` may be `'cross'` or `'isolated'`.
 
 #### `hasAgentKey()`
 

@@ -5,29 +5,33 @@ permissions:
   id-token: write
 
 on:
-#   push:
-#     tags:
-#       - "v*.*.*"
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
 
 jobs:
   publish-npm:
     runs-on: ubuntu-latest
-    # Only require the npm environment when we are publishing a real release tag.
-    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'npm' || '' }}
+    permissions:
+      contents: read
+      id-token: write
+    environment: npm-publish
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4.1.4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Vite Plus
+        uses: voidzero-dev/setup-vp@v1
         with:
-          node-version-file: ".nvmrc"
-          registry-url: "https://registry.npmjs.org"
-          cache: "npm"
+          node-version: 24
+          cache: true
+
+      - name: Update npm
+        run: npm install -g npm@^11.10.0
 
       - name: Install dependencies
-        run: npm ci
+        run: vp install --frozen-lockfile
 
       - name: Check package metadata
         id: pkg
@@ -49,7 +53,9 @@ jobs:
 
       - name: Publish package to npm
         if: startsWith(github.ref, 'refs/tags/v')
-        run: npm publish --provenance --access public
+        run: |
+          unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
+          npm publish --provenance --access public
 
       - name: Dry run publish (branch push/manual)
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}

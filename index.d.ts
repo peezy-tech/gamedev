@@ -78,6 +78,17 @@ interface Matrix4 {
 type Vector3Like = Vector3 | [number, number, number]
 type EulerLike = Euler | [number, number, number]
 
+interface ScreenBounds {
+  x: number
+  y: number
+  left: number
+  top: number
+  width: number
+  height: number
+  right: number
+  bottom: number
+}
+
 // -----------------------------
 // Base Node
 // -----------------------------
@@ -106,6 +117,7 @@ interface BaseNode {
   remove<T extends BaseNode>(child: T): this
   traverse(visitor: (node: BaseNode) => void): void
   get(id: string): BaseNode | null
+  getScreenBounds(target?: Partial<ScreenBounds>): ScreenBounds | null
 
   // Pointer events
   onPointerEnter?: (event: { type: string; stopPropagation(): void }) => void
@@ -897,7 +909,10 @@ interface EVMAPI {
   getNativeBalance(address?: string | null): Promise<number>
   getTokenBalance(tokenAddress: string, address?: string | null, decimals?: number): Promise<number>
   getUSDCBalance(address?: string | null): Promise<number>
-  transferNative(to: string, amount: number | string): Promise<{
+  transferNative(
+    to: string,
+    amount: number | string
+  ): Promise<{
     hash: string
     receipt: any
   }>
@@ -910,7 +925,10 @@ interface EVMAPI {
     hash: string
     receipt: any
   }>
-  transferUSDC(to: string, amount: number | string): Promise<{
+  transferUSDC(
+    to: string,
+    amount: number | string
+  ): Promise<{
     hash: string
     receipt: any
   }>
@@ -972,6 +990,10 @@ interface HyperliquidLeverage {
   value: number
 }
 
+interface HyperliquidLeverageUpdateOptions {
+  type?: 'cross' | 'isolated'
+}
+
 interface HyperliquidAccountPosition extends HyperliquidPosition {
   marginUsed: number
   maxLeverage: number
@@ -1002,10 +1024,7 @@ interface HyperliquidWatchOnlyAPI {
     params: HyperliquidOrderBookParams,
     listener: (payload: any) => void
   ): Promise<HyperliquidStreamHandle>
-  subscribeCandles(
-    params: HyperliquidCandleParams,
-    listener: (payload: any) => void
-  ): Promise<HyperliquidStreamHandle>
+  subscribeCandles(params: HyperliquidCandleParams, listener: (payload: any) => void): Promise<HyperliquidStreamHandle>
   subscribeAccount(listener: (payload: HyperliquidAccountSnapshot) => void): Promise<HyperliquidStreamHandle>
 }
 
@@ -1013,6 +1032,7 @@ interface HyperliquidAPI extends HyperliquidWatchOnlyAPI {
   buy(ticker: string, amount: number, slippage?: number): Promise<any>
   sell(ticker: string, amount: number, slippage?: number): Promise<any>
   closePosition(ticker: string, slippage?: number): Promise<any>
+  updateLeverage(ticker: string, leverage: number, options?: HyperliquidLeverageUpdateOptions): Promise<any>
   hasAgentKey(): boolean
   setupAgentKey(name?: string): Promise<{ address: string }>
   deposit(amount: number): Promise<{
@@ -1023,6 +1043,26 @@ interface HyperliquidAPI extends HyperliquidWatchOnlyAPI {
     [key: string]: any
   }>
   withdraw(amount: number, destination?: string): Promise<any>
+}
+
+interface WorldStorageEntry<T = unknown> {
+  key: string
+  exists: boolean
+  value: T | undefined | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+interface WorldStorageCommitOperation<T = unknown> {
+  key: string
+  value: T | null
+  expectedUpdatedAt?: string | null
+}
+
+interface WorldStorageCommitResult {
+  ok: boolean
+  conflicts: WorldStorageEntry[]
+  entries: WorldStorageEntry[]
 }
 
 interface WorldAPI {
@@ -1057,6 +1097,10 @@ interface WorldAPI {
   getQueryParam(key: string): string | null
   setQueryParam(key: string, value?: string | null): void
   open(url: string, newTab?: boolean): void
+  copy(
+    value: string | { url: string },
+    options?: { kind?: 'text' | 'image'; type?: 'text' | 'image' }
+  ): Promise<boolean>
 
   // Time
   getTime(): number
@@ -1065,6 +1109,12 @@ interface WorldAPI {
   // Storage (optional)
   get?<T = unknown>(key: string): T | undefined
   set?<T = unknown>(key: string, value: T): void
+  getFresh?<T = unknown>(key: string): Promise<T | undefined | null>
+  getFreshEntry?<T = unknown>(key: string): Promise<WorldStorageEntry<T>>
+  getFreshEntriesByPrefix?<T = unknown>(prefix?: string): Promise<WorldStorageEntry<T>[]>
+  listStorageKeys?(prefix?: string): Promise<string[]>
+  setFresh?<T = unknown>(key: string, value: T | null): Promise<T | null>
+  commitStorage?(operations: WorldStorageCommitOperation[]): Promise<WorldStorageCommitResult>
 
   // Loader (subset)
   load(type: 'avatar' | 'model', url: string): Promise<BaseNode>

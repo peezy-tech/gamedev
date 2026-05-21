@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
-import { runSyncCommand } from '../../app-server/commands.js'
-import { DirectAppServer } from '../../app-server/direct.js'
+import { runSyncCommand } from '@gamedev/app-server/commands.js'
+import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import {
   AdminWsClient,
   createTempDir,
@@ -272,7 +272,9 @@ test('phase 5 writes conflict artifacts and sync resolve can finalize them', asy
       item => item.data.status === 'open'
     )
     assert.ok(artifacts.length >= 1)
-    const blueprintConflict = artifacts.find(item => item.data.kind === 'blueprint' && item.data.objectId === BLUEPRINT_ID)
+    const blueprintConflict = artifacts.find(
+      item => item.data.kind === 'blueprint' && item.data.objectId === BLUEPRINT_ID
+    )
     assert.ok(blueprintConflict)
     assert.ok(Array.isArray(blueprintConflict.data.unresolvedFields))
     assert.ok(blueprintConflict.data.unresolvedFields.some(item => item.path === 'desc'))

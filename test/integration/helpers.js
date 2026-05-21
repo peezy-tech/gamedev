@@ -8,7 +8,7 @@ import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import { fileURLToPath } from 'url'
 
-import { readPacket, writePacket } from '../../src/core/packets.js'
+import { readPacket, writePacket } from '@gamedev/core/packets.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..', '..')
@@ -18,8 +18,7 @@ const buildOutputPath = path.join(repoRoot, 'build', 'index.js')
 const buildInputs = [
   path.join(repoRoot, 'scripts', 'build.mjs'),
   path.join(repoRoot, 'package.json'),
-  path.join(repoRoot, 'src'),
-  path.join(repoRoot, 'app-server'),
+  path.join(repoRoot, 'packages'),
 ]
 
 function normalizeBaseUrl(url) {
@@ -76,18 +75,21 @@ export async function waitForHealthz(worldUrl, { timeoutMs = 20000 } = {}) {
 }
 
 async function waitForOkUrl(url, { timeoutMs = 20000 } = {}) {
-  await waitFor(async () => {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 2000)
-    try {
-      const res = await fetch(url, { signal: controller.signal })
-      return res.ok
-    } catch {
-      return false
-    } finally {
-      clearTimeout(timer)
-    }
-  }, { timeoutMs, intervalMs: 200 })
+  await waitFor(
+    async () => {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 2000)
+      try {
+        const res = await fetch(url, { signal: controller.signal })
+        return res.ok
+      } catch {
+        return false
+      } finally {
+        clearTimeout(timer)
+      }
+    },
+    { timeoutMs, intervalMs: 200 }
+  )
 }
 
 async function ensureBuildReady() {
@@ -230,23 +232,26 @@ async function launchRuntimeProcess({ env, readyUrl, timeoutMs = 20000, failureL
   })
 
   try {
-    await waitFor(async () => {
-      if (exitInfo) {
-        throw new Error(
-          `${failureLabel} exited early (${exitInfo.code ?? 'null'}${exitInfo.signal ? `/${exitInfo.signal}` : ''})\n${stdout}\n${stderr}`.trim()
-        )
-      }
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 2000)
-      try {
-        const res = await fetch(readyUrl, { signal: controller.signal })
-        return res.ok
-      } catch {
-        return false
-      } finally {
-        clearTimeout(timer)
-      }
-    }, { timeoutMs, intervalMs: 200 })
+    await waitFor(
+      async () => {
+        if (exitInfo) {
+          throw new Error(
+            `${failureLabel} exited early (${exitInfo.code ?? 'null'}${exitInfo.signal ? `/${exitInfo.signal}` : ''})\n${stdout}\n${stderr}`.trim()
+          )
+        }
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 2000)
+        try {
+          const res = await fetch(readyUrl, { signal: controller.signal })
+          return res.ok
+        } catch {
+          return false
+        } finally {
+          clearTimeout(timer)
+        }
+      },
+      { timeoutMs, intervalMs: 200 }
+    )
   } catch (err) {
     child.kill('SIGTERM')
     const details = err instanceof Error && err.message ? err.message : `${stdout}\n${stderr}`.trim()
@@ -320,8 +325,7 @@ export async function startWorldServer({ adminCode = 'admin', env: extraEnv = {}
 export async function startStandbyRuntimeServer({ env = {} } = {}) {
   await ensureBuildReady()
   const port = env.PORT || (await getAvailablePort())
-  const mainServerUsesTls = env.TLS_CERT_PATH && env.TLS_KEY_PATH && !env.DIRECT_WSS_PORT
-  const worldUrl = `${mainServerUsesTls ? 'https' : 'http'}://127.0.0.1:${port}`
+  const worldUrl = `http://127.0.0.1:${port}`
   const runtimeInstanceId = env.RUNTIME_BOOTSTRAP_INSTANCE_ID || `runtime-${crypto.randomUUID()}`
   const finalEnv = { ...process.env }
   for (const key of [
@@ -333,29 +337,30 @@ export async function startStandbyRuntimeServer({ env = {} } = {}) {
     'PUBLIC_MAX_UPLOAD_SIZE',
     'PUBLIC_PRIVY_APP_ID',
     'PUBLIC_WORLD_MAX_PLAYERS',
+    'RUNTIME_BOOTSTRAP',
     'PUBLIC_WS_URL',
-    'RUNTIME_CONTROL_GAME_SLUG',
-    'RUNTIME_CONTROL_REGION',
-    'RUNTIME_CONTROL_RELEASE_ID',
-    'RUNTIME_CONTROL_WORLD_ID',
-    'RUNTIME_BOOTSTRAP_URL',
     'SHUTDOWN_IDLE',
     'WORLD',
     'WORLD_ID',
   ]) {
     delete finalEnv[key]
   }
-  Object.assign(finalEnv, {
-    NODE_ENV: 'test',
-    PORT: String(port),
-    HOST: '127.0.0.1',
-    JWT_SECRET: env.JWT_SECRET || crypto.randomBytes(24).toString('base64url'),
-    RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
-    ASSETS: 'local',
-    ASSETS_BASE_URL: `${worldUrl}/assets`,
-    DB_URI: 'local',
-    CLEAN: 'false',
-  }, env)
+  Object.assign(
+    finalEnv,
+    {
+      NODE_ENV: 'test',
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      JWT_SECRET: env.JWT_SECRET || crypto.randomBytes(24).toString('base64url'),
+      RUNTIME_BOOTSTRAP: '1',
+      RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
+      ASSETS: 'local',
+      ASSETS_BASE_URL: `${worldUrl}/assets`,
+      DB_URI: 'local',
+      CLEAN: 'false',
+    },
+    env
+  )
 
   const processHandle = await launchRuntimeProcess({
     env: finalEnv,
@@ -370,61 +375,6 @@ export async function startStandbyRuntimeServer({ env = {} } = {}) {
     stop: processHandle.stop,
     getStdout: processHandle.getStdout,
     getStderr: processHandle.getStderr,
-  }
-}
-
-export async function startPullRuntimeServer({ env = {} } = {}) {
-  await ensureBuildReady()
-  const port = env.PORT || (await getAvailablePort())
-  const worldUrl = `http://127.0.0.1:${port}`
-  const runtimeInstanceId = env.RUNTIME_BOOTSTRAP_INSTANCE_ID || `runtime-${crypto.randomUUID()}`
-  const worldId = env.WORLD_ID || `world-${runtimeInstanceId}`
-  const finalEnv = { ...process.env }
-  for (const key of [
-    'CONTROL_INTERNAL_BASE_URL',
-    'DB_SCHEMA',
-    'PUBLIC_ADMIN_URL',
-    'PUBLIC_API_URL',
-    'PUBLIC_AUTH_URL',
-    'PUBLIC_MAX_UPLOAD_SIZE',
-    'PUBLIC_PRIVY_APP_ID',
-    'PUBLIC_WORLD_MAX_PLAYERS',
-    'PUBLIC_WS_URL',
-    'SHUTDOWN_IDLE',
-    'WORLD',
-  ]) {
-    delete finalEnv[key]
-  }
-  Object.assign(finalEnv, {
-    NODE_ENV: 'test',
-    PORT: String(port),
-    HOST: '127.0.0.1',
-    JWT_SECRET: env.JWT_SECRET || crypto.randomBytes(24).toString('base64url'),
-    RUNTIME_BOOTSTRAP_MODE: 'pull',
-    RUNTIME_BOOTSTRAP_INSTANCE_ID: runtimeInstanceId,
-    WORLD_ID: worldId,
-    ASSETS: 'local',
-    ASSETS_BASE_URL: `${worldUrl}/assets`,
-    DB_URI: 'local',
-    CLEAN: 'false',
-  }, env)
-
-  if (!finalEnv.RUNTIME_BOOTSTRAP_URL) {
-    throw new Error('RUNTIME_BOOTSTRAP_URL is required for pull-mode runtime tests')
-  }
-
-  const processHandle = await launchRuntimeProcess({
-    env: finalEnv,
-    readyUrl: `${worldUrl}/health`,
-    failureLabel: 'pull-mode runtime',
-  })
-
-  return {
-    worldUrl,
-    worldId,
-    runtimeInstanceId,
-    jwtSecret: finalEnv.JWT_SECRET,
-    stop: processHandle.stop,
   }
 }
 

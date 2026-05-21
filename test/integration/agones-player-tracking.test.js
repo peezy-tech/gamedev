@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import EventEmitter from 'node:events'
 import { setImmediate as setImmediatePromise } from 'node:timers/promises'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
-import {
-  createAgonesPlayerTracker,
-  resolveEffectivePlayerCapacity,
-} from '../../src/server/agonesPlayerTracking.js'
+import { createAgonesPlayerTracker, resolveEffectivePlayerCapacity } from '@gamedev/server/agonesPlayerTracking.js'
 
 function createLogger() {
   const messages = {
@@ -54,13 +51,17 @@ test('createAgonesPlayerTracker wires playerJoined and playerLeft events into Ag
     logger,
     agones: {
       async updateList(name, body) {
-        events.push(['updateList', name, body])
+        events.push(['capacity', name, body.capacity])
       },
-      async addListValue(name, value) {
-        events.push(['addListValue', name, value])
+      async addListValue(name, playerId) {
+        events.push(['list', name])
+        events.push(['connect', playerId])
+        return true
       },
-      async removeListValue(name, value) {
-        events.push(['removeListValue', name, value])
+      async removeListValue(name, playerId) {
+        events.push(['list', name])
+        events.push(['disconnect', playerId])
+        throw new Error('not connected')
       },
     },
   })
@@ -72,11 +73,13 @@ test('createAgonesPlayerTracker wires playerJoined and playerLeft events into Ag
   await setImmediatePromise()
 
   assert.deepEqual(events, [
-    ['updateList', 'players', { capacity: '20' }],
-    ['addListValue', 'players', 'player-1'],
-    ['removeListValue', 'players', 'player-1'],
+    ['capacity', 'players', '20'],
+    ['list', 'players'],
+    ['connect', 'player-1'],
+    ['list', 'players'],
+    ['disconnect', 'player-1'],
   ])
-  assert.deepEqual(messages.warn, [])
+  assert.deepEqual(messages.warn, ['[agones] failed to track player disconnect for player-1 (not connected)'])
   assert.deepEqual(messages.info, ['[agones] updated player capacity to 20 (startup)'])
 })
 
@@ -92,7 +95,7 @@ test('createAgonesPlayerTracker publishes startup capacity and playerLimit updat
     logger,
     agones: {
       async updateList(name, body) {
-        capacities.push([name, body])
+        capacities.push([name, body.capacity])
       },
       async addListValue() {
         return true
@@ -118,9 +121,11 @@ test('createAgonesPlayerTracker publishes startup capacity and playerLimit updat
   })
   await setImmediatePromise()
 
+  await tracker.publishCapacity('startup')
+
   assert.deepEqual(capacities, [
-    ['players', { capacity: '40' }],
-    ['players', { capacity: '18' }],
+    ['players', '40'],
+    ['players', '18'],
   ])
   assert.deepEqual(messages.warn, [])
   assert.deepEqual(messages.info, [

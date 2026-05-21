@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
 import {
   buildProjectAuthKey,
   readProjectAuthEntry,
   removeProjectAuthEntry,
   writeProjectAuthEntry,
-} from '../../app-server/projectAuth.js'
+} from '@gamedev/app-server/projectAuth.js'
 import { createTempDir } from './helpers.js'
 
 test('project auth store persists per-world bearer tokens', async t => {
   const rootDir = await createTempDir('hyperfy-project-auth-')
-  t.after(async () => {
+  t.onTestFinished(async () => {
     // temp dir cleanup is handled by OS in these integration tests
   })
 

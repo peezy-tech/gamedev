@@ -2,9 +2,9 @@ import 'ses'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
-import { test } from 'node:test'
-import { World } from '../../src/core/World.js'
-import { ServerLoader } from '../../src/core/systems/ServerLoader.js'
+import { test } from 'vite-plus/test'
+import { World } from '@gamedev/core/World.js'
+import { ServerLoader } from '@gamedev/core/systems/ServerLoader.js'
 import { createTempDir, getRepoRoot, waitFor } from './helpers.js'
 
 test('app executes module scripts via scriptRef', async () => {
@@ -12,7 +12,7 @@ test('app executes module scripts via scriptRef', async () => {
   const assetsDir = path.join(rootDir, 'assets')
   await fs.mkdir(path.join(assetsDir, 'helpers'), { recursive: true })
   await fs.copyFile(
-    path.join(getRepoRoot(), 'src/world/assets/empty.glb'),
+    path.join(getRepoRoot(), 'packages/server/world/assets/empty.glb'),
     path.join(assetsDir, 'model.glb')
   )
   await fs.writeFile(
@@ -25,11 +25,7 @@ test('app executes module scripts via scriptRef', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'helpers', 'math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'helpers', 'math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)

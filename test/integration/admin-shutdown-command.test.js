@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
 import {
   ADMIN_SHUTDOWN_COMMAND,
   handleAdminShutdownCommand,
   resolveAgonesShutdownUrl,
-} from '../../src/server/adminShutdown.js'
+} from '@gamedev/server/adminShutdown.js'
 
 test('command contract uses agones_shutdown name', () => {
   assert.equal(ADMIN_SHUTDOWN_COMMAND, 'agones_shutdown')

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import {
   resolveRelativeModuleSpecifier,
   normalizeSharedRelPath,
   getSharedRelPathAlternate,
-} from '../../src/core/moduleSpecifiers.js'
+} from '@gamedev/core/moduleSpecifiers.js'
 
 test('resolveRelativeModuleSpecifier normalizes relative paths', () => {
   const referrer = 'app://demo@3/src/index.js'

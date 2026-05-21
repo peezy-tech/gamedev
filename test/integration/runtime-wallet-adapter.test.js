@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
-import { RuntimeWalletAdapter } from '../../src/client/wallet-adapter.js'
+import { RuntimeWalletAdapter } from '@gamedev/client/wallet-adapter.js'
 
 function makeProvider({
   accounts = [],
@@ -42,6 +42,24 @@ function makeAuthBridge(address) {
       return {
         user: {
           wallet_address: address,
+        },
+      }
+    },
+    subscribeAccountChanges() {
+      return () => {}
+    },
+  }
+}
+
+function makeSessionWalletAuthBridge(wallet, { allowsUnscopedWalletAccess = true } = {}) {
+  return {
+    allowsUnscopedWalletAccess() {
+      return allowsUnscopedWalletAccess
+    },
+    async getSessionUser() {
+      return {
+        user: {
+          wallet,
         },
       }
     },
@@ -177,6 +195,83 @@ test('wallet adapter falls back to injected wallet when Privy is unavailable', a
   }
 })
 
+test('wallet adapter does not bind injected wallets when explicit selection is required', async () => {
+  const originalWindow = globalThis.window
+  const injected = makeProvider({
+    accounts: ['0x00000000000000000000000000000000000000DD'],
+    chainId: '0xa4b1',
+  })
+
+  globalThis.window = {
+    ethereum: injected.provider,
+  }
+
+  const adapter = new RuntimeWalletAdapter({
+    authBridge: {
+      allowsUnscopedWalletAccess() {
+        return false
+      },
+      async getSessionUser() {
+        return null
+      },
+      subscribeAccountChanges() {
+        return () => {}
+      },
+    },
+    walletBridge: makeWalletBridge([]),
+    refreshIntervalMs: 0,
+  })
+
+  try {
+    await adapter.refresh()
+    const snapshot = adapter.getSnapshot()
+    assert.equal(snapshot.connected, false)
+    assert.equal(snapshot.address, null)
+  } finally {
+    adapter.destroy()
+    if (originalWindow === undefined) {
+      delete globalThis.window
+    } else {
+      globalThis.window = originalWindow
+    }
+  }
+})
+
+test('wallet adapter does not bind EVM for Solana-scoped sessions', async () => {
+  const originalWindow = globalThis.window
+  const injected = makeProvider({
+    accounts: ['0x00000000000000000000000000000000000000DD'],
+    chainId: '0xa4b1',
+  })
+
+  globalThis.window = {
+    ethereum: injected.provider,
+  }
+
+  const adapter = new RuntimeWalletAdapter({
+    authBridge: makeSessionWalletAuthBridge({
+      type: 'solana',
+      address: '9WzDXwQWcM6mQ8K7b6mY5v1v7x9R2x8g4M6v3J7pQ9mA',
+    }),
+    walletBridge: makeWalletBridge([]),
+    refreshIntervalMs: 0,
+  })
+
+  try {
+    await adapter.refresh()
+    const snapshot = adapter.getSnapshot()
+    assert.equal(snapshot.connected, false)
+    assert.equal(snapshot.address, null)
+  } finally {
+    adapter.destroy()
+    if (originalWindow === undefined) {
+      delete globalThis.window
+    } else {
+      globalThis.window = originalWindow
+    }
+  }
+})
+
 test('wallet adapter signs typed data with active wallet provider', async () => {
   const signer = makeProvider({
     chainId: '0xa4b1',
@@ -192,7 +287,12 @@ test('wallet adapter signs typed data with active wallet provider', async () => 
 
   try {
     const signature = await adapter.signTypedData({
-      domain: { name: 'Test', version: '1', chainId: 1, verifyingContract: '0x0000000000000000000000000000000000000000' },
+      domain: {
+        name: 'Test',
+        version: '1',
+        chainId: 1,
+        verifyingContract: '0x0000000000000000000000000000000000000000',
+      },
       types: {
         EIP712Domain: [
           { name: 'name', type: 'string' },
@@ -207,7 +307,10 @@ test('wallet adapter signs typed data with active wallet provider', async () => 
     })
 
     assert.equal(signature, '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1b')
-    assert.equal(signer.calls.some(call => call.method === 'eth_signTypedData_v4'), true)
+    assert.equal(
+      signer.calls.some(call => call.method === 'eth_signTypedData_v4'),
+      true
+    )
   } finally {
     adapter.destroy()
   }
@@ -246,7 +349,10 @@ test('wallet adapter writes contracts using provider chain context', async () =>
     })
 
     assert.equal(hash, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
-    assert.equal(signer.calls.some(call => call.method === 'eth_sendTransaction'), true)
+    assert.equal(
+      signer.calls.some(call => call.method === 'eth_sendTransaction'),
+      true
+    )
   } finally {
     adapter.destroy()
   }

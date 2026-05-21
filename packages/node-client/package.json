@@ -1,0 +1,9 @@
+{
+  "name": "@gamedev/node-client",
+  "version": "0.3.3",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@gamedev/core": "workspace:*"
+  }
+}

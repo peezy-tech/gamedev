@@ -1,17 +1,35 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { writePacket } from '../../src/core/packets.js'
-import { AdminClient, ADMIN_SHUTDOWN_COMMAND, RUNTIME_CREDENTIAL_COMMAND } from '../../src/core/systems/AdminClient.js'
+import { test } from 'vite-plus/test'
+import { writePacket } from '@gamedev/core/packets.js'
+import { AdminClient, ADMIN_SHUTDOWN_COMMAND, RUNTIME_CREDENTIAL_COMMAND } from '@gamedev/core/systems/AdminClient.js'
 
 function createAdminClient() {
-  return new AdminClient({
+  const listeners = new Map()
+  const world = {
     emit() {},
+    on(event, handler) {
+      listeners.set(event, handler)
+    },
+    off(event, handler) {
+      if (listeners.get(event) === handler) {
+        listeners.delete(event)
+      }
+    },
     network: { id: 'network-test' },
-  })
+    entities: {
+      player: {
+        data: {
+          id: 'player-local',
+        },
+      },
+    },
+  }
+  const client = new AdminClient(world)
+  return { client, listeners, world }
 }
 
 test('runtime credentials API uses runtime_credentials_get command', async () => {
-  const client = createAdminClient()
+  const { client } = createAdminClient()
   let payload = null
   client.request = async requestPayload => {
     payload = requestPayload
@@ -37,7 +55,7 @@ test('runtime credentials API uses runtime_credentials_get command', async () =>
 })
 
 test('runtime credentials API caches response in memory', async () => {
-  const client = createAdminClient()
+  const { client } = createAdminClient()
   let calls = 0
   client.request = async () => {
     calls += 1
@@ -59,7 +77,7 @@ test('runtime credentials API caches response in memory', async () => {
 })
 
 test('runtime credentials API force refresh bypasses cache', async () => {
-  const client = createAdminClient()
+  const { client } = createAdminClient()
   let calls = 0
   client.request = async () => {
     calls += 1
@@ -92,7 +110,7 @@ test('runtime credentials API force refresh bypasses cache', async () => {
 })
 
 test('runtime credential cache clears on disconnect and auth error', () => {
-  const client = createAdminClient()
+  const { client } = createAdminClient()
   client.runtimeCredentials = {
     worldId: 'world-123',
     hasAdminCode: true,
@@ -116,13 +134,16 @@ test('runtime credential cache clears on disconnect and auth error', () => {
 })
 
 test('runtime credentials API rejects invalid payloads', async () => {
-  const client = createAdminClient()
+  const { client } = createAdminClient()
   client.request = async () => ({ ok: true })
-  await assert.rejects(() => client.getRuntimeCredentials(), err => err?.code === 'invalid_response')
+  await assert.rejects(
+    () => client.getRuntimeCredentials(),
+    err => err?.code === 'invalid_response'
+  )
 })
 
 test('admin snapshot only requires code when admin-code auth is supported', () => {
-  const client = createAdminClient()
+  const { client } = createAdminClient()
 
   client.onSnapshot({
     adminUrl: 'http://example.com/admin',
@@ -140,7 +161,7 @@ test('admin snapshot only requires code when admin-code auth is supported', () =
 })
 
 test('admin shutdown API uses agones_shutdown command', async () => {
-  const client = createAdminClient()
+  const { client } = createAdminClient()
   let payload = null
   client.request = async requestPayload => {
     payload = requestPayload
@@ -151,4 +172,23 @@ test('admin shutdown API uses agones_shutdown command', async () => {
 
   assert.deepEqual(payload, { type: ADMIN_SHUTDOWN_COMMAND })
   assert.deepEqual(response, { ok: true })
+})
+
+test('admin client reconnects when the local player rank changes', () => {
+  const { client, listeners } = createAdminClient()
+  const calls = []
+  client.disconnect = () => calls.push('disconnect')
+  client.connect = () => calls.push('connect')
+
+  client.init({ adminUrl: 'http://example.com/admin' })
+  calls.length = 0
+
+  const onRank = listeners.get('rank')
+  assert.equal(typeof onRank, 'function')
+
+  onRank({ playerId: 'someone-else' })
+  assert.deepEqual(calls, [])
+
+  onRank({ playerId: 'player-local' })
+  assert.deepEqual(calls, ['disconnect', 'connect'])
 })

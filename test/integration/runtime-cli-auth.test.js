@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
-import { test } from 'node:test'
+import path from 'node:path'
+import { test } from 'vite-plus/test'
 import WebSocket from 'ws'
+import Database from 'better-sqlite3'
 
-import { readPacket, writePacket } from '../../src/core/packets.js'
-import { buildRuntimeBootstrapAuthorization } from '../../src/server/runtimeBootstrap.js'
-import { fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
+import { readPacket, writePacket } from '@gamedev/core/packets.js'
+import { Ranks } from '@gamedev/core/extras/ranks.js'
+import { buildRuntimeBootstrapAuthorization } from '@gamedev/server/runtimeBootstrap.js'
+import { AdminWsClient, fetchJson, startStandbyRuntimeServer, startWorldServer, waitFor } from './helpers.js'
 
 async function canListenOnLoopback() {
   return new Promise(resolve => {
@@ -19,6 +22,7 @@ async function canListenOnLoopback() {
 
 async function connectWorldSocket(wsUrl) {
   const ws = new WebSocket(wsUrl)
+  ws.binaryType = 'arraybuffer'
   return await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup()
@@ -142,7 +146,7 @@ test('cli auth guest bootstrap creates a reusable world token that /admin can el
   }
 
   const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -201,7 +205,7 @@ test('standalone open-admin mode accepts guest cli tokens on /admin even before 
   }
 
   const world = await startWorldServer({ adminCode: '' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -239,30 +243,96 @@ test('standalone open-admin mode accepts guest cli tokens on /admin even before 
   }
 })
 
-test('standalone wallet mode disables guest cli bootstrap', async t => {
+test('builder-only cli tokens can acquire deploy locks for script blueprint adds without gaining deploy rights', async t => {
   if (!(await canListenOnLoopback())) {
     t.skip('loopback sockets are unavailable in this environment')
   }
 
-  const world = await startWorldServer({
-    adminCode: '',
-    env: {
-      STANDALONE_WALLET_AUTH: 'true',
-      PUBLIC_AUTH_URL: 'http://127.0.0.1:1/api/auth/identity',
-    },
-  })
-  t.after(async () => {
+  const world = await startWorldServer({ adminCode: 'secret-code' })
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
   const guest = await fetchJson(`${world.worldUrl}/api/auth/cli/guest`, {
     method: 'POST',
   })
-  assert.equal(guest.res.status, 404)
+  assert.equal(guest.res.status, 200)
+  assert.equal(typeof guest.data?.token, 'string')
+  assert.equal(typeof guest.data?.user?.id, 'string')
 
-  const missing = await fetchJson(`${world.worldUrl}/api/auth/cli/status`)
-  assert.equal(missing.res.status, 401)
-  assert.equal(missing.data?.error, 'auth_required')
+  const db = new Database(path.join(world.worldDir, 'db.sqlite'))
+  try {
+    db.prepare('UPDATE users SET rank = ? WHERE id = ?').run(Ranks.BUILDER, guest.data.user.id)
+  } finally {
+    db.close()
+  }
+
+  await waitFor(async () => {
+    const status = await fetchJson(`${world.worldUrl}/api/auth/cli/status`, {
+      authToken: guest.data.token,
+    })
+    if (status.res.status !== 200) return false
+    if (!status.data?.capabilities?.builder) return false
+    if (status.data?.capabilities?.deploy) return false
+    return status.data
+  })
+
+  const admin = new AdminWsClient({
+    worldUrl: world.worldUrl,
+    authToken: guest.data.token,
+    subscriptions: { snapshot: false, players: false, runtime: false },
+  })
+  await admin.connect()
+
+  const lock = await fetchJson(`${world.worldUrl}/admin/deploy-lock`, {
+    authToken: guest.data.token,
+    method: 'POST',
+    body: { owner: 'builder-script-add', scope: 'builder-script-add' },
+  })
+  assert.equal(lock.res.status, 200)
+  assert.equal(typeof lock.data?.token, 'string')
+
+  try {
+    const added = await admin.request('blueprint_add', {
+      blueprint: {
+        id: 'BuilderScriptAdd',
+        scope: 'builder-script-add',
+        version: 0,
+        name: 'Builder Script Add',
+        script: 'asset://entry.js',
+        scriptEntry: 'index.js',
+        scriptFiles: { 'index.js': 'asset://entry.js' },
+        scriptFormat: 'module',
+        props: {},
+      },
+      lockToken: lock.data.token,
+    })
+    assert.equal(added?.ok, true)
+
+    await assert.rejects(
+      () =>
+        admin.request('blueprint_modify', {
+          change: {
+            id: 'BuilderScriptAdd',
+            scope: 'builder-script-add',
+            version: 1,
+            script: 'asset://next.js',
+            scriptEntry: 'index.js',
+            scriptFiles: { 'index.js': 'asset://next.js' },
+            scriptFormat: 'module',
+          },
+          lockToken: lock.data.token,
+        }),
+      err => err?.code === 'admin_required'
+    )
+  } finally {
+    await fetchJson(`${world.worldUrl}/admin/deploy-lock`, {
+      authToken: guest.data.token,
+      method: 'DELETE',
+      body: { token: lock.data.token, scope: 'builder-script-add' },
+    })
+    admin.close()
+  }
 })
 
 test('cli auth session flow completes on the world server without a loopback callback', async t => {
@@ -271,7 +341,7 @@ test('cli auth session flow completes on the world server without a loopback cal
   }
 
   const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -322,13 +392,16 @@ test('cli auth session flow completes on the world server without a loopback cal
   assert.equal(insufficientComplete.res.status, 409)
   assert.equal(insufficientComplete.data?.error, 'capability_required')
 
-  const completed = await fetchJson(`${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`, {
-    method: 'POST',
-    body: {
-      worldUrl: world.worldUrl,
-      authToken: guest.data.token,
-    },
-  })
+  const completed = await fetchJson(
+    `${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`,
+    {
+      method: 'POST',
+      body: {
+        worldUrl: world.worldUrl,
+        authToken: guest.data.token,
+      },
+    }
+  )
   assert.equal(completed.res.status, 200)
   assert.equal(completed.data?.ok, true)
   assert.equal(completed.data?.status, 'complete')
@@ -350,7 +423,7 @@ test('cli auth status rejects invalid bearer tokens', async t => {
   }
 
   const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -375,7 +448,7 @@ test('invalid websocket auth tokens fall back to a guest snapshot in lobby ident
       PUBLIC_AUTH_URL: 'https://auth.example.test/identity',
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -399,10 +472,10 @@ test('bootstrapped worlds disable admin-code auth for admin endpoints and in-wor
   const server = await startStandbyRuntimeServer({
     env: {
       ADMIN_CODE: 'secret-code',
-      RUNTIME_BOOTSTRAP_MODE: 'push',
+      RUNTIME_BOOTSTRAP: '1',
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 

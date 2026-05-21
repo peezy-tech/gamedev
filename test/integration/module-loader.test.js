@@ -2,9 +2,9 @@ import 'ses'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
-import { test } from 'node:test'
-import { World } from '../../src/core/World.js'
-import { ServerLoader } from '../../src/core/systems/ServerLoader.js'
+import { test } from 'vite-plus/test'
+import { World } from '@gamedev/core/World.js'
+import { ServerLoader } from '@gamedev/core/systems/ServerLoader.js'
 import { createTempDir } from './helpers.js'
 
 test('module scripts load and execute on server runtime', async () => {
@@ -21,11 +21,7 @@ test('module scripts load and execute on server runtime', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'helpers', 'math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'helpers', 'math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)
@@ -63,11 +59,7 @@ test('legacy-body entry preserves imports and wraps body', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'helpers', 'math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'helpers', 'math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)
@@ -108,11 +100,7 @@ test('shared import aliases resolve to shared script files', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'shared-math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'shared-math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)

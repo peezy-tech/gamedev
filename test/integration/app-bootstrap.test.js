@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
-import { test } from 'node:test'
-import { DirectAppServer } from '../../app-server/direct.js'
+import { test } from 'vite-plus/test'
+import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { createTempDir } from './helpers.js'
 
 async function readJson(filePath) {
@@ -38,6 +38,13 @@ test('scaffold writes scene scaffold and world manifest', async () => {
   const tsconfig = await readJson(tsconfigPath)
   assert.ok(tsconfig.compilerOptions.types.includes('gamedev'))
   assert.equal(await fileExists(path.join(rootDir, 'hyperfy.app-runtime.d.ts')), false)
+
+  const nvmrc = await fs.readFile(path.join(rootDir, '.nvmrc'), 'utf8')
+  assert.equal(nvmrc, '24.15.0\n')
+
+  const pkg = await readJson(path.join(rootDir, 'package.json'))
+  assert.equal(pkg.packageManager, 'pnpm@11.1.3')
+  assert.equal(pkg.devDependencies['vite-plus'], '^0.1.22')
 
   assert.equal(await fileExists(path.join(rootDir, 'apps', 'Model', 'Model.json')), false)
   assert.equal(await fileExists(path.join(rootDir, 'apps', 'Model', 'index.js')), false)

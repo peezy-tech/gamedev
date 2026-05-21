@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
-import { DirectAppServer } from '../../app-server/direct.js'
+import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import {
   AdminWsClient,
   createTempDir,
@@ -218,13 +218,16 @@ test('phase 4 startup fast-forwards remote-only edits into local files without o
       })
       try {
         await appServer.start()
-        await waitFor(() => {
-          const blueprintCfg = readJsonFile(blueprintPath)
-          if (blueprintCfg?.desc !== 'remote-only desc') return false
-          const manifest = readJsonFile(worldPath)
-          const entity = manifest?.entities?.find(item => item.id === entityId)
-          return entity?.props?.text === 'remote-only' ? true : false
-        }, { timeoutMs: 10000 })
+        await waitFor(
+          () => {
+            const blueprintCfg = readJsonFile(blueprintPath)
+            if (blueprintCfg?.desc !== 'remote-only desc') return false
+            const manifest = readJsonFile(worldPath)
+            const entity = manifest?.entities?.find(item => item.id === entityId)
+            return entity?.props?.text === 'remote-only' ? true : false
+          },
+          { timeoutMs: 10000 }
+        )
       } finally {
         await stopAppServer(appServer)
       }
@@ -275,14 +278,17 @@ test('phase 4 startup pushes local-only edits to runtime', async t => {
       })
       try {
         await appServer.start()
-        await waitFor(async () => {
-          const { data: snapshot } = await fetchJson(`${world.worldUrl}/admin/snapshot`, {
-            adminCode: world.adminCode,
-          })
-          const blueprint = snapshot.blueprints?.find(item => item.id === BLUEPRINT_ID)
-          const entity = snapshot.entities?.find(item => item.id === entityId)
-          return blueprint?.desc === 'local-only desc' && entity?.props?.text === 'local-only'
-        }, { timeoutMs: 10000 })
+        await waitFor(
+          async () => {
+            const { data: snapshot } = await fetchJson(`${world.worldUrl}/admin/snapshot`, {
+              adminCode: world.adminCode,
+            })
+            const blueprint = snapshot.blueprints?.find(item => item.id === BLUEPRINT_ID)
+            const entity = snapshot.entities?.find(item => item.id === entityId)
+            return blueprint?.desc === 'local-only desc' && entity?.props?.text === 'local-only'
+          },
+          { timeoutMs: 10000 }
+        )
       } finally {
         await stopAppServer(appServer)
       }
