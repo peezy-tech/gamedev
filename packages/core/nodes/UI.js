@@ -906,7 +906,7 @@ export class UI extends Node {
 
   getProxy() {
     if (!this.proxy) {
-      var self = this
+      const self = this
       let proxy = {
         get space() {
           return self.space

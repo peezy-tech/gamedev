@@ -139,7 +139,7 @@ export class AvatarPreview {
     // box.max.x = 0.1
     // box.min.y += box.getSize(v1).y / 2
 
-    var size = new THREE.Vector3()
+    const size = new THREE.Vector3()
     box.getSize(size)
 
     // size.min.x = 0.1

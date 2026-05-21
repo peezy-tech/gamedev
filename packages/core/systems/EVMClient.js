@@ -78,7 +78,7 @@ function getPlayerEvmChainId(player) {
 function buildPlayerCustomPatch(player, address, chainId) {
   const current = getPlayerCustom(player)
   return {
-    ...(current || {}),
+    ...current,
     evm: address || null,
     evmChainId: Number.isInteger(chainId) && chainId > 0 ? chainId : null,
   }

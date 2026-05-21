@@ -97,7 +97,7 @@ export function normalizeWorldAdminBaseUrl(url) {
 export function isLocalHost(hostname) {
   if (!hostname) return false
   if (hostname === 'localhost' || hostname === '::1') return true
-  if (/^127\./.test(hostname)) return true
+  if (hostname.startsWith('127.')) return true
   const parts = hostname.split('.').map(Number)
   if (parts.length !== 4 || parts.some(Number.isNaN)) return false
   if (parts[0] === 10) return true

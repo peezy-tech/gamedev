@@ -537,7 +537,7 @@ export class AdminClient extends System {
     if (this.requireCode && !this.hasAuthCredential()) throw new Error('admin_code_missing')
     const headers = {
       'Content-Type': 'application/json',
-      ...(this.getDeployHeaders() || {}),
+      ...this.getDeployHeaders(),
     }
     const res = await fetch(joinUrl(this.adminUrl, '/admin/clean'), {
       method: 'POST',

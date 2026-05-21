@@ -154,7 +154,7 @@ async function runAdd({ worldPath, world, options, yes }) {
   if (replace) {
     const confirmed = await confirmDangerousAction({
       yes,
-      summary: `Replace mode will delete ${removedCount} existing \"${template.blueprint}\" entities, then add ${addedCount}.`,
+      summary: `Replace mode will delete ${removedCount} existing "${template.blueprint}" entities, then add ${addedCount}.`,
     })
     if (!confirmed) {
       console.log('Cancelled.')
@@ -193,7 +193,7 @@ async function runDelete({ worldPath, world, options, yes }) {
     const blueprint = getStringOption(options, 'blueprint')
     keepEntities = world.entities.filter(entity => entity?.blueprint !== blueprint)
     removedCount = world.entities.length - keepEntities.length
-    summary = `Delete ${removedCount} entities with blueprint \"${blueprint}\".`
+    summary = `Delete ${removedCount} entities with blueprint "${blueprint}".`
   } else {
     const absoluteIdsPath = path.resolve(process.cwd(), getStringOption(options, 'ids'))
     const ids = await readIdArray(absoluteIdsPath)
@@ -265,34 +265,34 @@ function validateTransformItem(item, index) {
 
   if (item.id !== undefined) {
     if (typeof item.id !== 'string' || item.id.length === 0) {
-      throw new Error(`Transform #${index} field \"id\" must be a non-empty string`)
+      throw new Error(`Transform #${index} field "id" must be a non-empty string`)
     }
     validated.id = item.id
   }
 
   if (item.position === undefined) {
-    throw new Error(`Transform #${index} is missing required field \"position\"`)
+    throw new Error(`Transform #${index} is missing required field "position"`)
   }
-  validated.position = validateVector(item.position, 3, `Transform #${index} field \"position\"`)
+  validated.position = validateVector(item.position, 3, `Transform #${index} field "position"`)
 
   if (item.quaternion !== undefined) {
-    validated.quaternion = validateVector(item.quaternion, 4, `Transform #${index} field \"quaternion\"`)
+    validated.quaternion = validateVector(item.quaternion, 4, `Transform #${index} field "quaternion"`)
   }
 
   if (item.scale !== undefined) {
-    validated.scale = validateVector(item.scale, 3, `Transform #${index} field \"scale\"`)
+    validated.scale = validateVector(item.scale, 3, `Transform #${index} field "scale"`)
   }
 
   if (item.pinned !== undefined) {
     if (typeof item.pinned !== 'boolean') {
-      throw new Error(`Transform #${index} field \"pinned\" must be boolean`)
+      throw new Error(`Transform #${index} field "pinned" must be boolean`)
     }
     validated.pinned = item.pinned
   }
 
   if (item.props !== undefined) {
     if (!isPlainObject(item.props)) {
-      throw new Error(`Transform #${index} field \"props\" must be an object`)
+      throw new Error(`Transform #${index} field "props" must be an object`)
     }
     validated.props = deepClone(item.props)
   }
@@ -347,7 +347,7 @@ async function confirmDangerousAction({ yes, summary }) {
   })
 
   try {
-    const response = await rl.question(`${summary}\nType \"yes\" to continue: `)
+    const response = await rl.question(`${summary}\nType "yes" to continue: `)
     return response.trim().toLowerCase() === 'yes'
   } finally {
     rl.close()
@@ -369,7 +369,7 @@ async function readWorld(worldPath) {
   }
 
   if (!Array.isArray(parsed.entities)) {
-    throw new Error(`${worldPath} must contain an \"entities\" array`)
+    throw new Error(`${worldPath} must contain an "entities" array`)
   }
 
   return parsed
