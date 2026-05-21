@@ -400,7 +400,8 @@ function Chat({ world }) {
       className={cls('mainchat', { active })}
       style={{
         left: buildMode ? 'calc(18rem + 2rem + env(safe-area-inset-left))' : undefined,
-        bottom: buildMode && uiState.app ? `calc(${bottomPanelHeight}px + 2rem + env(safe-area-inset-bottom))` : undefined,
+        bottom:
+          buildMode && uiState.app ? `calc(${bottomPanelHeight}px + 2rem + env(safe-area-inset-bottom))` : undefined,
       }}
       css={css`
         position: absolute;
@@ -727,9 +728,7 @@ function LoadingOverlay({ world, connectionStatus }) {
   const { title, desc, image } = world.settings
   const activeStatus = wsStatus || connectionStatus
   const isWaiting =
-    activeStatus?.status === 'waiting' ||
-    activeStatus?.status === 'retrying' ||
-    activeStatus?.status === 'auth'
+    activeStatus?.status === 'waiting' || activeStatus?.status === 'retrying' || activeStatus?.status === 'auth'
   const isError = activeStatus?.status === 'error'
   const statusMessage = activeStatus?.message
   useEffect(() => {
@@ -893,8 +892,8 @@ function KickedOverlay({ code }) {
 }
 
 function arcPath(cx, cy, r, startDeg, endDeg) {
-  const s = (startDeg - 90) * Math.PI / 180
-  const e = (endDeg - 90) * Math.PI / 180
+  const s = ((startDeg - 90) * Math.PI) / 180
+  const e = ((endDeg - 90) * Math.PI) / 180
   const x1 = cx + r * Math.cos(s)
   const y1 = cy + r * Math.sin(s)
   const x2 = cx + r * Math.cos(e)
@@ -904,7 +903,7 @@ function arcPath(cx, cy, r, startDeg, endDeg) {
 }
 
 function ReticleLayer({ layer, cx, cy, spread, defaultColor, buildMode }) {
-  const color = buildMode ? 'rgba(255, 77, 77, 0.6)' : (layer.color || defaultColor)
+  const color = buildMode ? 'rgba(255, 77, 77, 0.6)' : layer.color || defaultColor
   const ol = layer.outlineColor && layer.outlineWidth > 0
   const s = spread
   switch (layer.shape) {
@@ -918,20 +917,47 @@ function ReticleLayer({ layer, cx, cy, spread, defaultColor, buildMode }) {
     case 'circle':
       return (
         <g opacity={layer.opacity}>
-          {ol && <circle cx={cx} cy={cy} r={layer.radius + s} fill='none' stroke={layer.outlineColor} strokeWidth={layer.thickness + layer.outlineWidth * 2} />}
+          {ol && (
+            <circle
+              cx={cx}
+              cy={cy}
+              r={layer.radius + s}
+              fill='none'
+              stroke={layer.outlineColor}
+              strokeWidth={layer.thickness + layer.outlineWidth * 2}
+            />
+          )}
           <circle cx={cx} cy={cy} r={layer.radius + s} fill='none' stroke={color} strokeWidth={layer.thickness} />
         </g>
       )
     case 'line': {
-      const a = layer.angle * Math.PI / 180
+      const a = (layer.angle * Math.PI) / 180
       const gx = Math.sin(a) * (layer.gap + s)
       const gy = -Math.cos(a) * (layer.gap + s)
       const lx = Math.sin(a) * (layer.gap + layer.length + s)
       const ly = -Math.cos(a) * (layer.gap + layer.length + s)
       return (
         <g opacity={layer.opacity}>
-          {ol && <line x1={cx + gx} y1={cy + gy} x2={cx + lx} y2={cy + ly} stroke={layer.outlineColor} strokeWidth={layer.thickness + layer.outlineWidth * 2} strokeLinecap='round' />}
-          <line x1={cx + gx} y1={cy + gy} x2={cx + lx} y2={cy + ly} stroke={color} strokeWidth={layer.thickness} strokeLinecap='round' />
+          {ol && (
+            <line
+              x1={cx + gx}
+              y1={cy + gy}
+              x2={cx + lx}
+              y2={cy + ly}
+              stroke={layer.outlineColor}
+              strokeWidth={layer.thickness + layer.outlineWidth * 2}
+              strokeLinecap='round'
+            />
+          )}
+          <line
+            x1={cx + gx}
+            y1={cy + gy}
+            x2={cx + lx}
+            y2={cy + ly}
+            stroke={color}
+            strokeWidth={layer.thickness}
+            strokeLinecap='round'
+          />
         </g>
       )
     }
@@ -940,8 +966,28 @@ function ReticleLayer({ layer, cx, cy, spread, defaultColor, buildMode }) {
       const hh = layer.height / 2
       return (
         <g opacity={layer.opacity}>
-          {ol && <rect x={cx - hw} y={cy - hh} width={layer.width} height={layer.height} rx={layer.rx} fill='none' stroke={layer.outlineColor} strokeWidth={layer.thickness + layer.outlineWidth * 2} />}
-          <rect x={cx - hw} y={cy - hh} width={layer.width} height={layer.height} rx={layer.rx} fill='none' stroke={color} strokeWidth={layer.thickness} />
+          {ol && (
+            <rect
+              x={cx - hw}
+              y={cy - hh}
+              width={layer.width}
+              height={layer.height}
+              rx={layer.rx}
+              fill='none'
+              stroke={layer.outlineColor}
+              strokeWidth={layer.thickness + layer.outlineWidth * 2}
+            />
+          )}
+          <rect
+            x={cx - hw}
+            y={cy - hh}
+            width={layer.width}
+            height={layer.height}
+            rx={layer.rx}
+            fill='none'
+            stroke={color}
+            strokeWidth={layer.thickness}
+          />
         </g>
       )
     }
@@ -949,7 +995,15 @@ function ReticleLayer({ layer, cx, cy, spread, defaultColor, buildMode }) {
       const d = arcPath(cx, cy, layer.radius + s, layer.startAngle, layer.endAngle)
       return (
         <g opacity={layer.opacity}>
-          {ol && <path d={d} fill='none' stroke={layer.outlineColor} strokeWidth={layer.thickness + layer.outlineWidth * 2} strokeLinecap='round' />}
+          {ol && (
+            <path
+              d={d}
+              fill='none'
+              stroke={layer.outlineColor}
+              strokeWidth={layer.thickness + layer.outlineWidth * 2}
+              strokeLinecap='round'
+            />
+          )}
           <path d={d} fill='none' stroke={color} strokeWidth={layer.thickness} strokeLinecap='round' />
         </g>
       )
@@ -970,7 +1024,16 @@ function ReticleSVG({ reticle, buildMode }) {
     const c = svgSize / 2
     return (
       <svg width={svgSize} height={svgSize}>
-        <rect x={c - half} y={c - half} width={size} height={size} rx={2} fill='none' stroke={color} strokeWidth={1.5} />
+        <rect
+          x={c - half}
+          y={c - half}
+          width={size}
+          height={size}
+          rx={2}
+          fill='none'
+          stroke={color}
+          strokeWidth={1.5}
+        />
       </svg>
     )
   }
@@ -980,7 +1043,15 @@ function ReticleSVG({ reticle, buildMode }) {
   return (
     <svg width={svgSize} height={svgSize} style={{ opacity: reticle.opacity }}>
       {reticle.layers.map((layer, i) => (
-        <ReticleLayer key={i} layer={layer} cx={cx} cy={cy} spread={reticle.spread} defaultColor={reticle.color} buildMode={buildMode} />
+        <ReticleLayer
+          key={i}
+          layer={layer}
+          cx={cx}
+          cy={cy}
+          spread={reticle.spread}
+          defaultColor={reticle.color}
+          buildMode={buildMode}
+        />
       ))}
     </svg>
   )

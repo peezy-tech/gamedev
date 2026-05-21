@@ -5,22 +5,18 @@ import { readPacket, writePacket } from '@gamedev/core/packets.js'
 import { Ranks } from '@gamedev/core/extras/ranks.js'
 import { buildRuntimeControlAuthorization, readJWT } from '@gamedev/core/utils-server.js'
 import { cleaner } from './cleaner.js'
-import {
-  ADMIN_CREDENTIAL_COMMAND,
-  handleRuntimeCredentialCommand,
-} from './adminCredentials.js'
+import { ADMIN_CREDENTIAL_COMMAND, handleRuntimeCredentialCommand } from './adminCredentials.js'
 import { ADMIN_SHUTDOWN_COMMAND, handleAdminShutdownCommand } from './adminShutdown.js'
-import { allowsOpenAdminAccess, hasSupportedAdminCode, resolveControlInternalUrl, usesHostedRuntimeBootstrap } from './runtimeBootstrap.js'
+import {
+  allowsOpenAdminAccess,
+  hasSupportedAdminCode,
+  resolveControlInternalUrl,
+  usesHostedRuntimeBootstrap,
+} from './runtimeBootstrap.js'
 import { describeWebSocketConnection, resolveWebSocketConnection } from './websocketConnection.js'
 import { getMaxUploadSizeBytes, getMaxUploadSizeMb } from './worldLimits.js'
 
-const SCRIPT_BLUEPRINT_FIELDS = new Set([
-  'script',
-  'scriptEntry',
-  'scriptFiles',
-  'scriptFormat',
-  'scriptRef',
-])
+const SCRIPT_BLUEPRINT_FIELDS = new Set(['script', 'scriptEntry', 'scriptFiles', 'scriptFormat', 'scriptRef'])
 const CHANGEFEED_TABLE = 'sync_changes'
 const CHANGEFEED_DEFAULT_LIMIT = 200
 const CHANGEFEED_MAX_LIMIT = 1000
@@ -85,7 +81,12 @@ function parseChangefeedCursor(value) {
   if (typeof normalized === 'string' && normalized.toLowerCase() === 'latest') {
     return { ok: true, mode: 'head', cursor: null }
   }
-  if (typeof normalized === 'number' && Number.isFinite(normalized) && Number.isInteger(normalized) && normalized >= 0) {
+  if (
+    typeof normalized === 'number' &&
+    Number.isFinite(normalized) &&
+    Number.isInteger(normalized) &&
+    normalized >= 0
+  ) {
     return { ok: true, mode: 'after', cursor: normalized }
   }
   if (typeof normalized === 'string' && /^\d+$/.test(normalized)) {
@@ -165,7 +166,8 @@ function deserializeChangeRow(row) {
   const op = {
     cursor: toCursorNumber(row.cursor),
     opId,
-    ts: normalizeIsoTimestamp(typeof row.ts === 'string' ? row.ts : row.ts?.toISOString?.()) || new Date().toISOString(),
+    ts:
+      normalizeIsoTimestamp(typeof row.ts === 'string' ? row.ts : row.ts?.toISOString?.()) || new Date().toISOString(),
     actor: normalizeOperationValue(row.actor) || 'runtime',
     source: normalizeOperationValue(row.source) || 'runtime',
     kind,
@@ -310,7 +312,6 @@ function serializeEntitiesForAdmin(world) {
   return world.entities.serialize().filter(entity => entity?.type !== 'player')
 }
 
-
 function sendRuntimeNotReady(reply, state = null) {
   reply.header('Retry-After', '1')
   return reply.code(503).send({
@@ -353,22 +354,20 @@ export async function admin(
     return sendRuntimeNotReady(reply, runtimeState())
   })
 
-  function auditRuntimeCredentialReveal({
-    req,
-    allowed,
-    revealed,
-    reason = null,
-  } = {}) {
-    fastify.log.info({
-      channel: 'admin_ws',
-      action: ADMIN_CREDENTIAL_COMMAND,
-      allowed: !!allowed,
-      revealed: !!revealed,
-      reason,
-      worldId: world?.network?.worldId || process.env.WORLD_ID || null,
-      remoteAddress: req?.socket?.remoteAddress || null,
-      userAgent: req?.headers?.['user-agent'] || null,
-    }, 'runtime credential reveal audit')
+  function auditRuntimeCredentialReveal({ req, allowed, revealed, reason = null } = {}) {
+    fastify.log.info(
+      {
+        channel: 'admin_ws',
+        action: ADMIN_CREDENTIAL_COMMAND,
+        allowed: !!allowed,
+        revealed: !!revealed,
+        reason,
+        worldId: world?.network?.worldId || process.env.WORLD_ID || null,
+        remoteAddress: req?.socket?.remoteAddress || null,
+        userAgent: req?.headers?.['user-agent'] || null,
+      },
+      'runtime credential reveal audit'
+    )
   }
 
   function notifyConnectionCountChanged() {
@@ -837,11 +836,14 @@ export async function admin(
       const receivedWs = ws
       ws = resolveWebSocketConnection(ws)
       if (!ws || typeof ws.on !== 'function' || typeof ws.send !== 'function') {
-        req.log.error({
-          received: describeWebSocketConnection(receivedWs),
-          resolved: describeWebSocketConnection(ws),
-          upgrade: req.headers?.upgrade || null,
-        }, 'invalid websocket connection for /admin')
+        req.log.error(
+          {
+            received: describeWebSocketConnection(receivedWs),
+            resolved: describeWebSocketConnection(ws),
+            upgrade: req.headers?.upgrade || null,
+          },
+          'invalid websocket connection for /admin'
+        )
         ws?.close?.(1011, 'invalid_websocket')
         return
       }
@@ -1198,14 +1200,17 @@ export async function admin(
               sendPacket(ws, 'adminResult', { ok: false, error: 'invalid_payload', requestId })
               return
             }
-            const result = await network.applySpawnModified({
-              op: data.op,
-              networkId: data.networkId || defaultNetworkId,
-            }, {
-              actor,
-              source,
-              lastOpId,
-            })
+            const result = await network.applySpawnModified(
+              {
+                op: data.op,
+                networkId: data.networkId || defaultNetworkId,
+              },
+              {
+                actor,
+                source,
+                lastOpId,
+              }
+            )
             if (!result.ok) {
               sendPacket(ws, 'adminResult', { ok: false, error: result.error, requestId })
               return
@@ -1356,8 +1361,7 @@ export async function admin(
     const scope = normalizeLockScope(rawScope)
     const owner = typeof req.body?.owner === 'string' && req.body.owner.trim() ? req.body.owner.trim() : 'unknown'
     const ttlSeconds = Number.parseInt(req.body?.ttl, 10)
-    const ttlMs =
-      Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? ttlSeconds * 1000 : lockTtlMs
+    const ttlMs = Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? ttlSeconds * 1000 : lockTtlMs
     const token = crypto.randomUUID()
     const now = Date.now()
     deployLocks.set(scope, {
@@ -1388,8 +1392,7 @@ export async function admin(
       return reply.code(409).send({ error: 'not_owner', lock: getLockStatus(lock, scope) })
     }
     const ttlSeconds = Number.parseInt(req.body?.ttl, 10)
-    const ttlMs =
-      Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? ttlSeconds * 1000 : lockTtlMs
+    const ttlMs = Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? ttlSeconds * 1000 : lockTtlMs
     lock.expiresAt = Date.now() + ttlMs
     return { ok: true, ttlMs }
   })

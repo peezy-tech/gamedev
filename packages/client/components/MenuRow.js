@@ -8,7 +8,10 @@ const onboardingSteps = [
   { selector: '.editor-logo', text: 'Settings' },
   { selector: '.editor-explore', text: 'Explore worlds' },
   { selector: '.editor-user', text: 'Sign in and manage your world' },
-  { selector: null, text: 'Sign in → create a world → go to your world → press Tab to open the editor → copy the SDK prompt to start building' },
+  {
+    selector: null,
+    text: 'Sign in → create a world → go to your world → press Tab to open the editor → copy the SDK prompt to start building',
+  },
 ]
 
 function getInitialStep() {
@@ -28,9 +31,7 @@ function OnboardingTooltip({ step, onNext, onSkip, isSummary }) {
     <div
       css={css`
         position: absolute;
-        ${isSummary
-          ? 'top: calc(2.75rem + 0.625rem); left: 0;'
-          : 'top: 100%; left: 0; margin-top: 0.625rem;'}
+        ${isSummary ? 'top: calc(2.75rem + 0.625rem); left: 0;' : 'top: 100%; left: 0; margin-top: 0.625rem;'}
         width: ${isSummary ? '320px' : '220px'};
         background: ${theme.panelBg};
         border: 1px solid ${theme.border};
@@ -178,7 +179,7 @@ export function MenuRow({ world, open, onToggle, buildMode, auth, onUserClick, o
         }
       `}
     >
-      <OnboardingTarget step={onboardingStep} name="editor-logo" onNext={advanceOnboarding} onSkip={dismissOnboarding}>
+      <OnboardingTarget step={onboardingStep} name='editor-logo' onNext={advanceOnboarding} onSkip={dismissOnboarding}>
         <LogoBtn onClick={() => world.emit('open-menu')} />
       </OnboardingTarget>
       {buildMode && (
@@ -205,11 +206,16 @@ export function MenuRow({ world, open, onToggle, buildMode, auth, onUserClick, o
           <HammerIcon size='1.125rem' />
         </div>
       )}
-      <OnboardingTarget step={onboardingStep} name="editor-explore" onNext={advanceOnboarding} onSkip={dismissOnboarding}>
+      <OnboardingTarget
+        step={onboardingStep}
+        name='editor-explore'
+        onNext={advanceOnboarding}
+        onSkip={dismissOnboarding}
+      >
         <ExploreBtn onClick={onExploreClick} />
       </OnboardingTarget>
       <MicBtn world={world} />
-      <OnboardingTarget step={onboardingStep} name="editor-user" onNext={advanceOnboarding} onSkip={dismissOnboarding}>
+      <OnboardingTarget step={onboardingStep} name='editor-user' onNext={advanceOnboarding} onSkip={dismissOnboarding}>
         <UserBtn auth={auth} onClick={onUserClick} />
       </OnboardingTarget>
       {onboardingStep != null && onboardingSteps[onboardingStep].selector === null && (
@@ -313,8 +319,12 @@ function MicBtn({ world }) {
           color: white;
         }
         @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
         }
         .spinning {
           animation: spin 1s linear infinite;

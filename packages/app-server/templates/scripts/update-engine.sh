@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Redeploy the engine to Fly using the latest image tag
 # Usage:
-#   npm run update:engine
+#   vp run update:engine
 #   bash scripts/update-engine.sh [-a <app-name>] [--ha=false]
 
 APP_NAME=""

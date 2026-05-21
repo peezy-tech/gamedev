@@ -12,7 +12,7 @@ export default (world, app, fetch, props, setTimeout) => {
       type: 'file',
       kind: 'image',
       label: 'Image',
-      hint: 'The image to display.'
+      hint: 'The image to display.',
     },
     {
       key: 'surface',
@@ -27,7 +27,7 @@ export default (world, app, fetch, props, setTimeout) => {
       step: 0.1,
       bigStep: 1,
       initial: 0,
-      hint: 'The width of the surface. If set to zero with a non-zero height, the width will automatically adjust to match the image aspect ratio.'
+      hint: 'The width of the surface. If set to zero with a non-zero height, the width will automatically adjust to match the image aspect ratio.',
     },
     {
       key: 'height',
@@ -37,7 +37,7 @@ export default (world, app, fetch, props, setTimeout) => {
       step: 0.1,
       bigStep: 1,
       initial: 1,
-      hint: 'The height of the surface. If set to zero with a non-zero width, the height will automatically adjust to match the image aspect ratio.'
+      hint: 'The height of the surface. If set to zero with a non-zero width, the height will automatically adjust to match the image aspect ratio.',
     },
     {
       key: 'fit',
@@ -49,25 +49,25 @@ export default (world, app, fetch, props, setTimeout) => {
         { label: 'Contain', value: 'contain' },
       ],
       initial: 'none',
-      hint: 'How the image should be scaled to fit the surface dimensions. This has no effect if both width and height are set.'
+      hint: 'How the image should be scaled to fit the surface dimensions. This has no effect if both width and height are set.',
     },
     {
       key: 'transparent',
       type: 'toggle',
       label: 'Transparent',
-      hint: 'This should be used when using a (semi-)transparent image like a png.'
+      hint: 'This should be used when using a (semi-)transparent image like a png.',
     },
     {
       key: 'lit',
       type: 'toggle',
       label: 'Lit',
-      hint: 'Whether this surface is effected by world lighting.'
+      hint: 'Whether this surface is effected by world lighting.',
     },
     {
       key: 'shadows',
       type: 'toggle',
       label: 'Shadows',
-      hint: 'Whether this surface casts and receives shadows.'
+      hint: 'Whether this surface casts and receives shadows.',
     },
   ])
   app.keepActive = true

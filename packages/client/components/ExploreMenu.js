@@ -1,18 +1,11 @@
 import { css } from '@firebolt-dev/css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  CheckIcon,
-  GlobeIcon,
-  LoaderIcon,
-  SearchIcon,
-  UserPlusIcon,
-  UsersIcon,
-  XIcon,
-} from 'lucide-react'
+import { CheckIcon, GlobeIcon, LoaderIcon, SearchIcon, UserPlusIcon, UsersIcon, XIcon } from 'lucide-react'
 import { editorTheme as theme } from './editor/editorTheme.js'
 
 function resolveWorldServiceApiBase() {
-  const configuredAuthUrl = typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''
+  const configuredAuthUrl =
+    typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''
   if (configuredAuthUrl) {
     return configuredAuthUrl.replace(/\/+$/, '').replace(/\/identity$/, '')
   }
@@ -104,12 +97,8 @@ export function ExploreMenu({ open, onClose }) {
       }
 
       if (!friendsRes.ok || !requestsRes.ok) {
-        const friendsFailure = !friendsRes.ok
-          ? getApiError(friendsRes.body, 'Failed to load friends.')
-          : ''
-        const requestsFailure = !requestsRes.ok
-          ? getApiError(requestsRes.body, 'Failed to load requests.')
-          : ''
+        const friendsFailure = !friendsRes.ok ? getApiError(friendsRes.body, 'Failed to load friends.') : ''
+        const requestsFailure = !requestsRes.ok ? getApiError(requestsRes.body, 'Failed to load requests.') : ''
         setFriendsError(friendsFailure || requestsFailure || 'Failed to load friend data.')
         setFriendsLoading(false)
         return
@@ -240,7 +229,9 @@ export function ExploreMenu({ open, onClose }) {
 
       if (response.ok) {
         setFriendName('')
-        setFriendsNotice(response.body?.outcome === 'already_requested' ? 'Request already pending.' : 'Friend request sent.')
+        setFriendsNotice(
+          response.body?.outcome === 'already_requested' ? 'Request already pending.' : 'Friend request sent.'
+        )
         await refreshFriends(apiBase, { silent: true, keepNotice: true })
         return
       }
@@ -272,79 +263,85 @@ export function ExploreMenu({ open, onClose }) {
     }
   }, [addingFriend, friendName, refreshFriends])
 
-  const handleAcceptRequest = useCallback(async requestId => {
-    if (!requestId || acceptingRequestId) return
+  const handleAcceptRequest = useCallback(
+    async requestId => {
+      if (!requestId || acceptingRequestId) return
 
-    const apiBase = resolveWorldServiceApiBase()
-    if (!apiBase) {
-      setFriendsError('World service unavailable.')
-      return
-    }
-
-    setAcceptingRequestId(requestId)
-    setFriendsError('')
-    setFriendsNotice('')
-
-    try {
-      const response = await requestJson(`${apiBase}/friends/requests/${requestId}/accept`, {
-        method: 'POST',
-      })
-      if (response.ok) {
-        setFriendsNotice('Friend request accepted.')
-        await refreshFriends(apiBase, { silent: true, keepNotice: true })
+      const apiBase = resolveWorldServiceApiBase()
+      if (!apiBase) {
+        setFriendsError('World service unavailable.')
         return
       }
 
-      if (response.status === 404 && response.body?.error === 'request_not_found') {
-        setFriendsError('Friend request not found.')
-      } else if (response.status === 409 && response.body?.error === 'cannot_accept_own_request') {
-        setFriendsError('You cannot accept your own request.')
-      } else {
-        setFriendsError(getApiError(response.body, 'Unable to accept request.'))
+      setAcceptingRequestId(requestId)
+      setFriendsError('')
+      setFriendsNotice('')
+
+      try {
+        const response = await requestJson(`${apiBase}/friends/requests/${requestId}/accept`, {
+          method: 'POST',
+        })
+        if (response.ok) {
+          setFriendsNotice('Friend request accepted.')
+          await refreshFriends(apiBase, { silent: true, keepNotice: true })
+          return
+        }
+
+        if (response.status === 404 && response.body?.error === 'request_not_found') {
+          setFriendsError('Friend request not found.')
+        } else if (response.status === 409 && response.body?.error === 'cannot_accept_own_request') {
+          setFriendsError('You cannot accept your own request.')
+        } else {
+          setFriendsError(getApiError(response.body, 'Unable to accept request.'))
+        }
+      } catch {
+        setFriendsError('Unable to accept request.')
+      } finally {
+        setAcceptingRequestId('')
       }
-    } catch {
-      setFriendsError('Unable to accept request.')
-    } finally {
-      setAcceptingRequestId('')
-    }
-  }, [acceptingRequestId, refreshFriends])
+    },
+    [acceptingRequestId, refreshFriends]
+  )
 
-  const handleUnfriend = useCallback(async friendUserId => {
-    if (!friendUserId || unfriendingUserId) return
+  const handleUnfriend = useCallback(
+    async friendUserId => {
+      if (!friendUserId || unfriendingUserId) return
 
-    const apiBase = resolveWorldServiceApiBase()
-    if (!apiBase) {
-      setFriendsError('World service unavailable.')
-      return
-    }
-
-    setUnfriendingUserId(friendUserId)
-    setFriendsError('')
-    setFriendsNotice('')
-
-    try {
-      const response = await requestJson(`${apiBase}/friends/${friendUserId}`, {
-        method: 'DELETE',
-      })
-      if (response.status === 204) {
-        setFriendsNotice('Friend removed.')
-        await refreshFriends(apiBase, { silent: true, keepNotice: true })
+      const apiBase = resolveWorldServiceApiBase()
+      if (!apiBase) {
+        setFriendsError('World service unavailable.')
         return
       }
 
-      if (response.status === 404 && response.body?.error === 'friendship_not_found') {
-        setFriendsError('Friendship not found.')
-      } else if (response.status === 409 && response.body?.error === 'not_friends') {
-        setFriendsError('That user is not in your accepted friends list.')
-      } else {
-        setFriendsError(getApiError(response.body, 'Unable to remove friend.'))
+      setUnfriendingUserId(friendUserId)
+      setFriendsError('')
+      setFriendsNotice('')
+
+      try {
+        const response = await requestJson(`${apiBase}/friends/${friendUserId}`, {
+          method: 'DELETE',
+        })
+        if (response.status === 204) {
+          setFriendsNotice('Friend removed.')
+          await refreshFriends(apiBase, { silent: true, keepNotice: true })
+          return
+        }
+
+        if (response.status === 404 && response.body?.error === 'friendship_not_found') {
+          setFriendsError('Friendship not found.')
+        } else if (response.status === 409 && response.body?.error === 'not_friends') {
+          setFriendsError('That user is not in your accepted friends list.')
+        } else {
+          setFriendsError(getApiError(response.body, 'Unable to remove friend.'))
+        }
+      } catch {
+        setFriendsError('Unable to remove friend.')
+      } finally {
+        setUnfriendingUserId('')
       }
-    } catch {
-      setFriendsError('Unable to remove friend.')
-    } finally {
-      setUnfriendingUserId('')
-    }
-  }, [refreshFriends, unfriendingUserId])
+    },
+    [refreshFriends, unfriendingUserId]
+  )
 
   if (!open) return null
 
@@ -544,7 +541,7 @@ export function ExploreMenu({ open, onClose }) {
           transform: scale(1.03);
         }
         .explore-card:hover .explore-card-overlay {
-          background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.18) 55%, transparent 100%);
+          background: linear-gradient(to top, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.18) 55%, transparent 100%);
         }
         .explore-card-img-wrap {
           position: absolute;
@@ -560,7 +557,7 @@ export function ExploreMenu({ open, onClose }) {
         .explore-card-overlay {
           position: absolute;
           inset: 0;
-          background: linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.1) 50%, transparent 100%);
+          background: linear-gradient(to top, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.1) 50%, transparent 100%);
           transition: background 0.2s ease;
         }
         .explore-card-info {
@@ -747,17 +744,11 @@ export function ExploreMenu({ open, onClose }) {
           </div>
 
           <div className='explore-tabs'>
-            <button
-              className={`explore-tab ${tab === 'worlds' ? 'active' : ''}`}
-              onClick={() => setTab('worlds')}
-            >
+            <button className={`explore-tab ${tab === 'worlds' ? 'active' : ''}`} onClick={() => setTab('worlds')}>
               <GlobeIcon size='0.75rem' />
               Worlds
             </button>
-            <button
-              className={`explore-tab ${tab === 'friends' ? 'active' : ''}`}
-              onClick={() => setTab('friends')}
-            >
+            <button className={`explore-tab ${tab === 'friends' ? 'active' : ''}`} onClick={() => setTab('friends')}>
               <UsersIcon size='0.75rem' />
               Friends
             </button>
@@ -774,11 +765,7 @@ export function ExploreMenu({ open, onClose }) {
                 onChange={e => setQuery(e.target.value)}
               />
               {query && (
-                <XIcon
-                  size='0.8rem'
-                  style={{ cursor: 'pointer', flexShrink: 0 }}
-                  onClick={() => setQuery('')}
-                />
+                <XIcon size='0.8rem' style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => setQuery('')} />
               )}
             </div>
           ) : (
@@ -935,7 +922,11 @@ export function ExploreMenu({ open, onClose }) {
                                   void handleAcceptRequest(request.request_id)
                                 }}
                               >
-                                {acceptingRequestId === request.request_id ? <LoaderIcon size='0.8rem' /> : <CheckIcon size='0.8rem' />}
+                                {acceptingRequestId === request.request_id ? (
+                                  <LoaderIcon size='0.8rem' />
+                                ) : (
+                                  <CheckIcon size='0.8rem' />
+                                )}
                                 {acceptingRequestId === request.request_id ? 'Accepting...' : 'Accept'}
                               </button>
                             </div>

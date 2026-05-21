@@ -14,4 +14,3 @@ export async function nodeClient() {
   const { createNodeClientWorld } = await import('./build/world-node-client.js')
   return createNodeClientWorld()
 }
-

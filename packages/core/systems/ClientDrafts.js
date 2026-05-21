@@ -74,7 +74,10 @@ function sanitizeBlueprintIdFromName(name) {
 
 function trimBlueprintIdBase(value) {
   if (typeof value !== 'string') return ''
-  return value.replace(/[. ]+$/g, '').replace(/^[. ]+/g, '').trim()
+  return value
+    .replace(/[. ]+$/g, '')
+    .replace(/^[. ]+/g, '')
+    .trim()
 }
 
 function resolveUniqueDraftBlueprintId(world, preferredName) {

@@ -5,9 +5,9 @@ permissions:
   id-token: write
 
 on:
-#   push:
-#     tags:
-#       - "v*.*.*"
+  #   push:
+  #     tags:
+  #       - "v*.*.*"
   workflow_dispatch:
 
 jobs:
@@ -19,20 +19,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4.1.4
 
-      - name: Setup Node.js
+      - name: Setup Vite Plus
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version: 24
+          cache: true
+
+      - name: Setup npm publishing
         uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
-          registry-url: "https://registry.npmjs.org"
-          cache: "pnpm"
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.22.0
+      - name: Update npm
+        run: npm install -g npm@^11.10.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: vp install --frozen-lockfile
 
       - name: Check package metadata
         id: pkg

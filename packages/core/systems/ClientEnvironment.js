@@ -342,10 +342,7 @@ export class ClientEnvironment extends System {
       this.skyShaderMaterial.uniforms.uTime.value = this.skyElapsed
       const renderer = this.world.graphics.renderer
       if (renderer) {
-        this.skyShaderMaterial.uniforms.uResolution.value.set(
-          renderer.domElement.width,
-          renderer.domElement.height
-        )
+        this.skyShaderMaterial.uniforms.uResolution.value.set(renderer.domElement.width, renderer.domElement.height)
       }
     }
   }

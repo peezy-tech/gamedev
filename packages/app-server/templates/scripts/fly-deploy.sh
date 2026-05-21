@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Deploys the Hyperfy world engine (ghcr.io/lobby-ws/gamedev:main) to Fly.io
 # Usage:
-#   npm run deploy:fly
+#   vp run deploy:fly
 # or
 #   bash scripts/fly-deploy.sh -a <app-name> -r <region>
 
@@ -178,4 +178,4 @@ NODE
 echo "\nVisit your newly deployed app at https://$APP_NAME.fly.dev/"
 echo "You may need to wait a minute or so before the website is live."
 echo "\nNext steps:"
-echo "- Deploy an app: npm run deploy:app -- <AppName> --target $APP_NAME"
+echo "- Deploy an app: vp run deploy:app -- <AppName> --target $APP_NAME"

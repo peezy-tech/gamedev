@@ -467,9 +467,7 @@ function AppsPaneVariants({ world, query, refresh }) {
     let list = Array.from(built.groups.values()).filter(group => group.items.length > 1)
     if (query) {
       const q = query.toLowerCase()
-      list = list.filter(group =>
-        group.items.some(item => (item?.name || item?.id || '').toLowerCase().includes(q))
-      )
+      list = list.filter(group => group.items.some(item => (item?.name || item?.id || '').toLowerCase().includes(q)))
     }
     list.sort((a, b) => {
       const aName = (a.main?.name || a.main?.id || '').toLowerCase()

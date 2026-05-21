@@ -693,8 +693,7 @@ export function createVRMFactory(glb, setupMaterial) {
       for (const [key, url] of Object.entries(next)) {
         const poseKey = EmoteKeyToPoseKey[key] || key
         if (!DefaultLocomotionEmotes[poseKey]) continue
-        const nextUrl =
-          typeof url === 'string' && url.trim().length > 0 ? url : DefaultLocomotionEmotes[poseKey]
+        const nextUrl = typeof url === 'string' && url.trim().length > 0 ? url : DefaultLocomotionEmotes[poseKey]
         setPoseUrl(poseKey, nextUrl)
       }
     }
@@ -717,8 +716,12 @@ export function createVRMFactory(glb, setupMaterial) {
       headToHeight,
       skeleton,
       findBone,
-      get paused() { return paused },
-      set paused(v) { paused = v },
+      get paused() {
+        return paused
+      },
+      set paused(v) {
+        paused = v
+      },
       setEmote,
       setFirstPerson,
       update,

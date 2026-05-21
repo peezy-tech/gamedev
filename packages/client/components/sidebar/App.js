@@ -423,7 +423,10 @@ export function App({ world, hidden }) {
                 if (blueprint?.keep) {
                   const version = blueprint.version + 1
                   world.blueprints.modify({ id: blueprint.id, version, keep: false })
-                  world.admin.blueprintModify({ id: blueprint.id, version, keep: false }, { ignoreNetworkId: world.network.id })
+                  world.admin.blueprintModify(
+                    { id: blueprint.id, version, keep: false },
+                    { ignoreNetworkId: world.network.id }
+                  )
                 }
                 app.destroy(true)
                 // check state after destroy

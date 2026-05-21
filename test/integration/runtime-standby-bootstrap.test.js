@@ -3,7 +3,7 @@ import http from 'node:http'
 import net from 'node:net'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import Database from 'better-sqlite3'
 
 import { readPacket } from '@gamedev/core/packets.js'
@@ -45,17 +45,19 @@ async function startControlPlaneStub({ issuer, role = 'builder' } = {}) {
 
       if (req.url === '/api/identity/exchange/verify' && req.method === 'POST') {
         res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({
-          valid: true,
-          claims: {
-            typ: 'identity_exchange',
-            aud: 'runtime:exchange',
-            userId: 'user-1',
-            sub: 'user-1',
-            iss: issuer,
-            name: 'Runtime User',
-          },
-        }))
+        res.end(
+          JSON.stringify({
+            valid: true,
+            claims: {
+              typ: 'identity_exchange',
+              aud: 'runtime:exchange',
+              userId: 'user-1',
+              sub: 'user-1',
+              iss: issuer,
+              name: 'Runtime User',
+            },
+          })
+        )
         return
       }
 
@@ -115,7 +117,13 @@ async function startAgonesReadyStub() {
   }
 }
 
-function buildStandbyBinding({ worldId, runtimeInstanceId, worldUrl, auth = {}, controlInternalBaseUrl = 'http://world-service.internal/api' } = {}) {
+function buildStandbyBinding({
+  worldId,
+  runtimeInstanceId,
+  worldUrl,
+  auth = {},
+  controlInternalBaseUrl = 'http://world-service.internal/api',
+} = {}) {
   return {
     bootstrapId: `${worldId}:${runtimeInstanceId}`,
     world: {
@@ -204,7 +212,7 @@ test('runtime boots into standby with pre-init bootstrap status', async t => {
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -235,7 +243,7 @@ test('runtime requests Agones Ready while booting into standby when the SDK side
   }
 
   const agonesStub = await startAgonesReadyStub()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await agonesStub.stop()
   })
 
@@ -244,11 +252,13 @@ test('runtime requests Agones Ready while booting into standby when the SDK side
       AGONES_SDK_HTTP_PORT: String(agonesStub.port),
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
-  await waitFor(() => agonesStub.requests.find(request => request.method === 'POST' && request.url === '/ready') || false)
+  await waitFor(
+    () => agonesStub.requests.find(request => request.method === 'POST' && request.url === '/ready') || false
+  )
 
   assert.ok(agonesStub.requests.find(request => request.method === 'POST' && request.url === '/ready'))
 })
@@ -260,7 +270,7 @@ test('runtime gates gameplay and admin entrypoints until bootstrap is ready', as
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -286,7 +296,7 @@ test('runtime does not expose /ws as a plain HTTP route', async t => {
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -301,7 +311,7 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -314,11 +324,13 @@ test('runtime accepts bootstrap push and transitions to ready', async t => {
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify(buildStandbyBinding({
-      worldId,
-      runtimeInstanceId: server.runtimeInstanceId,
-      worldUrl: server.worldUrl,
-    })),
+    body: JSON.stringify(
+      buildStandbyBinding({
+        worldId,
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+      })
+    ),
   })
   const payload = await response.json()
   assert.equal(response.status, 200)
@@ -362,7 +374,7 @@ test('runtime accepts websocket guest connections without query params after boo
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -375,19 +387,21 @@ test('runtime accepts websocket guest connections without query params after boo
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify(buildStandbyBinding({
-      worldId,
-      runtimeInstanceId: server.runtimeInstanceId,
-      worldUrl: server.worldUrl,
-      auth: {
-        publicAuthUrl: 'http://127.0.0.1:3001/identity',
-      },
-    })),
+    body: JSON.stringify(
+      buildStandbyBinding({
+        worldId,
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+        auth: {
+          publicAuthUrl: 'http://127.0.0.1:3001/identity',
+        },
+      })
+    ),
   })
   assert.equal(bootstrapRes.status, 200)
 
   const { ws, snapshot } = await connectWorldSocket(`${toWsUrl(server.worldUrl)}/ws`)
-  t.after(() => {
+  t.onTestFinished(() => {
     ws.close()
   })
 
@@ -403,7 +417,7 @@ test('runtime treats duplicate bootstrap for the same binding as idempotent', as
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -449,7 +463,7 @@ test('runtime rejects bootstrap rebinding after a successful push', async t => {
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -462,11 +476,13 @@ test('runtime rejects bootstrap rebinding after a successful push', async t => {
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify(buildStandbyBinding({
-      worldId,
-      runtimeInstanceId: server.runtimeInstanceId,
-      worldUrl: server.worldUrl,
-    })),
+    body: JSON.stringify(
+      buildStandbyBinding({
+        worldId,
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+      })
+    ),
   })
   assert.equal(initialRes.status, 200)
 
@@ -511,12 +527,12 @@ test('runtime uses bound control callbacks with world-scoped auth after bootstra
 
   const issuer = 'https://auth.example.com/api/identity'
   const controlPlane = await startControlPlaneStub({ issuer })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await controlPlane.stop()
   })
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -529,15 +545,17 @@ test('runtime uses bound control callbacks with world-scoped auth after bootstra
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify(buildStandbyBinding({
-      worldId,
-      runtimeInstanceId: server.runtimeInstanceId,
-      worldUrl: server.worldUrl,
-      auth: {
-        publicAuthUrl: issuer,
-      },
-      controlInternalBaseUrl: controlPlane.baseUrl,
-    })),
+    body: JSON.stringify(
+      buildStandbyBinding({
+        worldId,
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+        auth: {
+          publicAuthUrl: issuer,
+        },
+        controlInternalBaseUrl: controlPlane.baseUrl,
+      })
+    ),
   })
   assert.equal(bootstrapRes.status, 200)
 
@@ -574,12 +592,12 @@ test('hosted admin capabilities rehydrate builder role from world-service when r
 
   const issuer = 'https://auth.example.com/api/identity'
   const controlPlane = await startControlPlaneStub({ issuer })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await controlPlane.stop()
   })
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -592,15 +610,17 @@ test('hosted admin capabilities rehydrate builder role from world-service when r
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify(buildStandbyBinding({
-      worldId,
-      runtimeInstanceId: server.runtimeInstanceId,
-      worldUrl: server.worldUrl,
-      auth: {
-        publicAuthUrl: issuer,
-      },
-      controlInternalBaseUrl: controlPlane.baseUrl,
-    })),
+    body: JSON.stringify(
+      buildStandbyBinding({
+        worldId,
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+        auth: {
+          publicAuthUrl: issuer,
+        },
+        controlInternalBaseUrl: controlPlane.baseUrl,
+      })
+    ),
   })
   assert.equal(bootstrapRes.status, 200)
 
@@ -633,7 +653,9 @@ test('hosted admin capabilities rehydrate builder role from world-service when r
     db.close()
   }
 
-  const roleRequestsBefore = controlPlane.requests.filter(request => request.url === '/api/internal/users/user-1').length
+  const roleRequestsBefore = controlPlane.requests.filter(
+    request => request.url === '/api/internal/users/user-1'
+  ).length
 
   const lockRes = await fetch(`${server.worldUrl}/admin/deploy-lock`, {
     method: 'POST',
@@ -659,12 +681,12 @@ test('hosted auth exchange and admin keep local builder grants when world-servic
 
   const issuer = 'https://auth.example.com/api/identity'
   const controlPlane = await startControlPlaneStub({ issuer, role: 'visitor' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await controlPlane.stop()
   })
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -677,15 +699,17 @@ test('hosted auth exchange and admin keep local builder grants when world-servic
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify(buildStandbyBinding({
-      worldId,
-      runtimeInstanceId: server.runtimeInstanceId,
-      worldUrl: server.worldUrl,
-      auth: {
-        publicAuthUrl: issuer,
-      },
-      controlInternalBaseUrl: controlPlane.baseUrl,
-    })),
+    body: JSON.stringify(
+      buildStandbyBinding({
+        worldId,
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+        auth: {
+          publicAuthUrl: issuer,
+        },
+        controlInternalBaseUrl: controlPlane.baseUrl,
+      })
+    ),
   })
   assert.equal(bootstrapRes.status, 200)
 
@@ -748,7 +772,7 @@ test('runtime emits structured standby, bootstrap success, and rebind rejection 
   }
 
   const server = await startStandbyRuntimeServer()
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -810,9 +834,9 @@ test('runtime emits structured standby, bootstrap success, and rebind rejection 
     server,
     'rebind_rejected',
     entry =>
-      entry.expectedBootstrapId === binding.bootstrapId
-      && entry.receivedBootstrapId === rebindBootstrapId
-      && entry.state === 'ready'
+      entry.expectedBootstrapId === binding.bootstrapId &&
+      entry.receivedBootstrapId === rebindBootstrapId &&
+      entry.state === 'ready'
   )
   assert.equal(rebindEvent.worldId, worldId)
 })
@@ -828,7 +852,7 @@ test('runtime emits step-level bootstrap debug logs when enabled', async t => {
       RUNTIME_BOOTSTRAP_DEBUG: '1',
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 
@@ -841,11 +865,13 @@ test('runtime emits step-level bootstrap debug logs when enabled', async t => {
       'content-type': 'application/json',
       authorization,
     },
-    body: JSON.stringify(buildStandbyBinding({
-      worldId,
-      runtimeInstanceId: server.runtimeInstanceId,
-      worldUrl: server.worldUrl,
-    })),
+    body: JSON.stringify(
+      buildStandbyBinding({
+        worldId,
+        runtimeInstanceId: server.runtimeInstanceId,
+        worldUrl: server.worldUrl,
+      })
+    ),
   })
   assert.equal(response.status, 200)
 
@@ -917,7 +943,7 @@ test('runtime emits structured bootstrap failure logs', async t => {
   const worldRoot = await createTempDir('hyperfy-bootstrap-failed-')
   const blockedWorldPath = path.join(worldRoot, 'blocked-world')
   await fsPromises.writeFile(blockedWorldPath, 'blocked')
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await fsPromises.rm(worldRoot, { recursive: true, force: true }).catch(() => {})
   })
 
@@ -930,7 +956,7 @@ test('runtime emits structured bootstrap failure logs', async t => {
       WORLD: blockedWorldPath,
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop().catch(() => {})
   })
 
@@ -974,7 +1000,7 @@ test('runtime restart returns to standby and accepts re-bootstrap', async t => {
   const jwtSecret = 'restart-bootstrap-secret'
   const worldId = `world-${runtimeInstanceId}`
 
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await fsPromises.rm(worldDir, { recursive: true, force: true }).catch(() => {})
   })
 
@@ -985,7 +1011,7 @@ test('runtime restart returns to standby and accepts re-bootstrap', async t => {
       WORLD: worldDir,
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await firstServer.stop().catch(() => {})
   })
 
@@ -1015,7 +1041,7 @@ test('runtime restart returns to standby and accepts re-bootstrap', async t => {
       WORLD: worldDir,
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await restartedServer.stop().catch(() => {})
   })
 

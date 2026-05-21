@@ -1,7 +1,7 @@
 {
   "name": "@gamedev/cli",
-  "private": true,
   "version": "0.3.3",
+  "private": true,
   "type": "module",
   "dependencies": {
     "@gamedev/app-server": "workspace:*"

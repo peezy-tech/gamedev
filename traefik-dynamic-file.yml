@@ -13,7 +13,7 @@ http:
     http-0-game-server:
       entryPoints:
         - http
-      rule: "Host(`ten.peezy.tech`) && PathPrefix(`/`)"
+      rule: 'Host(`ten.peezy.tech`) && PathPrefix(`/`)'
       middlewares:
         - redirect-to-https
       service: http-0-game-server
@@ -22,7 +22,7 @@ http:
     https-0-game-server:
       entryPoints:
         - https
-      rule: "Host(`ten.peezy.tech`) && PathPrefix(`/`)"
+      rule: 'Host(`ten.peezy.tech`) && PathPrefix(`/`)'
       middlewares:
         - gzip
       service: https-0-game-server
@@ -34,9 +34,9 @@ http:
     http-0-game-server:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:3000"
+          - url: 'http://host.docker.internal:3000'
 
     https-0-game-server:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:3000"
+          - url: 'http://host.docker.internal:3000'

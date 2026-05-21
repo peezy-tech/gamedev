@@ -31,12 +31,7 @@ function parseUserRank(value) {
   return Number.isFinite(rank) ? rank : Ranks.VISITOR
 }
 
-function buildCapabilities(
-  rank,
-  {
-    openAdminAccess = allowsOpenAdminAccess(process.env),
-  } = {}
-) {
+function buildCapabilities(rank, { openAdminAccess = allowsOpenAdminAccess(process.env) } = {}) {
   if (openAdminAccess) {
     return {
       builder: true,
@@ -211,10 +206,7 @@ export async function resolveCliAuthStatus({
   }
 }
 
-export async function createStandaloneGuestSession({
-  db,
-  worldId,
-} = {}) {
+export async function createStandaloneGuestSession({ db, worldId } = {}) {
   if (!db) {
     throw new Error('db_unavailable')
   }
@@ -242,12 +234,7 @@ export async function createStandaloneGuestSession({
   }
 }
 
-export function buildCliAuthPage({
-  sessionId,
-  worldId,
-  requiredCapability = 'builder',
-  publicAuthUrl = null,
-} = {}) {
+export function buildCliAuthPage({ sessionId, worldId, requiredCapability = 'builder', publicAuthUrl = null } = {}) {
   const config = JSON.stringify({
     sessionId: normalizeString(sessionId),
     worldId: normalizeString(worldId),

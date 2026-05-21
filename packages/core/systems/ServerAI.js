@@ -127,11 +127,7 @@ function buildCreateSystemPrompt({ entryPath, scriptFormat }) {
 }
 
 function buildCreateUserPrompt({ prompt, attachmentMap, entryPath, scriptFormat }) {
-  const parts = [
-    `Entry path: ${entryPath}`,
-    `Script format: ${scriptFormat}`,
-    `Request: ${prompt}`,
-  ]
+  const parts = [`Entry path: ${entryPath}`, `Script format: ${scriptFormat}`, `Request: ${prompt}`]
   if (attachmentMap && Object.keys(attachmentMap).length) {
     parts.push('Attached files (full text):')
     parts.push(JSON.stringify(attachmentMap, null, 2))

@@ -130,12 +130,12 @@ export class ClientLoader extends System {
     const remoteUrl = this.world.resolveURL(url)
     const file = this.files.get(remoteUrl) ?? this.files.get(url)
     if (!file) return null
-    if(this.files.has(url) && this.files.has(remoteUrl)) this.files.delete(url) // delete `file://` entry
-    return name ? 
-      new File([file], name, {
-        type: file.type, // Preserve the MIME type
-        lastModified: file.lastModified, // Preserve the last modified timestamp
-      }) 
+    if (this.files.has(url) && this.files.has(remoteUrl)) this.files.delete(url) // delete `file://` entry
+    return name
+      ? new File([file], name, {
+          type: file.type, // Preserve the MIME type
+          lastModified: file.lastModified, // Preserve the last modified timestamp
+        })
       : file
   }
 

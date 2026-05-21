@@ -2,7 +2,7 @@ import 'ses'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { World } from '@gamedev/core/World.js'
 import { ServerLoader } from '@gamedev/core/systems/ServerLoader.js'
 import { createTempDir, getRepoRoot, waitFor } from './helpers.js'
@@ -25,11 +25,7 @@ test('app executes module scripts via scriptRef', async () => {
     ].join('\n'),
     'utf8'
   )
-  await fs.writeFile(
-    path.join(assetsDir, 'helpers', 'math.js'),
-    'export const add = (a, b) => a + b',
-    'utf8'
-  )
+  await fs.writeFile(path.join(assetsDir, 'helpers', 'math.js'), 'export const add = (a, b) => a + b', 'utf8')
 
   const world = new World()
   world.register('loader', ServerLoader)

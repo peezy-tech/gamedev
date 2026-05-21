@@ -210,17 +210,19 @@ export function parseRuntimeBootstrapPayload(payload = null, { runtimeInstanceId
   const shutdownIdleSeconds = parseNonNegativeInteger(payload?.world?.shutdownIdleSeconds)
   const runtimeWsUrl = runtimeWsUrlRaw || (runtimeApiUrl ? derivePublicWsUrlFromApiUrl(runtimeApiUrl) || null : null)
   const runtimeAdminUrl =
-    runtimeAdminUrlRaw
-    || derivePublicAdminUrl({
+    runtimeAdminUrlRaw ||
+    derivePublicAdminUrl({
       publicApiUrl: runtimeApiUrl,
       publicWsUrl: runtimeWsUrl,
     })
 
   return {
-    bootstrapId: normalizeString(payload?.bootstrapId) || buildRuntimeBootstrapId({
-      worldId,
-      runtimeInstanceId: resolvedRuntimeInstanceId,
-    }),
+    bootstrapId:
+      normalizeString(payload?.bootstrapId) ||
+      buildRuntimeBootstrapId({
+        worldId,
+        runtimeInstanceId: resolvedRuntimeInstanceId,
+      }),
     world: {
       id: worldId || null,
       slug: worldSlug || null,

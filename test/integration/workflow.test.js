@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'fs'
 import path from 'path'
-import { test } from 'node:test'
+import { describe, test } from 'vite-plus/test'
 import { DirectAppServer } from '@gamedev/app-server/direct.js'
 import { runAppCommand } from '@gamedev/app-server/commands.js'
 import {
@@ -50,8 +50,8 @@ function buildEntityPayload({ id, blueprint }) {
   }
 }
 
-test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, async t => {
-  await t.test('A2 instance props round-trip via app-server', async () => {
+describe('workflow vnext integrations (server/app-server)', () => {
+  test('A2 instance props round-trip via app-server', async () => {
     await withWorldServer(async world => {
       const rootDir = await createTempDir('hyperfy-project-')
       const savedEnv = {
@@ -118,14 +118,17 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
         fs.writeFileSync(worldPath, JSON.stringify(manifest, null, 2))
         await appServer._onWorldFileChanged()
 
-        await waitFor(async () => {
-          const { res, data } = await fetchJson(`${world.worldUrl}/admin/snapshot`, {
-            adminCode: world.adminCode,
-          })
-          if (!res.ok) return false
-          const entity = data.entities?.find(item => item.id === entityId)
-          return entity?.props?.text === 'from-file'
-        }, { timeoutMs: 6000 })
+        await waitFor(
+          async () => {
+            const { res, data } = await fetchJson(`${world.worldUrl}/admin/snapshot`, {
+              adminCode: world.adminCode,
+            })
+            if (!res.ok) return false
+            const entity = data.entities?.find(item => item.id === entityId)
+            return entity?.props?.text === 'from-file'
+          },
+          { timeoutMs: 6000 }
+        )
 
         admin.close()
       } finally {
@@ -136,7 +139,7 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
     })
   })
 
-  await t.test('B1 admin code gates deploy endpoints', async () => {
+  test('B1 admin code gates deploy endpoints', async () => {
     await withWorldServer(async world => {
       const noAuth = await fetchJson(`${world.worldUrl}/admin/deploy-lock`, {
         method: 'POST',
@@ -160,7 +163,7 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
     })
   })
 
-  await t.test('C1 admin subscriptions gate player streams', async () => {
+  test('C1 admin subscriptions gate player streams', async () => {
     await withWorldServer(async world => {
       const adminQuiet = new AdminWsClient({
         worldUrl: world.worldUrl,
@@ -191,7 +194,7 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
     })
   })
 
-  await t.test('D1 targets config resolves without env', async () => {
+  test('D1 targets config resolves without env', async () => {
     await withWorldServer(async world => {
       const rootDir = await createTempDir('hyperfy-targets-')
       const targetDir = path.join(rootDir, '.lobby')
@@ -242,7 +245,7 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
     })
   })
 
-  await t.test('D2 deploy locks enforce script changes', async () => {
+  test('D2 deploy locks enforce script changes', async () => {
     await withWorldServer(async world => {
       const admin = new AdminWsClient({
         worldUrl: world.worldUrl,
@@ -324,7 +327,7 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
     })
   })
 
-  await t.test('D3 deploy snapshots allow rollback', async () => {
+  test('D3 deploy snapshots allow rollback', async () => {
     await withWorldServer(async world => {
       const admin = new AdminWsClient({
         worldUrl: world.worldUrl,
@@ -383,7 +386,7 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
     })
   })
 
-  await t.test('D4 dry-run does not mutate the world', async () => {
+  test('D4 dry-run does not mutate the world', async () => {
     await withWorldServer(async world => {
       const savedEnv = {
         WORLD_ID: process.env.WORLD_ID,
@@ -397,10 +400,7 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
       fs.mkdirSync(appDir, { recursive: true })
 
       fs.writeFileSync(path.join(appDir, 'index.js'), `export const foo = "bar";\n`)
-      fs.writeFileSync(
-        path.join(appDir, 'main.json'),
-        JSON.stringify({ props: { text: 'hello' } }, null, 2)
-      )
+      fs.writeFileSync(path.join(appDir, 'main.json'), JSON.stringify({ props: { text: 'hello' } }, null, 2))
 
       const server = new DirectAppServer({
         worldUrl: world.worldUrl,
@@ -416,7 +416,6 @@ test('workflow vnext integrations (server/app-server)', { timeout: 120000 }, asy
           headers: { 'X-Admin-Code': world.adminCode },
         })
         assert.equal(res.status, 404)
-
       } finally {
         process.env.WORLD_ID = savedEnv.WORLD_ID
         process.env.WORLD_URL = savedEnv.WORLD_URL

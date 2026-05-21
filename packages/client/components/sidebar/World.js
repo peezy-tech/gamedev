@@ -388,7 +388,9 @@ export function World({ world, hidden }) {
           )}
           {isAdmin && (
             <>
-              {shutdownError && <div className='world-credentials-note error'>{formatShutdownError(shutdownError)}</div>}
+              {shutdownError && (
+                <div className='world-credentials-note error'>{formatShutdownError(shutdownError)}</div>
+              )}
               {world.admin?.requestAgonesShutdown && (
                 <FieldToggle
                   label='Shutdown'

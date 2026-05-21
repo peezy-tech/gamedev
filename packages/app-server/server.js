@@ -38,9 +38,7 @@ export async function main() {
   }
   if (shouldConfirmContinuousSync(target)) {
     const label = target?.name || process.env.HYPERFY_TARGET || 'prod'
-    const ok = await confirmAction(
-      `Start continuous sync for "${label}"? This can overwrite world state. (y/N): `
-    )
+    const ok = await confirmAction(`Start continuous sync for "${label}"? This can overwrite world state. (y/N): `)
     if (!ok) {
       console.log('Sync cancelled')
       process.exit(1)

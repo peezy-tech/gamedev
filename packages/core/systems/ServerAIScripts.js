@@ -98,9 +98,7 @@ function extractJson(text) {
 
 function normalizeAiPatchSet(output) {
   if (!output) return null
-  const files = Array.isArray(output)
-    ? output
-    : output.files || output.changes || output.patches
+  const files = Array.isArray(output) ? output : output.files || output.changes || output.patches
   if (!Array.isArray(files)) return null
   const normalized = []
   for (const entry of files) {
@@ -173,11 +171,7 @@ function buildSystemPrompt({ entryPath, scriptFormat }) {
 }
 
 function buildUserPrompt({ mode, prompt, error, entryPath, scriptFormat, fileMap, attachmentMap }) {
-  const header = [
-    `Entry path: ${entryPath}`,
-    `Script format: ${scriptFormat}`,
-    `Mode: ${mode}`,
-  ]
+  const header = [`Entry path: ${entryPath}`, `Script format: ${scriptFormat}`, `Mode: ${mode}`]
   if (mode === 'fix') {
     header.push(`Error:\n${JSON.stringify(error, null, 2)}`)
   } else {
@@ -654,7 +648,11 @@ export class ServerAIScripts extends System {
   }
 
   async buildScriptUpdate(scriptRoot, files) {
-    if (!scriptRoot?.scriptFiles || typeof scriptRoot.scriptFiles !== 'object' || Array.isArray(scriptRoot.scriptFiles)) {
+    if (
+      !scriptRoot?.scriptFiles ||
+      typeof scriptRoot.scriptFiles !== 'object' ||
+      Array.isArray(scriptRoot.scriptFiles)
+    ) {
       const err = new Error('ai_apply_failed')
       err.code = 'ai_apply_failed'
       throw err
@@ -679,7 +677,11 @@ export class ServerAIScripts extends System {
       nextScriptFiles[scriptPath] = assetUrl
     }
     const entryPath = scriptRoot.scriptEntry
-    if (!entryPath || !isValidScriptPath(entryPath) || !Object.prototype.hasOwnProperty.call(nextScriptFiles, entryPath)) {
+    if (
+      !entryPath ||
+      !isValidScriptPath(entryPath) ||
+      !Object.prototype.hasOwnProperty.call(nextScriptFiles, entryPath)
+    ) {
       const err = new Error('ai_apply_failed')
       err.code = 'ai_apply_failed'
       throw err
@@ -715,9 +717,7 @@ export class ServerAIScripts extends System {
     const nextBlueprint = getNextBlueprintVariant(this.world, sourceBlueprint)
     const sourceScope = normalizeScope(sourceBlueprint.scope) || normalizeScope(scriptRoot?.scope)
     const baseProps =
-      sourceBlueprint.props &&
-      typeof sourceBlueprint.props === 'object' &&
-      !Array.isArray(sourceBlueprint.props)
+      sourceBlueprint.props && typeof sourceBlueprint.props === 'object' && !Array.isArray(sourceBlueprint.props)
         ? sourceBlueprint.props
         : {}
     const blueprint = {

@@ -1,13 +1,6 @@
 import { cls } from '../cls.js'
 
-export function ScriptCodePanel({
-  moduleRoot,
-  handle,
-  aiLocked,
-  showChrome,
-  forceCollapsed,
-  children,
-}) {
+export function ScriptCodePanel({ moduleRoot, handle, aiLocked, showChrome, forceCollapsed, children }) {
   return (
     <>
       {showChrome && (

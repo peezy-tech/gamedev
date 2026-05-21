@@ -10,17 +10,102 @@ export const State = {
 
 // 11 body segments, each maps a VRM bone name to a physics collider
 const BODY_SEGMENTS = [
-  { name: 'hips',          bone: 'hips',          shape: 'box',    dimensions: { width: 0.28, height: 0.2, depth: 0.2 },  mass: 12, offset: { x: 0, y: 0.1, z: 0 } },
-  { name: 'chest',         bone: 'chest',         shape: 'box',    dimensions: { width: 0.3, height: 0.25, depth: 0.2 },  mass: 15, offset: { x: 0, y: 0.125, z: 0 } },
-  { name: 'head',          bone: 'head',          shape: 'sphere', dimensions: { radius: 0.12 },                         mass: 4,  offset: { x: 0, y: 0.1, z: 0 } },
-  { name: 'leftUpperArm',  bone: 'leftUpperArm',  childBone: 'leftLowerArm',  shape: 'box',    dimensions: { width: 0.1, height: 0.32, depth: 0.1 },  mass: 3,  offset: { x: 0, y: -0.16, z: 0 } },
-  { name: 'leftLowerArm',  bone: 'leftLowerArm',  childBone: 'leftHand',      shape: 'box',    dimensions: { width: 0.08, height: 0.28, depth: 0.08 }, mass: 2,  offset: { x: 0, y: -0.14, z: 0 } },
-  { name: 'rightUpperArm', bone: 'rightUpperArm', childBone: 'rightLowerArm', shape: 'box',    dimensions: { width: 0.1, height: 0.32, depth: 0.1 },  mass: 3,  offset: { x: 0, y: -0.16, z: 0 } },
-  { name: 'rightLowerArm', bone: 'rightLowerArm', childBone: 'rightHand',     shape: 'box',    dimensions: { width: 0.08, height: 0.28, depth: 0.08 }, mass: 2,  offset: { x: 0, y: -0.14, z: 0 } },
-  { name: 'leftUpperLeg',  bone: 'leftUpperLeg',  childBone: 'leftLowerLeg',  shape: 'box',    dimensions: { width: 0.12, height: 0.4, depth: 0.12 },  mass: 7,  offset: { x: 0, y: -0.2, z: 0 } },
-  { name: 'leftLowerLeg',  bone: 'leftLowerLeg',  childBone: 'leftFoot',      shape: 'box',    dimensions: { width: 0.1, height: 0.38, depth: 0.1 },  mass: 5,  offset: { x: 0, y: -0.19, z: 0 } },
-  { name: 'rightUpperLeg', bone: 'rightUpperLeg', childBone: 'rightLowerLeg', shape: 'box',    dimensions: { width: 0.12, height: 0.4, depth: 0.12 },  mass: 7,  offset: { x: 0, y: -0.2, z: 0 } },
-  { name: 'rightLowerLeg', bone: 'rightLowerLeg', childBone: 'rightFoot',     shape: 'box',    dimensions: { width: 0.1, height: 0.38, depth: 0.1 },  mass: 5,  offset: { x: 0, y: -0.19, z: 0 } },
+  {
+    name: 'hips',
+    bone: 'hips',
+    shape: 'box',
+    dimensions: { width: 0.28, height: 0.2, depth: 0.2 },
+    mass: 12,
+    offset: { x: 0, y: 0.1, z: 0 },
+  },
+  {
+    name: 'chest',
+    bone: 'chest',
+    shape: 'box',
+    dimensions: { width: 0.3, height: 0.25, depth: 0.2 },
+    mass: 15,
+    offset: { x: 0, y: 0.125, z: 0 },
+  },
+  {
+    name: 'head',
+    bone: 'head',
+    shape: 'sphere',
+    dimensions: { radius: 0.12 },
+    mass: 4,
+    offset: { x: 0, y: 0.1, z: 0 },
+  },
+  {
+    name: 'leftUpperArm',
+    bone: 'leftUpperArm',
+    childBone: 'leftLowerArm',
+    shape: 'box',
+    dimensions: { width: 0.1, height: 0.32, depth: 0.1 },
+    mass: 3,
+    offset: { x: 0, y: -0.16, z: 0 },
+  },
+  {
+    name: 'leftLowerArm',
+    bone: 'leftLowerArm',
+    childBone: 'leftHand',
+    shape: 'box',
+    dimensions: { width: 0.08, height: 0.28, depth: 0.08 },
+    mass: 2,
+    offset: { x: 0, y: -0.14, z: 0 },
+  },
+  {
+    name: 'rightUpperArm',
+    bone: 'rightUpperArm',
+    childBone: 'rightLowerArm',
+    shape: 'box',
+    dimensions: { width: 0.1, height: 0.32, depth: 0.1 },
+    mass: 3,
+    offset: { x: 0, y: -0.16, z: 0 },
+  },
+  {
+    name: 'rightLowerArm',
+    bone: 'rightLowerArm',
+    childBone: 'rightHand',
+    shape: 'box',
+    dimensions: { width: 0.08, height: 0.28, depth: 0.08 },
+    mass: 2,
+    offset: { x: 0, y: -0.14, z: 0 },
+  },
+  {
+    name: 'leftUpperLeg',
+    bone: 'leftUpperLeg',
+    childBone: 'leftLowerLeg',
+    shape: 'box',
+    dimensions: { width: 0.12, height: 0.4, depth: 0.12 },
+    mass: 7,
+    offset: { x: 0, y: -0.2, z: 0 },
+  },
+  {
+    name: 'leftLowerLeg',
+    bone: 'leftLowerLeg',
+    childBone: 'leftFoot',
+    shape: 'box',
+    dimensions: { width: 0.1, height: 0.38, depth: 0.1 },
+    mass: 5,
+    offset: { x: 0, y: -0.19, z: 0 },
+  },
+  {
+    name: 'rightUpperLeg',
+    bone: 'rightUpperLeg',
+    childBone: 'rightLowerLeg',
+    shape: 'box',
+    dimensions: { width: 0.12, height: 0.4, depth: 0.12 },
+    mass: 7,
+    offset: { x: 0, y: -0.2, z: 0 },
+  },
+  {
+    name: 'rightLowerLeg',
+    bone: 'rightLowerLeg',
+    childBone: 'rightFoot',
+    shape: 'box',
+    dimensions: { width: 0.1, height: 0.38, depth: 0.1 },
+    mass: 5,
+    offset: { x: 0, y: -0.19, z: 0 },
+  },
 ]
 
 // 10 joints connecting body segments — all use PxD6Joint
@@ -29,31 +114,123 @@ const BODY_SEGMENTS = [
 // 'drive' = active ragdoll D6 joint drive config { stiffness, damping, forceLimit, group }
 const JOINT_DEFINITIONS = [
   // spine
-  { parent: 'hips', child: 'chest', type: 'socket', limitY: 20, limitZ: 20, twistMin: -15, twistMax: 15, stiffness: 100, damping: 10,
-    drive: { stiffness: 800, damping: 80, forceLimit: 1000, group: 'core' } },
+  {
+    parent: 'hips',
+    child: 'chest',
+    type: 'socket',
+    limitY: 20,
+    limitZ: 20,
+    twistMin: -15,
+    twistMax: 15,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 800, damping: 80, forceLimit: 1000, group: 'core' },
+  },
   // neck
-  { parent: 'chest', child: 'head', type: 'socket', limitY: 20, limitZ: 25, twistMin: -20, twistMax: 20, stiffness: 100, damping: 10,
-    drive: { stiffness: 1200, damping: 120, forceLimit: 1500, group: 'neck' } },
+  {
+    parent: 'chest',
+    child: 'head',
+    type: 'socket',
+    limitY: 20,
+    limitZ: 25,
+    twistMin: -20,
+    twistMax: 20,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 1200, damping: 120, forceLimit: 1500, group: 'neck' },
+  },
   // left arm
-  { parent: 'chest', child: 'leftUpperArm', type: 'socket', limitY: 55, limitZ: 55, twistMin: -15, twistMax: 15, stiffness: 100, damping: 10,
-    drive: { stiffness: 350, damping: 35, forceLimit: 500, group: 'arm' } },
-  { parent: 'leftUpperArm', child: 'leftLowerArm', type: 'hinge', limitMin: -5, limitMax: 130, stiffness: 250, damping: 25,
-    drive: { stiffness: 400, damping: 40, forceLimit: 600, group: 'arm' } },
+  {
+    parent: 'chest',
+    child: 'leftUpperArm',
+    type: 'socket',
+    limitY: 55,
+    limitZ: 55,
+    twistMin: -15,
+    twistMax: 15,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 350, damping: 35, forceLimit: 500, group: 'arm' },
+  },
+  {
+    parent: 'leftUpperArm',
+    child: 'leftLowerArm',
+    type: 'hinge',
+    limitMin: -5,
+    limitMax: 130,
+    stiffness: 250,
+    damping: 25,
+    drive: { stiffness: 400, damping: 40, forceLimit: 600, group: 'arm' },
+  },
   // right arm
-  { parent: 'chest', child: 'rightUpperArm', type: 'socket', limitY: 55, limitZ: 55, twistMin: -15, twistMax: 15, stiffness: 100, damping: 10,
-    drive: { stiffness: 350, damping: 35, forceLimit: 500, group: 'arm' } },
-  { parent: 'rightUpperArm', child: 'rightLowerArm', type: 'hinge', limitMin: -5, limitMax: 130, stiffness: 250, damping: 25,
-    drive: { stiffness: 400, damping: 40, forceLimit: 600, group: 'arm' } },
+  {
+    parent: 'chest',
+    child: 'rightUpperArm',
+    type: 'socket',
+    limitY: 55,
+    limitZ: 55,
+    twistMin: -15,
+    twistMax: 15,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 350, damping: 35, forceLimit: 500, group: 'arm' },
+  },
+  {
+    parent: 'rightUpperArm',
+    child: 'rightLowerArm',
+    type: 'hinge',
+    limitMin: -5,
+    limitMax: 130,
+    stiffness: 250,
+    damping: 25,
+    drive: { stiffness: 400, damping: 40, forceLimit: 600, group: 'arm' },
+  },
   // left leg
-  { parent: 'hips', child: 'leftUpperLeg', type: 'socket', limitY: 45, limitZ: 45, twistMin: -15, twistMax: 15, stiffness: 100, damping: 10,
-    drive: { stiffness: 800, damping: 80, forceLimit: 1000, group: 'leg' } },
-  { parent: 'leftUpperLeg', child: 'leftLowerLeg', type: 'hinge', limitMin: -5, limitMax: 130, stiffness: 100, damping: 10,
-    drive: { stiffness: 650, damping: 65, forceLimit: 850, group: 'leg' } },
+  {
+    parent: 'hips',
+    child: 'leftUpperLeg',
+    type: 'socket',
+    limitY: 45,
+    limitZ: 45,
+    twistMin: -15,
+    twistMax: 15,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 800, damping: 80, forceLimit: 1000, group: 'leg' },
+  },
+  {
+    parent: 'leftUpperLeg',
+    child: 'leftLowerLeg',
+    type: 'hinge',
+    limitMin: -5,
+    limitMax: 130,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 650, damping: 65, forceLimit: 850, group: 'leg' },
+  },
   // right leg
-  { parent: 'hips', child: 'rightUpperLeg', type: 'socket', limitY: 45, limitZ: 45, twistMin: -15, twistMax: 15, stiffness: 100, damping: 10,
-    drive: { stiffness: 800, damping: 80, forceLimit: 1000, group: 'leg' } },
-  { parent: 'rightUpperLeg', child: 'rightLowerLeg', type: 'hinge', limitMin: -5, limitMax: 130, stiffness: 100, damping: 10,
-    drive: { stiffness: 650, damping: 65, forceLimit: 850, group: 'leg' } },
+  {
+    parent: 'hips',
+    child: 'rightUpperLeg',
+    type: 'socket',
+    limitY: 45,
+    limitZ: 45,
+    twistMin: -15,
+    twistMax: 15,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 800, damping: 80, forceLimit: 1000, group: 'leg' },
+  },
+  {
+    parent: 'rightUpperLeg',
+    child: 'rightLowerLeg',
+    type: 'hinge',
+    limitMin: -5,
+    limitMax: 130,
+    stiffness: 100,
+    damping: 10,
+    drive: { stiffness: 650, damping: 65, forceLimit: 850, group: 'leg' },
+  },
 ]
 
 const DEFAULTS = {
@@ -131,7 +308,9 @@ export class Ragdoll {
     const filterData = new PHYSX.PxFilterData(
       Layers.prop.group,
       Layers.prop.mask,
-      PHYSX.PxPairFlagEnum.eSOLVE_CONTACT | PHYSX.PxPairFlagEnum.eDETECT_DISCRETE_CONTACT | PHYSX.PxPairFlagEnum.eDETECT_CCD_CONTACT,
+      PHYSX.PxPairFlagEnum.eSOLVE_CONTACT |
+        PHYSX.PxPairFlagEnum.eDETECT_DISCRETE_CONTACT |
+        PHYSX.PxPairFlagEnum.eDETECT_CCD_CONTACT,
       0
     )
 
@@ -155,9 +334,7 @@ export class Ragdoll {
           if (_v4.lengthSq() > 0.0001) {
             _v4.normalize()
             _v4.applyQuaternion(_q2.copy(_q1).invert())
-            correctionLocal = new THREE.Quaternion().setFromUnitVectors(
-              new THREE.Vector3(0, 1, 0), _v4
-            )
+            correctionLocal = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), _v4)
             _q1.multiply(correctionLocal)
           }
         }
@@ -233,9 +410,7 @@ export class Ragdoll {
     if (point) {
       const pxForce = force.toPxVec3(this._pv1)
       const pxPos = point.toPxVec3(this._pv2)
-      PHYSX.PxRigidBodyExt.prototype.addForceAtPos(
-        body.actor, pxForce, pxPos, PHYSX.PxForceModeEnum.eIMPULSE
-      )
+      PHYSX.PxRigidBodyExt.prototype.addForceAtPos(body.actor, pxForce, pxPos, PHYSX.PxForceModeEnum.eIMPULSE)
     } else {
       body.actor.addForce(force.toPxVec3(this._pv1), PHYSX.PxForceModeEnum.eIMPULSE, true)
     }
@@ -258,11 +433,15 @@ export class Ragdoll {
       _m1.decompose(_v1, _q1, _v3)
 
       const parentPose = parentBody.actor.getGlobalPose()
-      const ppx = parentPose.p.x, ppy = parentPose.p.y, ppz = parentPose.p.z
+      const ppx = parentPose.p.x,
+        ppy = parentPose.p.y,
+        ppz = parentPose.p.z
       const parentQuat = _q2.set(parentPose.q.x, parentPose.q.y, parentPose.q.z, parentPose.q.w)
 
       const childPose = childBody.actor.getGlobalPose()
-      const cpx = childPose.p.x, cpy = childPose.p.y, cpz = childPose.p.z
+      const cpx = childPose.p.x,
+        cpy = childPose.p.y,
+        cpz = childPose.p.z
       const childQuat = _q3.set(childPose.q.x, childPose.q.y, childPose.q.z, childPose.q.w)
 
       const frame0 = new PHYSX.PxTransform(PHYSX.PxIDENTITYEnum.PxIdentity)
@@ -311,10 +490,14 @@ export class Ragdoll {
         }
       } else if (def.type === 'hinge') {
         _v2.set(0, 1, 0).applyQuaternion(parentQuat)
-        const pYx = _v2.x, pYy = _v2.y, pYz = _v2.z
+        const pYx = _v2.x,
+          pYy = _v2.y,
+          pYz = _v2.z
 
         _v4.set(0, 1, 0).applyQuaternion(childQuat)
-        const cYx = _v4.x, cYy = _v4.y, cYz = _v4.z
+        const cYx = _v4.x,
+          cYy = _v4.y,
+          cYz = _v4.z
 
         let bx = pYy * cYz - pYz * cYy
         let by = pYz * cYx - pYx * cYz
@@ -323,24 +506,30 @@ export class Ragdoll {
 
         if (bLen < 0.01) {
           _v2.set(0, 0, 1).applyQuaternion(parentQuat)
-          bx = _v2.x; by = _v2.y; bz = _v2.z
+          bx = _v2.x
+          by = _v2.y
+          bz = _v2.z
           bLen = Math.sqrt(bx * bx + by * by + bz * bz)
         }
 
-        bx /= bLen; by /= bLen; bz /= bLen
+        bx /= bLen
+        by /= bLen
+        bz /= bLen
 
         const bendWorldVec = new THREE.Vector3(bx, by, bz)
         const invParentQuat = parentQuat.clone().invert()
         const bendInParent = bendWorldVec.clone().applyQuaternion(invParentQuat)
         const parentFrameQuat = new THREE.Quaternion().setFromUnitVectors(
-          new THREE.Vector3(1, 0, 0), bendInParent.normalize()
+          new THREE.Vector3(1, 0, 0),
+          bendInParent.normalize()
         )
         parentFrameQuat.toPxTransform(frame0)
 
         const invChildQuat = childQuat.clone().invert()
         const bendInChild = bendWorldVec.clone().applyQuaternion(invChildQuat)
         const childFrameQuat = new THREE.Quaternion().setFromUnitVectors(
-          new THREE.Vector3(1, 0, 0), bendInChild.normalize()
+          new THREE.Vector3(1, 0, 0),
+          bendInChild.normalize()
         )
         childFrameQuat.toPxTransform(frame1)
 
@@ -420,7 +609,9 @@ export class Ragdoll {
       ? new PHYSX.PxFilterData(
           Layers.prop.group,
           Layers.prop.mask,
-          PHYSX.PxPairFlagEnum.eSOLVE_CONTACT | PHYSX.PxPairFlagEnum.eDETECT_DISCRETE_CONTACT | PHYSX.PxPairFlagEnum.eDETECT_CCD_CONTACT,
+          PHYSX.PxPairFlagEnum.eSOLVE_CONTACT |
+            PHYSX.PxPairFlagEnum.eDETECT_DISCRETE_CONTACT |
+            PHYSX.PxPairFlagEnum.eDETECT_CCD_CONTACT,
           0
         )
       : new PHYSX.PxFilterData(0, 0, 0, 0)
@@ -520,9 +711,7 @@ export class Ragdoll {
 
       const drive = new PHYSX.PxD6JointDrive(stiffness, damping, def.drive.forceLimit, true)
 
-      const driveEnum = def.type === 'hinge'
-        ? PHYSX.PxD6DriveEnum.eTWIST
-        : PHYSX.PxD6DriveEnum.eSLERP
+      const driveEnum = def.type === 'hinge' ? PHYSX.PxD6DriveEnum.eTWIST : PHYSX.PxD6DriveEnum.eSLERP
       joint.setDrive(driveEnum, drive)
 
       // set drive target
@@ -558,8 +747,15 @@ export class Ragdoll {
 
     this.activeTimer += delta
 
-    const { muscleFadeDelay, flailForceMin, flailForceMax, flailInterval,
-            flailDecayRate, neckStiffnessMultiplier, coreStiffnessMultiplier } = DEFAULTS
+    const {
+      muscleFadeDelay,
+      flailForceMin,
+      flailForceMax,
+      flailInterval,
+      flailDecayRate,
+      neckStiffnessMultiplier,
+      coreStiffnessMultiplier,
+    } = DEFAULTS
 
     // Phase 1: Muscle fade — exponential decay of stiffness over time
     if (this.activeTimer > muscleFadeDelay) {
@@ -603,11 +799,7 @@ export class Ragdoll {
           const body = this.bodies.get(name)
           if (!body) continue
           const force = (flailForceMin + Math.random() * (flailForceMax - flailForceMin)) * decayFactor * scale
-          _v1.set(
-            (Math.random() - 0.5) * force,
-            (Math.random() - 0.3) * force * 0.6,
-            (Math.random() - 0.5) * force,
-          )
+          _v1.set((Math.random() - 0.5) * force, (Math.random() - 0.3) * force * 0.6, (Math.random() - 0.5) * force)
           body.actor.addTorque(_v1.toPxVec3(), PHYSX.PxForceModeEnum.eIMPULSE, true)
         }
 
@@ -618,7 +810,7 @@ export class Ragdoll {
             _v1.set(
               (Math.random() - 0.5) * headForce,
               (Math.random() - 0.5) * headForce * 0.3,
-              (Math.random() - 0.5) * headForce,
+              (Math.random() - 0.5) * headForce
             )
             headBody.actor.addTorque(_v1.toPxVec3(), PHYSX.PxForceModeEnum.eIMPULSE, true)
           }

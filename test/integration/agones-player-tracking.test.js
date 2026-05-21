@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import EventEmitter from 'node:events'
 import { setImmediate as setImmediatePromise } from 'node:timers/promises'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 
-import {
-  createAgonesPlayerTracker,
-  resolveEffectivePlayerCapacity,
-} from '@gamedev/server/agonesPlayerTracking.js'
+import { createAgonesPlayerTracker, resolveEffectivePlayerCapacity } from '@gamedev/server/agonesPlayerTracking.js'
 
 function createLogger() {
   const messages = {
@@ -126,7 +123,10 @@ test('createAgonesPlayerTracker publishes startup capacity and playerLimit updat
 
   await tracker.publishCapacity('startup')
 
-  assert.deepEqual(capacities, [['players', '40'], ['players', '18']])
+  assert.deepEqual(capacities, [
+    ['players', '40'],
+    ['players', '18'],
+  ])
   assert.deepEqual(messages.warn, [])
   assert.deepEqual(messages.info, [
     '[agones] updated player capacity to 40 (startup)',

@@ -2,11 +2,7 @@ import { spawn } from 'child_process'
 
 import { joinUrl, normalizeWorldAdminBaseUrl } from './helpers.js'
 import { debugLog, fetchWithTimeout, readTimeoutMs } from './debug.js'
-import {
-  readProjectAuthEntry,
-  removeProjectAuthEntry,
-  writeProjectAuthEntry,
-} from './projectAuth.js'
+import { readProjectAuthEntry, removeProjectAuthEntry, writeProjectAuthEntry } from './projectAuth.js'
 
 const DEFAULT_CLI_AUTH_REQUEST_TIMEOUT_MS = 15_000
 
@@ -55,14 +51,18 @@ export async function fetchCliAuthStatus({ worldUrl, authToken }) {
   })
   let response
   try {
-    response = await fetchWithTimeout(url, {
-      headers: {
-        authorization: `Bearer ${authToken.trim()}`,
-        accept: 'application/json',
+    response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          authorization: `Bearer ${authToken.trim()}`,
+          accept: 'application/json',
+        },
       },
-    }, {
-      timeoutMs,
-    })
+      {
+        timeoutMs,
+      }
+    )
   } catch (err) {
     if (err?.name === 'AbortError') {
       debugLog('cli-auth', 'status:timeout', {
@@ -87,10 +87,14 @@ export async function fetchCliAuthStatus({ worldUrl, authToken }) {
       status: response.status,
       error: data?.error || null,
     })
-    const error = createError(data?.error || `status_failed:${response.status}`, data?.message || 'Auth status failed', {
-      status: response.status,
-      data,
-    })
+    const error = createError(
+      data?.error || `status_failed:${response.status}`,
+      data?.message || 'Auth status failed',
+      {
+        status: response.status,
+        data,
+      }
+    )
     throw error
   }
   debugLog('cli-auth', 'status:ok', {
@@ -127,12 +131,7 @@ async function launchBrowser(url) {
   return false
 }
 
-export function buildCliAuthUrl({
-  worldUrl,
-  worldId,
-  sessionId,
-  requiredCapability = 'builder',
-} = {}) {
+export function buildCliAuthUrl({ worldUrl, worldId, sessionId, requiredCapability = 'builder' } = {}) {
   const normalizedWorldUrl = normalizeWorldAdminBaseUrl(worldUrl)
   if (!normalizedWorldUrl) {
     throw createError('invalid_world_url', 'Invalid world URL')
@@ -160,19 +159,23 @@ async function createRemoteCliAuthSession({ worldUrl, worldId, requiredCapabilit
   })
   let response
   try {
-    response = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
+    response = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify({
+          worldId,
+          requiredCapability: normalizeCapability(requiredCapability),
+        }),
       },
-      body: JSON.stringify({
-        worldId,
-        requiredCapability: normalizeCapability(requiredCapability),
-      }),
-    }, {
-      timeoutMs,
-    })
+      {
+        timeoutMs,
+      }
+    )
   } catch (err) {
     if (err?.name === 'AbortError') {
       debugLog('cli-auth', 'session:create_timeout', {
@@ -203,7 +206,7 @@ async function createRemoteCliAuthSession({ worldUrl, worldId, requiredCapabilit
       {
         status: response.status,
         data,
-      },
+      }
     )
   }
   const sessionId = typeof data?.sessionId === 'string' ? data.sessionId.trim() : ''
@@ -238,13 +241,17 @@ async function fetchRemoteCliAuthSession({ worldUrl, sessionId } = {}) {
   })
   let response
   try {
-    response = await fetchWithTimeout(url, {
-      headers: {
-        accept: 'application/json',
+    response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          accept: 'application/json',
+        },
       },
-    }, {
-      timeoutMs,
-    })
+      {
+        timeoutMs,
+      }
+    )
   } catch (err) {
     if (err?.name === 'AbortError') {
       debugLog('cli-auth', 'session:poll_timeout', {
@@ -278,7 +285,7 @@ async function fetchRemoteCliAuthSession({ worldUrl, sessionId } = {}) {
       {
         status: response.status,
         data,
-      },
+      }
     )
   }
   debugLog('cli-auth', 'session:poll_ok', {
@@ -438,7 +445,12 @@ export async function ensureProjectAuth({
         code: code || null,
         error: error?.message || String(error),
       })
-      if (code === 'invalid_token' || code === 'auth_token_missing' || code === 'auth_required' || code === 'status_failed:401') {
+      if (
+        code === 'invalid_token' ||
+        code === 'auth_token_missing' ||
+        code === 'auth_required' ||
+        code === 'status_failed:401'
+      ) {
         removeProjectAuthEntry(rootDir, { worldUrl, worldId })
         debugLog('cli-auth', 'ensure:stored_auth_removed', {
           worldUrl,
@@ -454,7 +466,7 @@ export async function ensureProjectAuth({
   if (!interactive) {
     throw createError(
       'auth_required',
-      `Authentication required for ${worldId || worldUrl}. Run "gamedev auth" in a terminal.`,
+      `Authentication required for ${worldId || worldUrl}. Run "gamedev auth" in a terminal.`
     )
   }
 

@@ -253,7 +253,8 @@ export function AppsList({ world, query, perf, refresh, setRefresh }) {
             </div>
             {perf && (
               <div className='appslist-stats'>
-                {item.count}x · {item.geometries} geo · {formatNumber(item.triangles)} tri · {item.textureSize} tex · {item.fileSize} file{item.code ? ' · code' : ''}
+                {item.count}x · {item.geometries} geo · {formatNumber(item.triangles)} tri · {item.textureSize} tex ·{' '}
+                {item.fileSize} file{item.code ? ' · code' : ''}
               </div>
             )}
           </div>

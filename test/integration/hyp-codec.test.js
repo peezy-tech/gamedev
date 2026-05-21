@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { File } from 'node:buffer'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { exportApp, importApp } from '@gamedev/core/extras/appTools.js'
 import { hashFile } from '@gamedev/core/utils-client.js'
 
@@ -92,10 +92,7 @@ test('exportApp/importApp round-trips .hyp bundles', async () => {
   assert.equal(header.blueprint.scriptRef, undefined)
   assert.equal(header.blueprint.scriptEntry, scriptRoot.scriptEntry)
   assert.equal(header.blueprint.scriptFormat, scriptRoot.scriptFormat)
-  assert.deepEqual(
-    Object.keys(header.blueprint.scriptFiles).sort(),
-    Object.keys(scriptRoot.scriptFiles).sort()
-  )
+  assert.deepEqual(Object.keys(header.blueprint.scriptFiles).sort(), Object.keys(scriptRoot.scriptFiles).sort())
   assert.equal(header.blueprint.scriptFiles['index.js'], scriptUrl)
   assert.equal(header.blueprint.scriptFiles['helpers/math.js'], helperUrl)
 

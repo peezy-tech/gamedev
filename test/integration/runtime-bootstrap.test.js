@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import {
   applyHostedRuntimeBootstrapPayload,
   buildRuntimeBootstrapAuthorization,
@@ -232,7 +232,10 @@ test('verifyRuntimeBootstrapAuthorization uses the runtime instance hmac contrac
 
   assert.equal(token, deriveRuntimeBootstrapAuthToken('lobby-world-abc', 'shared-secret'))
   assert.equal(buildRuntimeBootstrapAuthorization('lobby-world-abc', 'shared-secret'), `Bearer ${token}`)
-  assert.equal(buildRuntimeBootstrapId({ worldId: 'world-1', runtimeInstanceId: 'lobby-world-abc' }), 'world-1:lobby-world-abc')
+  assert.equal(
+    buildRuntimeBootstrapId({ worldId: 'world-1', runtimeInstanceId: 'lobby-world-abc' }),
+    'world-1:lobby-world-abc'
+  )
   assert.equal(verifyRuntimeBootstrapAuthorization(`Bearer ${token}`, env), true)
   assert.equal(verifyRuntimeBootstrapAuthorization('Bearer bad-token', env), false)
 })

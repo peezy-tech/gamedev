@@ -49,10 +49,7 @@ export function createAgonesPlayerTracker({
     typeof agones.updateList === 'function' &&
     typeof agones.addListValue === 'function' &&
     typeof agones.removeListValue === 'function'
-  const canSubscribe =
-    !!world &&
-    typeof world?.settings?.on === 'function' &&
-    typeof world?.network?.on === 'function'
+  const canSubscribe = !!world && typeof world?.settings?.on === 'function' && typeof world?.network?.on === 'function'
   const enabled = canTrackPlayers && canSubscribe
 
   let started = false

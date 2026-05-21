@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import path from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import WebSocket from 'ws'
 import Database from 'better-sqlite3'
 
@@ -146,7 +146,7 @@ test('cli auth guest bootstrap creates a reusable world token that /admin can el
   }
 
   const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -205,7 +205,7 @@ test('standalone open-admin mode accepts guest cli tokens on /admin even before 
   }
 
   const world = await startWorldServer({ adminCode: '' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -249,7 +249,7 @@ test('builder-only cli tokens can acquire deploy locks for script blueprint adds
   }
 
   const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -341,7 +341,7 @@ test('cli auth session flow completes on the world server without a loopback cal
   }
 
   const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -392,13 +392,16 @@ test('cli auth session flow completes on the world server without a loopback cal
   assert.equal(insufficientComplete.res.status, 409)
   assert.equal(insufficientComplete.data?.error, 'capability_required')
 
-  const completed = await fetchJson(`${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`, {
-    method: 'POST',
-    body: {
-      worldUrl: world.worldUrl,
-      authToken: guest.data.token,
-    },
-  })
+  const completed = await fetchJson(
+    `${world.worldUrl}/api/auth/cli/session/${encodeURIComponent(created.data.sessionId)}`,
+    {
+      method: 'POST',
+      body: {
+        worldUrl: world.worldUrl,
+        authToken: guest.data.token,
+      },
+    }
+  )
   assert.equal(completed.res.status, 200)
   assert.equal(completed.data?.ok, true)
   assert.equal(completed.data?.status, 'complete')
@@ -420,7 +423,7 @@ test('cli auth status rejects invalid bearer tokens', async t => {
   }
 
   const world = await startWorldServer({ adminCode: 'secret-code' })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -445,7 +448,7 @@ test('invalid websocket auth tokens fall back to a guest snapshot in lobby ident
       PUBLIC_AUTH_URL: 'https://auth.example.test/identity',
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await world.stop()
   })
 
@@ -472,7 +475,7 @@ test('bootstrapped worlds disable admin-code auth for admin endpoints and in-wor
       RUNTIME_BOOTSTRAP: '1',
     },
   })
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await server.stop()
   })
 

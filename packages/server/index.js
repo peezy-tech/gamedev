@@ -45,15 +45,15 @@ import {
   verifyRuntimeBootstrapAuthorization,
   usesHostedRuntimeBootstrap,
 } from './runtimeBootstrap.js'
-import { buildRuntimeControlAuthorization, createJWT, verifyIdentityExchangeTokenWithLobby } from '@gamedev/core/utils-server.js'
+import {
+  buildRuntimeControlAuthorization,
+  createJWT,
+  verifyIdentityExchangeTokenWithLobby,
+} from '@gamedev/core/utils-server.js'
 import { Ranks } from '@gamedev/core/extras/ranks.js'
 
 function resolveRuntimeRootDir() {
-  const candidates = [
-    path.resolve(__dirname, '..'),
-    path.resolve(__dirname, '../..'),
-    process.cwd(),
-  ]
+  const candidates = [path.resolve(__dirname, '..'), path.resolve(__dirname, '../..'), process.cwd()]
   for (const candidate of candidates) {
     if (!fs.existsSync(path.join(candidate, 'package.json'))) continue
     if (fs.existsSync(path.join(candidate, 'packages')) || fs.existsSync(path.join(candidate, 'build'))) {
@@ -137,23 +137,12 @@ function logRuntimeEvent(level, event, state, extra = {}) {
     event,
     mode: usesHostedRuntimeBootstrap(process.env) ? 'bootstrap' : 'direct',
     state: state?.lifecycle?.state || null,
-    bootstrapId:
-      extra.bootstrapId !== undefined
-        ? extra.bootstrapId || null
-        : state?.lifecycle?.bootstrapId || null,
+    bootstrapId: extra.bootstrapId !== undefined ? extra.bootstrapId || null : state?.lifecycle?.bootstrapId || null,
     runtimeInstanceId: state?.lifecycle?.runtimeInstanceId || null,
     worldId:
-      extra.worldId !== undefined
-        ? extra.worldId || null
-        : state?.lifecycle?.worldId || process.env.WORLD_ID || null,
-    worldSlug:
-      extra.worldSlug !== undefined
-        ? extra.worldSlug || null
-        : state?.lifecycle?.worldSlug || null,
-    source:
-      extra.source !== undefined
-        ? extra.source || null
-        : state?.lifecycle?.source || null,
+      extra.worldId !== undefined ? extra.worldId || null : state?.lifecycle?.worldId || process.env.WORLD_ID || null,
+    worldSlug: extra.worldSlug !== undefined ? extra.worldSlug || null : state?.lifecycle?.worldSlug || null,
+    source: extra.source !== undefined ? extra.source || null : state?.lifecycle?.source || null,
     timestamp: nowIso(),
   }
 
@@ -238,7 +227,9 @@ function getDocsIndex() {
 }
 
 function resolveBoundWorldId() {
-  return runtimeState.resources.world?.network?.worldId || runtimeState.lifecycle.worldId || process.env.WORLD_ID || null
+  return (
+    runtimeState.resources.world?.network?.worldId || runtimeState.lifecycle.worldId || process.env.WORLD_ID || null
+  )
 }
 
 function resolveRuntimeControlAuthorization(worldId = resolveBoundWorldId()) {
@@ -518,7 +509,9 @@ function setRuntimeLifecycleState(state, nextState, extra = {}) {
   if (extra.bootstrapId !== undefined) state.lifecycle.bootstrapId = extra.bootstrapId || null
   if (extra.binding !== undefined) {
     state.lifecycle.binding = extra.binding ? parseRuntimeBootstrapPayload(extra.binding) : null
-    state.lifecycle.bindingKey = state.lifecycle.binding ? serializeRuntimeBootstrapBinding(state.lifecycle.binding) : null
+    state.lifecycle.bindingKey = state.lifecycle.binding
+      ? serializeRuntimeBootstrapBinding(state.lifecycle.binding)
+      : null
   }
   if (extra.worldId !== undefined) state.lifecycle.worldId = extra.worldId || null
   if (extra.worldSlug !== undefined) state.lifecycle.worldSlug = extra.worldSlug || null
@@ -772,9 +765,9 @@ async function initializeRuntime({ source, binding = null } = {}) {
     const { authConfig, worldDir } = finalizeBoundRuntimeEnv(process.env)
     logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_initialize_start', {
       bootstrapId:
-        binding?.bootstrapId
-        || runtimeState.lifecycle.bootstrapId
-        || buildRuntimeBootstrapId({
+        binding?.bootstrapId ||
+        runtimeState.lifecycle.bootstrapId ||
+        buildRuntimeBootstrapId({
           worldId: process.env.WORLD_ID,
           runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
         }),
@@ -784,13 +777,7 @@ async function initializeRuntime({ source, binding = null } = {}) {
     })
 
     stage = 'load_runtime_modules'
-    const [
-      { assets },
-      { cleaner },
-      { getDB },
-      { Storage },
-      { createServerWorld },
-    ] = await Promise.all([
+    const [{ assets }, { cleaner }, { getDB }, { Storage }, { createServerWorld }] = await Promise.all([
       import('./assets.js'),
       import('./cleaner.js'),
       import('./db.js'),
@@ -906,9 +893,9 @@ async function initializeRuntime({ source, binding = null } = {}) {
     })
     logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_initialize_complete', {
       bootstrapId:
-        binding?.bootstrapId
-        || runtimeState.lifecycle.bootstrapId
-        || buildRuntimeBootstrapId({
+        binding?.bootstrapId ||
+        runtimeState.lifecycle.bootstrapId ||
+        buildRuntimeBootstrapId({
           worldId: process.env.WORLD_ID,
           runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
         }),
@@ -922,8 +909,8 @@ async function initializeRuntime({ source, binding = null } = {}) {
 
     setRuntimeLifecycleState(runtimeState, 'ready', {
       bootstrapId:
-        runtimeState.lifecycle.bootstrapId
-        || buildRuntimeBootstrapId({
+        runtimeState.lifecycle.bootstrapId ||
+        buildRuntimeBootstrapId({
           worldId: process.env.WORLD_ID,
           runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
         }),
@@ -939,9 +926,9 @@ async function initializeRuntime({ source, binding = null } = {}) {
     .catch(err => {
       logRuntimeBootstrapDebug(runtimeState, 'bootstrap_runtime_initialize_failed', {
         bootstrapId:
-          binding?.bootstrapId
-          || runtimeState.lifecycle.bootstrapId
-          || buildRuntimeBootstrapId({
+          binding?.bootstrapId ||
+          runtimeState.lifecycle.bootstrapId ||
+          buildRuntimeBootstrapId({
             worldId: process.env.WORLD_ID || runtimeState.lifecycle.worldId,
             runtimeInstanceId: runtimeState.lifecycle.runtimeInstanceId,
           }),
@@ -1048,9 +1035,7 @@ async function handleCliAuthPage(req, reply) {
   const worldId = typeof req.query?.worldId === 'string' ? req.query.worldId.trim() : resolveBoundWorldId() || ''
   const requiredCapability = typeof req.query?.required === 'string' ? req.query.required.trim() : 'builder'
   if (!sessionId) {
-    return reply.code(400).type('text/html').send(
-      '<!doctype html><html><body>Missing session.</body></html>'
-    )
+    return reply.code(400).type('text/html').send('<!doctype html><html><body>Missing session.</body></html>')
   }
   reply.type('text/html').send(
     buildCliAuthPage({
@@ -1255,9 +1240,9 @@ async function handleBootstrapRequest(req, reply) {
 
   const expectedRuntimeInstanceId = resolveRuntimeBootstrapInstanceId(process.env)
   if (
-    binding.runtime.instanceId
-    && expectedRuntimeInstanceId
-    && binding.runtime.instanceId !== expectedRuntimeInstanceId
+    binding.runtime.instanceId &&
+    expectedRuntimeInstanceId &&
+    binding.runtime.instanceId !== expectedRuntimeInstanceId
   ) {
     return reply.code(409).send({
       error: 'runtime_instance_mismatch',
@@ -1362,8 +1347,8 @@ async function handleBootstrapRequest(req, reply) {
   applyEnvSnapshot(candidateEnv)
   setRuntimeLifecycleState(runtimeState, 'bootstrapping', {
     bootstrapId:
-      normalizedBinding.bootstrapId
-      || buildRuntimeBootstrapId({
+      normalizedBinding.bootstrapId ||
+      buildRuntimeBootstrapId({
         worldId: normalizedBinding.world.id,
         runtimeInstanceId: expectedRuntimeInstanceId || normalizedBinding.runtime.instanceId,
       }),
@@ -1513,11 +1498,14 @@ function registerCommonRoutes(app, { includeBootstrapControl = false, connection
     wsHandler: (socket, req) => {
       const connection = resolveWebSocketConnection(socket)
       if (!connection || typeof connection.on !== 'function' || typeof connection.send !== 'function') {
-        req.log.error({
-          received: describeWebSocketConnection(socket),
-          resolved: describeWebSocketConnection(connection),
-          upgrade: req.headers?.upgrade || null,
-        }, 'invalid websocket connection for /ws')
+        req.log.error(
+          {
+            received: describeWebSocketConnection(socket),
+            resolved: describeWebSocketConnection(connection),
+            upgrade: req.headers?.upgrade || null,
+          },
+          'invalid websocket connection for /ws'
+        )
         socket?.close?.(1011, 'invalid_websocket')
         return
       }

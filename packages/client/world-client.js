@@ -40,9 +40,7 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
         }
         if (cancelled) return
         setResolvedWsUrl(finalWsUrl)
-        const derivedHttpUrl = finalWsUrl
-          ? finalWsUrl.replace(/^ws/, 'http').replace(/\/ws.*$/, '')
-          : null
+        const derivedHttpUrl = finalWsUrl ? finalWsUrl.replace(/^ws/, 'http').replace(/\/ws.*$/, '') : null
         setApiBaseUrl(apiUrl || derivedHttpUrl)
         const cleanedAuthUrl = typeof authUrl === 'string' ? authUrl.trim() : authUrl
         setAuthBaseUrl(cleanedAuthUrl)
@@ -95,7 +93,10 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
     const unsubscribe = walletAdapter.subscribe(snapshot => {
       applyWalletBinding(snapshot)
     })
-    void walletAdapter.refresh().then(applyWalletBinding).catch(() => {})
+    void walletAdapter
+      .refresh()
+      .then(applyWalletBinding)
+      .catch(() => {})
 
     return () => {
       unsubscribe?.()
@@ -127,7 +128,15 @@ export function Client({ wsUrl, apiUrl, authUrl, connectionStatus, onSetup }) {
         fogFar: null,
         fogColor: null,
       }
-      const config = { viewport, cssLayer, ui, wsUrl: resolvedWsUrl, baseEnvironment, apiUrl: apiBaseUrl, authUrl: authBaseUrl }
+      const config = {
+        viewport,
+        cssLayer,
+        ui,
+        wsUrl: resolvedWsUrl,
+        baseEnvironment,
+        apiUrl: apiBaseUrl,
+        authUrl: authBaseUrl,
+      }
       onSetup?.(world, config)
       world.init(config)
     }

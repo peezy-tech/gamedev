@@ -26,15 +26,33 @@ function validateLayer(layer) {
   }
   switch (layer.shape) {
     case 'line':
-      return { ...base, length: num(layer.length, 1, 64, 8), gap: num(layer.gap, 0, 32, 0), angle: num(layer.angle, 0, 360, 0), thickness: num(layer.thickness, 0.5, 8, 1.5) }
+      return {
+        ...base,
+        length: num(layer.length, 1, 64, 8),
+        gap: num(layer.gap, 0, 32, 0),
+        angle: num(layer.angle, 0, 360, 0),
+        thickness: num(layer.thickness, 0.5, 8, 1.5),
+      }
     case 'circle':
       return { ...base, radius: num(layer.radius, 1, 64, 10), thickness: num(layer.thickness, 0.5, 8, 1.5) }
     case 'dot':
       return { ...base, radius: num(layer.radius, 0.5, 16, 2) }
     case 'rect':
-      return { ...base, width: num(layer.width, 1, 64, 8), height: num(layer.height, 1, 64, 8), rx: num(layer.rx, 0, 32, 0), thickness: num(layer.thickness, 0.5, 8, 1.5) }
+      return {
+        ...base,
+        width: num(layer.width, 1, 64, 8),
+        height: num(layer.height, 1, 64, 8),
+        rx: num(layer.rx, 0, 32, 0),
+        thickness: num(layer.thickness, 0.5, 8, 1.5),
+      }
     case 'arc':
-      return { ...base, radius: num(layer.radius, 1, 64, 10), startAngle: num(layer.startAngle, -360, 360, -30), endAngle: num(layer.endAngle, -360, 360, 30), thickness: num(layer.thickness, 0.5, 8, 1.5) }
+      return {
+        ...base,
+        radius: num(layer.radius, 1, 64, 10),
+        startAngle: num(layer.startAngle, -360, 360, -30),
+        endAngle: num(layer.endAngle, -360, 360, 30),
+        thickness: num(layer.thickness, 0.5, 8, 1.5),
+      }
     default:
       return null
   }

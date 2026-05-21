@@ -47,7 +47,11 @@ export function handleRuntimeCredentialCommand({
 
   return {
     ok: true,
-    reason: hasAdminCode ? (credentials.adminCodeAuthSupported ? 'admin_code_hidden' : 'admin_code_disabled') : 'admin_code_unset',
+    reason: hasAdminCode
+      ? credentials.adminCodeAuthSupported
+        ? 'admin_code_hidden'
+        : 'admin_code_disabled'
+      : 'admin_code_unset',
     revealed,
     credentials,
   }

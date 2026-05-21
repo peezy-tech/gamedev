@@ -38,9 +38,7 @@ function normalizeRuntimeCredentials(data) {
     worldId: normalizeRuntimeCredentialValue(data.worldId),
     hasAdminCode: !!data.hasAdminCode,
     adminCodeAuthSupported:
-      data.adminCodeAuthSupported === undefined
-        ? !!data.hasAdminCode
-        : !!data.adminCodeAuthSupported,
+      data.adminCodeAuthSupported === undefined ? !!data.hasAdminCode : !!data.adminCodeAuthSupported,
     adminCode: normalizeRuntimeCredentialValue(data.adminCode),
   }
 }

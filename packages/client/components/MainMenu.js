@@ -25,7 +25,6 @@ const shadowOptions = [
   { label: 'High', value: 'high' },
 ]
 
-
 export function MainMenu({ world, open, onClose }) {
   const player = world.entities.player
   const { isAdmin, isBuilder } = useRank(world, player)

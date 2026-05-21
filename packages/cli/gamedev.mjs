@@ -169,11 +169,9 @@ async function checkForUpdates() {
   if (!latest) return
   if (compareSemver(pkg.version, latest) >= 0) return
 
-  const updateCommand = `npm install -D ${pkg.name}@latest`
-  const npxCommand = `npx ${pkg.name}@latest`
+  const updateCommand = `vp install -D ${pkg.name}@latest`
   console.warn(
-    `Update available for ${pkg.name}: ${pkg.version} -> ${latest}\n` +
-      `Run "${updateCommand}" to update your project.`
+    `Update available for ${pkg.name}: ${pkg.version} -> ${latest}\n` + `Run "${updateCommand}" to update your project.`
   )
 }
 
@@ -944,12 +942,11 @@ async function authCommand(args = []) {
       log: console,
     })
     const userName = result.status?.user?.name || result.entry?.userName || 'Authenticated user'
-    const capability =
-      result.status?.capabilities?.deploy
-        ? 'deploy'
-        : result.status?.capabilities?.builder
-          ? 'builder'
-          : 'authenticated'
+    const capability = result.status?.capabilities?.deploy
+      ? 'deploy'
+      : result.status?.capabilities?.builder
+        ? 'builder'
+        : 'authenticated'
     console.log(`✅ Authenticated ${userName} for ${worldId} (${capability})`)
     debugLog('gamedev', 'auth:complete', {
       worldUrl,

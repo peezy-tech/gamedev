@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { File } from 'node:buffer'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { exportApp, importApp } from '@gamedev/core/extras/appTools.js'
 import { ClientBuilder } from '@gamedev/core/systems/ClientBuilder.js'
 
@@ -21,7 +21,12 @@ test('drag-drop .hyp import preserves scriptFiles on blueprint', async () => {
   const helperUrl = 'asset://lib/helper.js'
 
   addFile(modelUrl, new Uint8Array([1, 2, 3, 4]), 'model.glb', 'model/gltf-binary')
-  addFile(scriptUrl, 'import { helper } from "./lib/helper.js"\nexport default () => helper()', 'index.js', 'text/javascript')
+  addFile(
+    scriptUrl,
+    'import { helper } from "./lib/helper.js"\nexport default () => helper()',
+    'index.js',
+    'text/javascript'
+  )
   addFile(helperUrl, 'export const helper = () => "ok"', 'helper.js', 'text/javascript')
 
   const blueprint = {

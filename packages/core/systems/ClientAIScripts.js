@@ -181,8 +181,7 @@ export class ClientAIScripts extends System {
   onProposal = payload => {
     if (!payload) return
     const scriptRootId = typeof payload.scriptRootId === 'string' ? payload.scriptRootId : null
-    const targetBlueprintId =
-      typeof payload.targetBlueprintId === 'string' ? payload.targetBlueprintId : null
+    const targetBlueprintId = typeof payload.targetBlueprintId === 'string' ? payload.targetBlueprintId : null
     let clearedBlueprintId = targetBlueprintId
     if (targetBlueprintId) {
       this.inFlightByBlueprint.delete(targetBlueprintId)
@@ -228,8 +227,7 @@ export class ClientAIScripts extends System {
             : 0,
       applied: payload.applied !== false,
       forked: payload.forked === true,
-      appliedScriptRootId:
-        typeof payload.appliedScriptRootId === 'string' ? payload.appliedScriptRootId : null,
+      appliedScriptRootId: typeof payload.appliedScriptRootId === 'string' ? payload.appliedScriptRootId : null,
     }
     this.world.emit?.('script-ai-response', response)
     if (payload.error) {

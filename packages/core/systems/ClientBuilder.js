@@ -101,13 +101,7 @@ const modeLabels = {
   scale: 'Scale',
 }
 
-const SCRIPT_BLUEPRINT_FIELDS = new Set([
-  'script',
-  'scriptEntry',
-  'scriptFiles',
-  'scriptFormat',
-  'scriptRef',
-])
+const SCRIPT_BLUEPRINT_FIELDS = new Set(['script', 'scriptEntry', 'scriptFiles', 'scriptFormat', 'scriptRef'])
 
 const DEFAULT_MODULE_SCRIPT_ENTRY = 'index.js'
 const DEFAULT_MODULE_SCRIPT_SOURCE = `export default (world, app, fetch, props, setTimeout) => {
@@ -278,12 +272,18 @@ export class ClientBuilder extends System {
     }
     if (code === 'upload_too_large') {
       const max = Number.parseInt(String(err?.maxUploadSize ?? ''), 10)
-      this.world.emit('toast', Number.isFinite(max) && max > 0 ? `Upload exceeds ${max} MB limit.` : 'Upload is too large.')
+      this.world.emit(
+        'toast',
+        Number.isFinite(max) && max > 0 ? `Upload exceeds ${max} MB limit.` : 'Upload is too large.'
+      )
       return
     }
     if (code === 'player_limit_max') {
       const max = Number.parseInt(String(err?.max ?? ''), 10)
-      this.world.emit('toast', Number.isFinite(max) && max > 0 ? `Player limit max is ${max}.` : 'Player limit exceeds world maximum.')
+      this.world.emit(
+        'toast',
+        Number.isFinite(max) && max > 0 ? `Player limit max is ${max}.` : 'Player limit exceeds world maximum.'
+      )
       return
     }
     if (fallbackMessage) {
@@ -363,14 +363,11 @@ export class ClientBuilder extends System {
         ? sourceBlueprint.scriptRef.trim()
         : null
     const scriptRootId = sourceScriptRef || (sourceInWorld ? sourceId : null)
-    const scriptRoot =
-      (scriptRootId && this.world.blueprints.get(scriptRootId)) || sourceInWorld || sourceBlueprint
+    const scriptRoot = (scriptRootId && this.world.blueprints.get(scriptRootId)) || sourceInWorld || sourceBlueprint
     const shouldUseScriptRef = !!(scriptRootId && this.world.blueprints.get(scriptRootId))
     const sharedScript = typeof scriptRoot?.script === 'string' ? scriptRoot.script : sourceBlueprint.script
     const baseProps =
-      sourceBlueprint.props &&
-      typeof sourceBlueprint.props === 'object' &&
-      !Array.isArray(sourceBlueprint.props)
+      sourceBlueprint.props && typeof sourceBlueprint.props === 'object' && !Array.isArray(sourceBlueprint.props)
         ? sourceBlueprint.props
         : {}
     const props =
@@ -419,12 +416,12 @@ export class ClientBuilder extends System {
       desc: sourceBlueprint.desc,
       model: sourceBlueprint.model,
       script: sharedScript,
-      scriptEntry: shouldUseScriptRef ? null : scriptRoot?.scriptEntry ?? null,
+      scriptEntry: shouldUseScriptRef ? null : (scriptRoot?.scriptEntry ?? null),
       scriptFiles:
         shouldUseScriptRef || !scriptRoot?.scriptFiles || Array.isArray(scriptRoot.scriptFiles)
           ? null
           : cloneDeep(scriptRoot.scriptFiles),
-      scriptFormat: shouldUseScriptRef ? null : scriptRoot?.scriptFormat ?? null,
+      scriptFormat: shouldUseScriptRef ? null : (scriptRoot?.scriptFormat ?? null),
       scriptRef: shouldUseScriptRef ? scriptRootId : null,
       scope: sourceScope,
       props: cloneDeep(props),
@@ -678,12 +675,7 @@ export class ClientBuilder extends System {
       }
     }
     // cursor-based selection in gizmo mode (pointer unlocked)
-    if (
-      this.isGizmoMode &&
-      !this.beam.active &&
-      this.control.mouseLeft.pressed &&
-      !this.gizmoActive
-    ) {
+    if (this.isGizmoMode && !this.beam.active && this.control.mouseLeft.pressed && !this.gizmoActive) {
       const entity = this.getEntityAtCursor()
       if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
         this.select(entity)
@@ -781,7 +773,10 @@ export class ClientBuilder extends System {
         if (bp?.keep) {
           const version = bp.version + 1
           this.world.blueprints.modify({ id: bp.id, version, keep: false })
-          this.world.admin.blueprintModify({ id: bp.id, version, keep: false }, { ignoreNetworkId: this.world.network.id })
+          this.world.admin.blueprintModify(
+            { id: bp.id, version, keep: false },
+            { ignoreNetworkId: this.world.network.id }
+          )
         }
         // Destroy first to avoid any rebuilds triggered by deselection
         this.addUndo({

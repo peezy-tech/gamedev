@@ -65,8 +65,7 @@ function ensureNodeShims() {
         },
       })),
     location: globalThis.window.location || { search: '' },
-    requestAnimationFrame:
-      globalThis.window.requestAnimationFrame || (fn => setTimeout(() => fn(Date.now()), 16)),
+    requestAnimationFrame: globalThis.window.requestAnimationFrame || (fn => setTimeout(() => fn(Date.now()), 16)),
     cancelAnimationFrame: globalThis.window.cancelAnimationFrame || (id => clearTimeout(id)),
     devicePixelRatio: globalThis.window.devicePixelRatio || 1,
   })
@@ -78,14 +77,13 @@ function ensureNodeShims() {
   if (typeof globalThis.document !== 'object') globalThis.document = {}
   Object.assign(globalThis.document, {
     activeElement: globalThis.document.activeElement || null,
-    body:
-      globalThis.document.body || {
-        style: {},
-        appendChild() {},
-        removeChild() {},
-        addEventListener() {},
-        removeEventListener() {},
-      },
+    body: globalThis.document.body || {
+      style: {},
+      appendChild() {},
+      removeChild() {},
+      addEventListener() {},
+      removeEventListener() {},
+    },
     documentElement: globalThis.document.documentElement || createMockElement('html'),
     addEventListener: globalThis.document.addEventListener || noop,
     removeEventListener: globalThis.document.removeEventListener || noop,

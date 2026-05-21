@@ -105,9 +105,7 @@ async function getInjectedAccounts({ request = false } = {}) {
       return []
     })
 
-  return accounts
-    .map(account => normalizeAddress(account))
-    .filter(Boolean)
+  return accounts.map(account => normalizeAddress(account)).filter(Boolean)
 }
 
 function toSignTypedDataPayload({ domain, types, primaryType, message }) {
@@ -122,10 +120,8 @@ function isEmbeddedPrivyEvmWallet(wallet) {
   if (wallet?.type !== 'ethereum') return false
   if (!normalizeAddress(wallet.address)) return false
 
-  const connectorType =
-    typeof wallet?.connectorType === 'string' ? wallet.connectorType.toLowerCase() : ''
-  const walletClientType =
-    typeof wallet?.walletClientType === 'string' ? wallet.walletClientType.toLowerCase() : ''
+  const connectorType = typeof wallet?.connectorType === 'string' ? wallet.connectorType.toLowerCase() : ''
+  const walletClientType = typeof wallet?.walletClientType === 'string' ? wallet.walletClientType.toLowerCase() : ''
 
   if (connectorType === 'embedded') return true
   return walletClientType === 'privy' || walletClientType === 'privy-v2'

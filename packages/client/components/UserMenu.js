@@ -23,7 +23,8 @@ const PRIVY_METHOD_LABELS = {
 }
 
 function resolveWorldServiceApiBase() {
-  const configuredAuthUrl = typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''
+  const configuredAuthUrl =
+    typeof globalThis?.env?.PUBLIC_AUTH_URL === 'string' ? globalThis.env.PUBLIC_AUTH_URL.trim() : ''
   if (configuredAuthUrl) {
     return configuredAuthUrl.replace(/\/+$/, '').replace(/\/identity$/, '')
   }
@@ -106,13 +107,7 @@ function getDisplayName(user) {
 }
 
 function getPrimaryEmail(user) {
-  return (
-    user?.email?.address ||
-    user?.google?.email ||
-    user?.discord?.email ||
-    user?.github?.email ||
-    null
-  )
+  return user?.email?.address || user?.google?.email || user?.discord?.email || user?.github?.email || null
 }
 
 function truncateAddress(address) {
@@ -183,13 +178,11 @@ function sameWalletAddress(a, b, chainType) {
 
 function getLatestConnectedWallet(wallets) {
   if (!Array.isArray(wallets) || wallets.length === 0) return null
-  return wallets
-    .slice()
-    .sort((a, b) => {
-      const aTime = Number(a?.connectedAt) || 0
-      const bTime = Number(b?.connectedAt) || 0
-      return bTime - aTime
-    })[0]
+  return wallets.slice().sort((a, b) => {
+    const aTime = Number(a?.connectedAt) || 0
+    const bTime = Number(b?.connectedAt) || 0
+    return bTime - aTime
+  })[0]
 }
 
 function PrivyAccountSection({ world, onDisconnectWallet, children }) {
@@ -263,23 +256,31 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
 
   const linkedWallets = useMemo(() => {
     if (!user || !Array.isArray(user.linkedAccounts)) return []
-    return user.linkedAccounts.filter(account => account?.type === 'wallet' && typeof account?.address === 'string' && account.address)
+    return user.linkedAccounts.filter(
+      account => account?.type === 'wallet' && typeof account?.address === 'string' && account.address
+    )
   }, [user])
 
   const connectedEvmWallets = useMemo(() => {
     if (!Array.isArray(connectedWallets)) return []
-    return connectedWallets.filter(wallet => wallet?.type === 'ethereum' && typeof wallet?.address === 'string' && wallet.address)
+    return connectedWallets.filter(
+      wallet => wallet?.type === 'ethereum' && typeof wallet?.address === 'string' && wallet.address
+    )
   }, [connectedWallets])
 
   const connectedSolanaWallets = useMemo(() => {
     if (!Array.isArray(connectedWallets)) return []
-    return connectedWallets.filter(wallet => wallet?.type === 'solana' && typeof wallet?.address === 'string' && wallet.address)
+    return connectedWallets.filter(
+      wallet => wallet?.type === 'solana' && typeof wallet?.address === 'string' && wallet.address
+    )
   }, [connectedWallets])
 
   const activeEvmWallet = useMemo(() => {
     const runtimeAddress = normalizeWalletAddress(runtimeResolvedWallet?.address || '', 'ethereum')
     if (runtimeResolvedWallet?.connected && runtimeAddress) {
-      const runtimeMatch = connectedEvmWallets.find(wallet => sameWalletAddress(wallet.address, runtimeAddress, 'ethereum'))
+      const runtimeMatch = connectedEvmWallets.find(wallet =>
+        sameWalletAddress(wallet.address, runtimeAddress, 'ethereum')
+      )
       if (runtimeMatch) return runtimeMatch
     }
 
@@ -388,7 +389,7 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
         setFeedbackError(toPrivyErrorMessage(error, 'Unable to link account.'))
       }
     },
-    [clearFeedback, setFeedbackError],
+    [clearFeedback, setFeedbackError]
   )
 
   const runLinkWallet = useCallback(
@@ -399,25 +400,28 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
           : { walletChainType: 'ethereum-only', description: 'Link an Ethereum wallet to this user.' }
       runLinkAction(`wallet-${chain}`, () => linkWallet(options))
     },
-    [linkWallet, runLinkAction],
+    [linkWallet, runLinkAction]
   )
 
-  const copyWalletAddress = useCallback(async key => {
-    const wallet = connectedSiteWalletRows.find(row => row.key === key)?.wallet || null
-    const address = typeof wallet?.address === 'string' ? wallet.address : ''
-    if (!address) return
+  const copyWalletAddress = useCallback(
+    async key => {
+      const wallet = connectedSiteWalletRows.find(row => row.key === key)?.wallet || null
+      const address = typeof wallet?.address === 'string' ? wallet.address : ''
+      if (!address) return
 
-    const copied = await copyToClipboard(address)
-    if (!copied) {
-      setFeedbackError('Unable to copy wallet address.')
-      return
-    }
+      const copied = await copyToClipboard(address)
+      if (!copied) {
+        setFeedbackError('Unable to copy wallet address.')
+        return
+      }
 
-    setCopiedWalletKey(key)
-    setTimeout(() => {
-      setCopiedWalletKey(current => (current === key ? '' : current))
-    }, 1200)
-  }, [connectedSiteWalletRows, setFeedbackError])
+      setCopiedWalletKey(key)
+      setTimeout(() => {
+        setCopiedWalletKey(current => (current === key ? '' : current))
+      }, 1200)
+    },
+    [connectedSiteWalletRows, setFeedbackError]
+  )
 
   const refreshTransferBalance = useCallback(async () => {
     if (!transferOpen) return
@@ -433,9 +437,7 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
     const address = activeEvmWallet.address
     try {
       const nextBalance =
-        transferAsset === 'USDC'
-          ? await world.evm.getUSDCBalance(address)
-          : await world.evm.getNativeBalance(address)
+        transferAsset === 'USDC' ? await world.evm.getUSDCBalance(address) : await world.evm.getNativeBalance(address)
       setTransferBalance(Number.isFinite(nextBalance) ? nextBalance : null)
     } catch {
       setTransferBalance(null)
@@ -529,15 +531,7 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
     } finally {
       setTransferPending(false)
     }
-  }, [
-    transferPending,
-    world,
-    transferTo,
-    transferAmount,
-    transferAsset,
-    refreshTransferBalance,
-    setFeedbackSuccess,
-  ])
+  }, [transferPending, world, transferTo, transferAmount, transferAsset, refreshTransferBalance, setFeedbackSuccess])
 
   const isAuthenticated = ready && authenticated && user
 
@@ -751,7 +745,9 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
                   <div className='usermenu-row-label'>{provider.label}</div>
                   <div className='usermenu-row-value'>
                     {isLinked ? (
-                      <span className='usermenu-linked-handle'>{provider.handle ? `@${provider.handle}` : 'Linked'}</span>
+                      <span className='usermenu-linked-handle'>
+                        {provider.handle ? `@${provider.handle}` : 'Linked'}
+                      </span>
                     ) : (
                       <button
                         className='usermenu-linkbtn'
@@ -817,7 +813,12 @@ function PrivyAccountSection({ world, onDisconnectWallet, children }) {
         <div className='usermenu-divider' />
         {renderSocialSection()}
         {feedback && (
-          <div className={cls('usermenu-feedback', { success: feedback.type === 'success', error: feedback.type === 'error' })}>
+          <div
+            className={cls('usermenu-feedback', {
+              success: feedback.type === 'success',
+              error: feedback.type === 'error',
+            })}
+          >
             {feedback.message}
           </div>
         )}
@@ -893,7 +894,13 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
     }
 
     const nextRegions = Array.isArray(result.body?.regions)
-      ? [...new Set(result.body.regions.filter(region => typeof region === 'string' && region.trim()).map(region => region.trim().toLowerCase()))]
+      ? [
+          ...new Set(
+            result.body.regions
+              .filter(region => typeof region === 'string' && region.trim())
+              .map(region => region.trim().toLowerCase())
+          ),
+        ]
       : []
     const nextDefaultRegion =
       typeof result.body?.defaultRegion === 'string' && result.body.defaultRegion.trim()
@@ -1052,16 +1059,18 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
             <div className='usermenu-world-list'>
               {ownedWorlds.map(worldEntry => {
                 const slug = typeof worldEntry?.slug === 'string' ? worldEntry.slug.trim() : ''
-                const name = typeof worldEntry?.name === 'string' && worldEntry.name.trim() ? worldEntry.name : 'Untitled World'
-                const description =
-                  typeof worldEntry?.description === 'string' ? worldEntry.description.trim() : ''
+                const name =
+                  typeof worldEntry?.name === 'string' && worldEntry.name.trim() ? worldEntry.name : 'Untitled World'
+                const description = typeof worldEntry?.description === 'string' ? worldEntry.description.trim() : ''
                 const key = worldEntry?.id || slug || name
                 return (
                   <div className='usermenu-world-card' key={key}>
                     <div className='usermenu-world-copy'>
                       <div className='usermenu-hero-name'>{name}</div>
                       {slug ? <div className='usermenu-hero-slug'>/{slug}</div> : null}
-                      {description ? <div className='usermenu-muted usermenu-world-description'>{description}</div> : null}
+                      {description ? (
+                        <div className='usermenu-muted usermenu-world-description'>{description}</div>
+                      ) : null}
                     </div>
                     <div className='usermenu-hero-actions'>
                       <button className='usermenu-btn-enter' disabled={!slug} onClick={() => openWorld(slug)}>
@@ -1076,7 +1085,9 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
           </div>
         ) : null}
         <div className='usermenu-hero'>
-          <div className='usermenu-section-label'>{ownedWorlds.length ? 'Create Another World' : 'Create Your World'}</div>
+          <div className='usermenu-section-label'>
+            {ownedWorlds.length ? 'Create Another World' : 'Create Your World'}
+          </div>
           <div className='usermenu-hero-actions'>
             {!createWorldOpen ? (
               <button
@@ -1092,7 +1103,9 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
             ) : (
               <>
                 <button
-                  className={cls('usermenu-btn-primary', { disabled: creatingWorld || loadingWorld || loadingWorldRegions })}
+                  className={cls('usermenu-btn-primary', {
+                    disabled: creatingWorld || loadingWorld || loadingWorldRegions,
+                  })}
                   onClick={() => {
                     if (creatingWorld || loadingWorld || loadingWorldRegions) return
                     void createWorld()
@@ -1162,14 +1175,16 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
                     }}
                   >
                     {loadingWorldRegions ? <option value=''>Loading regions...</option> : null}
-                    {!loadingWorldRegions && worldRegions.length === 0 ? <option value=''>No regions available</option> : null}
+                    {!loadingWorldRegions && worldRegions.length === 0 ? (
+                      <option value=''>No regions available</option>
+                    ) : null}
                     {!loadingWorldRegions
                       ? worldRegions.map(region => (
-                        <option key={region} value={region}>
-                          {formatWorldRegionLabel(region)}
-                          {region === defaultWorldRegion ? ' (Default)' : ''}
-                        </option>
-                      ))
+                          <option key={region} value={region}>
+                            {formatWorldRegionLabel(region)}
+                            {region === defaultWorldRegion ? ' (Default)' : ''}
+                          </option>
+                        ))
                       : null}
                   </select>
                   <ChevronDownIcon className='usermenu-select-icon' size='0.95rem' strokeWidth={2.1} />
@@ -1298,7 +1313,8 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
         .usermenu-hero-slug {
           font-size: 0.78rem;
           color: rgba(255, 255, 255, 0.4);
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+          font-family:
+            ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         }
         .usermenu-world-list {
           display: flex;
@@ -1536,7 +1552,8 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
           font-size: 0.74rem;
         }
         .usermenu-row-value.mono {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+          font-family:
+            ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
           font-size: 0.75rem;
         }
         .usermenu-linked-handle {
@@ -1727,9 +1744,7 @@ export function EditorUserMenu({ open, auth, world, onClose, onDisconnectWallet 
             {renderWorldSection()}
           </PrivyAccountSection>
         ) : (
-          <div className='usermenu-scroll'>
-            {renderWorldSection()}
-          </div>
+          <div className='usermenu-scroll'>{renderWorldSection()}</div>
         )}
       </div>
     </div>

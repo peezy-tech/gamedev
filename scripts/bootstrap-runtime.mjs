@@ -166,17 +166,19 @@ function resolveBootstrapConfig(options) {
     host: env.HOST,
     port: env.PORT,
   })
-  const worldId = normalizeString(options.worldId || env.BOOTSTRAP_WORLD_ID || env.WORLD_ID || `local-${runtimeInstanceId}`)
+  const worldId = normalizeString(
+    options.worldId || env.BOOTSTRAP_WORLD_ID || env.WORLD_ID || `local-${runtimeInstanceId}`
+  )
   const worldSlug = normalizeString(options.worldSlug || env.BOOTSTRAP_WORLD_SLUG || worldId)
   const publicApiUrl = normalizeUrl(env.BOOTSTRAP_PUBLIC_API_URL) || `${runtimeUrl}/api`
   const publicWsUrl = normalizeUrl(env.BOOTSTRAP_PUBLIC_WS_URL) || derivePublicWsUrlFromApiUrl(publicApiUrl) || ''
   const publicAdminUrl =
-    normalizeUrl(env.BOOTSTRAP_PUBLIC_ADMIN_URL)
-    || derivePublicAdminUrl({
+    normalizeUrl(env.BOOTSTRAP_PUBLIC_ADMIN_URL) ||
+    derivePublicAdminUrl({
       publicApiUrl,
       publicWsUrl,
-    })
-    || ''
+    }) ||
+    ''
 
   const world = {
     id: worldId,
@@ -316,36 +318,42 @@ function startRuntime(runMode, env) {
 }
 
 async function waitForBootstrapEndpoint(runtimeUrl, runtimeProcess, timeoutMs) {
-  return waitFor(async () => {
-    const exitInfo = runtimeProcess?.getExitInfo()
-    if (exitInfo) {
-      throw new Error(`Runtime exited before bootstrap request (${describeExit(exitInfo)})`)
-    }
+  return waitFor(
+    async () => {
+      const exitInfo = runtimeProcess?.getExitInfo()
+      if (exitInfo) {
+        throw new Error(`Runtime exited before bootstrap request (${describeExit(exitInfo)})`)
+      }
 
-    const response = await requestJson(`${runtimeUrl}/internal/bootstrap/status`, {
-      timeoutMs: 2000,
-    }).catch(() => null)
-    if (!response) return false
-    if (response.status === 404) {
+      const response = await requestJson(`${runtimeUrl}/internal/bootstrap/status`, {
+        timeoutMs: 2000,
+      }).catch(() => null)
+      if (!response) return false
+      if (response.status === 404) {
+        return false
+      }
+      if (response.ok) {
+        return response.payload
+      }
+      if (response.payload?.state === 'failed') {
+        throw new Error('Runtime entered failed state before bootstrap request')
+      }
       return false
-    }
-    if (response.ok) {
-      return response.payload
-    }
-    if (response.payload?.state === 'failed') {
-      throw new Error('Runtime entered failed state before bootstrap request')
-    }
-    return false
-  }, { timeoutMs })
+    },
+    { timeoutMs }
+  )
 }
 
 async function waitForReady(runtimeUrl, timeoutMs) {
-  return waitFor(async () => {
-    const response = await requestJson(`${runtimeUrl}/health`, {
-      timeoutMs: 2000,
-    }).catch(() => null)
-    return response?.ok ? response.payload : false
-  }, { timeoutMs })
+  return waitFor(
+    async () => {
+      const response = await requestJson(`${runtimeUrl}/health`, {
+        timeoutMs: 2000,
+      }).catch(() => null)
+      return response?.ok ? response.payload : false
+    },
+    { timeoutMs }
+  )
 }
 
 function formatFailure(prefix, response) {
@@ -378,9 +386,7 @@ async function main() {
       return
     }
 
-    console.log(
-      `[bootstrap] binding world ${config.worldId} to runtime ${config.runtimeInstanceId}`
-    )
+    console.log(`[bootstrap] binding world ${config.worldId} to runtime ${config.runtimeInstanceId}`)
     const response = await requestJson(`${config.runtimeUrl}/internal/bootstrap`, {
       method: 'POST',
       headers: {

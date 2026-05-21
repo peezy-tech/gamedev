@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vite-plus/test'
 import { compileLegacyBodyModuleSource } from '@gamedev/core/systems/Scripts.js'
 
 test('legacy-body compilation preserves imports and wraps body', () => {
