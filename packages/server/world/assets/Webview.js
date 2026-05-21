@@ -8,11 +8,11 @@ export default (world, app, fetch, props, setTimeout) => {
   ])
   app.keepActive = true
 
-  var __defProp = Object.defineProperty
-  var __name = (target, value) => __defProp(target, 'name', { value, configurable: true })
+  const __defProp = Object.defineProperty
+  const __name = (target, value) => __defProp(target, 'name', { value, configurable: true })
 
   // apps/youtube/index.js
-  var block = app.get('Block')
+  const block = app.get('Block')
   if (block) {
     block.visible = false
   }
@@ -42,8 +42,8 @@ export default (world, app, fetch, props, setTimeout) => {
   }
   __name(toEmbedUrl, 'toEmbedUrl')
   // var DEFAULT_URL = "https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1";
-  var currentUrl = props.url
-  var webview = app.create('webview', {
+  const currentUrl = props.url
+  const webview = app.create('webview', {
     src: currentUrl,
     width: 3,
     height: 2,

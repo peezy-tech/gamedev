@@ -1404,5 +1404,3 @@ declare global {
   const DEG2RAD: number
   const RAD2DEG: number
 }
-
-export {}
