@@ -18,6 +18,10 @@ catalog:
   vite: ^8.0.13
   vite-plus: ^0.1.22
 
+overrides:
+  three: ^0.173.0
+  'ws@>=8.0.0 <8.20.1': 8.20.1
+
 minimumReleaseAgeExclude:
   - '@voidzero-dev/vite-plus-core@0.1.22'
   - '@voidzero-dev/vite-plus-darwin-arm64@0.1.22'
