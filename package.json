@@ -1,6 +1,6 @@
 {
   "name": "gamedev",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "keywords": [
     "3d",
     "components",
@@ -11,9 +11,13 @@
     "virtual-worlds",
     "webgl"
   ],
-  "homepage": "https://github.com/lobby-ws/gamedev#readme",
+  "homepage": "https://github.com/load-game/gamedev#readme",
   "bugs": {
-    "url": "https://github.com/lobby-ws/gamedev/issues"
+    "url": "https://github.com/load-game/gamedev/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/load-game/gamedev.git"
   },
   "license": "GPL-3.0-only",
   "bin": {
