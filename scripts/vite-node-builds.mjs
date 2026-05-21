@@ -17,7 +17,10 @@ function packArgs(target, { dev = false, onSuccess = null } = {}) {
   return args
 }
 
+const expectedShutdownSignals = new Set(['SIGINT', 'SIGTERM'])
+
 function spawnPack(target, options = {}) {
+  const { allowSignalExit = () => false } = options
   const child = spawn(vpBin, packArgs(target, options), {
     cwd: rootDir,
     stdio: 'inherit',
@@ -28,9 +31,13 @@ function spawnPack(target, options = {}) {
     child,
     done: new Promise((resolve, reject) => {
       child.once('error', reject)
-      child.once('exit', code => {
-        if (code === 0 || code === null) {
+      child.once('exit', (code, signal) => {
+        if (code === 0 || (signal && allowSignalExit(signal))) {
           resolve()
+          return
+        }
+        if (signal) {
+          reject(new Error(`vp pack --filter ${target} exited with signal ${signal}`))
           return
         }
         reject(new Error(`vp pack --filter ${target} exited with code ${code}`))
@@ -62,18 +69,23 @@ export async function buildRuntimePacks({ dev = false } = {}) {
     return
   }
 
+  let stopping = false
+  const allowIntentionalShutdown = signal => stopping && expectedShutdownSignals.has(signal)
   const packs = [
     spawnPack('server', {
       dev: true,
       onSuccess: 'node scripts/run-dev-server.mjs',
+      allowSignalExit: allowIntentionalShutdown,
     }),
     spawnPack('node-client', {
       dev: true,
       onSuccess: 'node build/world-node-client.js',
+      allowSignalExit: allowIntentionalShutdown,
     }),
   ]
 
   const stop = () => {
+    stopping = true
     for (const { child } of packs) {
       child.kill('SIGTERM')
     }
@@ -82,7 +94,12 @@ export async function buildRuntimePacks({ dev = false } = {}) {
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
 
-  await Promise.race(packs.map(pack => pack.done))
-  stop()
-  await Promise.allSettled(packs.map(pack => pack.done))
+  try {
+    await Promise.race(packs.map(pack => pack.done))
+  } finally {
+    process.off('SIGINT', stop)
+    process.off('SIGTERM', stop)
+    stop()
+    await Promise.allSettled(packs.map(pack => pack.done))
+  }
 }
