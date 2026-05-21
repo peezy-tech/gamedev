@@ -165,7 +165,7 @@ export async function buildPlatformClient({ dev = false } = {}) {
     output: {
       entryFileNames: '[name]-[hash].js',
       chunkFileNames: 'chunks/[name]-[hash].js',
-      assetFileNames: 'assets/[name]-[hash][extname]',
+      assetFileNames: 'client-assets/[name]-[hash][extname]',
     },
     plugins: [
       captureEntriesPlugin({
@@ -231,7 +231,7 @@ export async function buildStaticClient() {
     output: {
       entryFileNames: '[name]-[hash].js',
       chunkFileNames: 'chunks/[name]-[hash].js',
-      assetFileNames: 'assets/[name]-[hash][extname]',
+      assetFileNames: 'client-assets/[name]-[hash][extname]',
     },
     plugins: [
       captureEntriesPlugin({
